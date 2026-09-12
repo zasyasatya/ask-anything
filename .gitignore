@@ -1,0 +1,21 @@
+# python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# node / next
+node_modules/
+.next/
+out/
+
+# runtime data (sqlite db, process logs)
+data/
+
+# env
+.env
+.env.local
+
+# misc
+.DS_Store
+*.log
