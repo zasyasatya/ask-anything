@@ -42,6 +42,11 @@ _DOCS = Path(__file__).resolve().parents[2] / "docs"
 if _DOCS.is_dir():
     app.mount("/slides", StaticFiles(directory=_DOCS, html=True), name="slides")
 
+# Screenshot dokumentasi (docs/images) — dipakai halaman /panduan & /developer.
+_IMAGES = _DOCS / "images"
+if _IMAGES.is_dir():
+    app.mount("/docs-images", StaticFiles(directory=_IMAGES), name="docs-images")
+
 
 @app.get("/")
 async def root():

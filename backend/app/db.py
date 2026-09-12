@@ -155,6 +155,9 @@ def list_trace(conversation_id: str) -> list[dict]:
     out = []
     for r in rows:
         d = dict(r)
-        d["payload"] = json.loads(d.get("payload") or "{}")
+        # Flatten payload so replayed events match the live SSE wire format
+        # (the UI reads fields like `text`, `items`, `summary` top-level).
+        payload = json.loads(d.pop("payload", None) or "{}")
+        d.update(payload)
         out.append(d)
     return out
