@@ -1,0 +1,462 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ask Anything — Cara Kerja & Metodologi</title>
+<style>
+  :root{
+    --bg:#f4f4f5; --card:#ffffff; --ink:#18181b; --mut:#71717a; --line:#e4e4e7;
+    --accent:#6366f1; --accent-soft:#eef2ff; --amber:#f59e0b; --emerald:#10b981;
+    --sky:#0ea5e9; --violet:#8b5cf6; --red:#ef4444;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--sans);background:var(--bg);color:var(--ink);overflow:hidden}
+  .deck{height:100%;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 22px;border-bottom:1px solid var(--line);background:#fbfbfc}
+  header .brand{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px}
+  header .brand .mark{width:14px;height:14px;background:var(--ink);
+    clip-path:polygon(0 35%,100% 0,100% 65%,0 100%);}
+  header .meta{font-size:12px;color:var(--mut);font-family:var(--mono)}
+  main{flex:1;position:relative;overflow:hidden}
+  .slide{position:absolute;inset:0;display:none;padding:48px 64px;overflow:auto}
+  .slide.active{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .grid-bg{background-image:linear-gradient(to right,rgb(0 0 0/.035) 1px,transparent 1px),
+    linear-gradient(to bottom,rgb(0 0 0/.035) 1px,transparent 1px);background-size:56px 56px}
+  h1{font-size:52px;letter-spacing:-.02em;line-height:1.1}
+  h2{font-size:30px;letter-spacing:-.01em;margin-bottom:6px}
+  .sub{color:var(--mut);font-size:15px}
+  .pill{display:inline-block;border:1px solid var(--line);background:#ececee;
+    border-radius:6px;padding:3px 10px;font-size:12px;color:#52525b;margin-bottom:18px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:28px;margin-top:22px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:18px 20px;box-shadow:0 8px 24px -14px rgb(0 0 0/.15)}
+  .card h3{font-size:15px;margin-bottom:10px}
+  ul{margin:8px 0 0 18px;font-size:14.5px;line-height:1.75;color:#3f3f46}
+  li b{color:var(--ink)}
+  code,pre{font-family:var(--mono)}
+  pre{background:#18181b;color:#e4e4e7;border-radius:10px;padding:14px 16px;
+    font-size:12.5px;line-height:1.6;overflow:auto}
+  pre .c{color:#8b8b93} pre .k{color:#a5b4fc} pre .g{color:#6ee7b7} pre .y{color:#fcd34d}
+  .flow{display:flex;gap:10px;align-items:stretch;flex-wrap:wrap;margin-top:18px}
+  .node{border:1px solid var(--line);border-radius:12px;background:#fff;
+    padding:12px 14px;font-size:12.5px;min-width:130px;box-shadow:0 4px 14px -10px rgb(0 0 0/.2)}
+  .node b{display:block;font-size:13px;margin-bottom:4px}
+  .node small{color:var(--mut)}
+  .arrow{align-self:center;color:var(--accent);font-size:20px;font-weight:700}
+  .tag{display:inline-block;border-radius:6px;padding:1px 8px;font-size:11px;
+    font-family:var(--mono);margin-right:6px}
+  table{border-collapse:collapse;width:100%;font-size:13px;margin-top:12px}
+  th,td{border:1px solid var(--line);padding:7px 10px;text-align:left;vertical-align:top}
+  th{background:#fafafa}
+  td code{font-size:11.5px;background:#f4f4f5;padding:1px 5px;border-radius:5px}
+  footer{display:flex;justify-content:space-between;align-items:center;
+    padding:8px 22px;border-top:1px solid var(--line);background:#fbfbfc;
+    font-size:12px;color:var(--mut)}
+  #bar{height:3px;background:var(--accent);width:0;transition:width .25s}
+  button{border:1px solid var(--line);background:#fff;border-radius:8px;
+    padding:4px 12px;font-size:12px;cursor:pointer;color:#3f3f46}
+  button:hover{background:#f4f4f5}
+  .hint{position:fixed;right:18px;bottom:44px;font-size:11px;color:var(--mut)}
+  .sw{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px}
+</style>
+</head>
+<body>
+<div class="deck">
+<header>
+  <div class="brand"><span class="mark"></span> ask-anything · deep-dive</div>
+  <div class="meta">cara kerja agent & metodologi · 2026</div>
+</header>
+<div id="bar"></div>
+<main id="deck">
+
+<!-- ============ 1 ============ -->
+<section class="slide grid-bg active">
+  <span class="pill">Powered by agentic LLM · HF local & OpenAI</span>
+  <h1>Cara Kerja Agent<br/>& Metodologi</h1>
+  <p class="sub" style="margin-top:16px;font-size:17px">
+    Ask Anything — chatbot agentic dengan browsing, diagram alir/graph, dan
+    <b>Mechanistic Interpreter</b>: setiap langkah LLM terlihat.</p>
+  <p class="sub" style="margin-top:26px">Navigasi: <code>←</code> <code>→</code> atau tombol di bawah · <code>F</code> fullscreen</p>
+</section>
+
+<!-- ============ 2 ============ -->
+<section class="slide">
+  <h2>Agenda</h2>
+  <div class="cols">
+    <div class="card"><h3>Arsitektur & Prinsip</h3><ul>
+      <li>Peta sistem & aliran data</li>
+      <li>Prinsip: transparansi, provider-agnostic, degradasi graceful</li>
+      <li>Kenapa "mechanistic interpreter"</li></ul></div>
+    <div class="card"><h3>Mesin Agent</h3><ul>
+      <li>Lifecycle satu request (end-to-end)</li>
+      <li>Algoritma agent loop & protokol message</li>
+      <li>Wire format SSE + parsing <code>&lt;think&gt;</code> & logprobs</li>
+      <li>Tools: browsing & diagram pipeline</li></ul></div>
+    <div class="card"><h3>Model & Runtime</h3><ul>
+      <li>HuggingFace lokal via llama.cpp (laptop 16 GB)</li>
+      <li>OpenAI API & mode mock</li></ul></div>
+    <div class="card"><h3>Metodologi Engineering</h3><ul>
+      <li>Strategi testing 4 lapis + emulator wire-format</li>
+      <li>Skema persistensi & replay</li>
+      <li>Failure modes, launcher, roadmap</li></ul></div>
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section class="slide">
+  <h2>1 · Peta Sistem</h2>
+  <p class="sub">Monolith FastAPI + Next.js 16; semua lintas-komponen via HTTP/SSE same-origin (rewrite proxy).</p>
+  <div class="flow">
+    <div class="node"><b>Next.js UI</b><small>React state, Mermaid render, Interpreter panel</small></div>
+    <div class="arrow">⇄</div>
+    <div class="node"><b>FastAPI /api/chat</b><small>SSE stream, asyncio.Queue per request</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Agent Loop</b><small>max N langkah, eksekusi tools</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Provider</b><small>huggingface / openai / mock</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>llama-server :8081</b><small>GGUF Qwen3, OpenAI-compatible</small></div>
+  </div>
+  <div class="flow">
+    <div class="node"><b>Tools Registry</b><small>web_search · fetch_url · create_diagram · calculator</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Internet / halaman web</b><small>DDG lite, Serper/Tavily opsional</small></div>
+    <div class="node" style="margin-left:24px"><b>SQLite</b><small>conversations · messages · trace_events</small></div>
+    <div class="arrow">←</div>
+    <div class="node"><b>Tracer</b><small>setiap event → stream + DB</small></div>
+  </div>
+  <ul>
+    <li><b>UI tidak pernah bicara ke LLM</b> — semua lewat backend, sehingga prompt, kunci API, dan trace terpusat.</li>
+    <li>Frontend mengakses backend via <code>/api/*</code> same-origin (Next rewrite) → aman di-preview / di-proxy.</li>
+  </ul>
+</section>
+
+<!-- ============ 4 ============ -->
+<section class="slide">
+  <h2>2 · Prinsip Desain</h2>
+  <div class="cols">
+    <div class="card"><h3><span class="sw" style="background:var(--amber)"></span>Transparansi radikan</h3>
+      <ul><li>Setiap satuan kerja (token thinking, tool call, hasil tool, logprob, usage) adalah <b>event</b> pertama-kelas.</li>
+      <li>Event di-stream live <i>dan</i> dipersist → bisa di-replay seperti "flight recorder".</li></ul></div>
+    <div class="card"><h3><span class="sw" style="background:var(--sky)"></span>Provider-agnostic</h3>
+      <ul><li>Satu protokol (OpenAI chat-completions streaming) dipakai untuk HF-lokal, OpenAI, dan mock.</li>
+      <li>llama.cpp, vLLM, LM Studio, OpenAI — semua berbicara protokol ini.</li></ul></div>
+    <div class="card"><h3><span class="sw" style="background:var(--emerald)"></span>Degradasi graceful</h3>
+      <ul><li>Tool gagal (mis. offline) → error jadi <i>data</i> bagi model, bukan crash.</li>
+      <li>Tanpa server LLM → UI menawarkan mode mock; backend tetap sehat.</li></ul></div>
+    <div class="card"><h3><span class="sw" style="background:var(--violet)"></span>Schema-driven tools</h3>
+      <ul><li>Tool dideklarasikan sebagai JSON-Schema → otomatis jadi <code>tools[]</code> OpenAI & dokumentasi.</li>
+      <li>Output diagram divalidasi server-side sebelum dirender.</li></ul></div>
+  </div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section class="slide">
+  <h2>3 · Lifecycle Satu Request</h2>
+  <pre>
+POST /api/chat {message, conversation_id?}
+ │
+ ├─ 1. pastikan conversation (buat baru + judul = potongan pesan)
+ ├─ 2. muat history → konversi ke message OpenAI
+ ├─ 3. spawn task agent; event masuk asyncio.Queue
+ ├─ 4. StreamingResponse(text/event-stream) menarik queue → <span class="k">data: {...}\n\n</span>
+ │
+ │   event: start → meta → [thinking|delta|logprobs|tool_call|tool_result|usage]* → done → agent_done
+ │
+ └─ 5. persist messages + trace; touch updated_at</pre>
+  <ul>
+    <li><b>Backpressure aman</b>: queue memisahkan produksi (agent) dan konsumsi (SSE generator).</li>
+    <li>Jika klien putus, task di-cancel di <code>finally</code> — tidak ada zombie loop.</li>
+  </ul>
+</section>
+
+<!-- ============ 6 ============ -->
+<section class="slide">
+  <h2>4 · Algoritma Agent Loop</h2>
+  <pre>
+messages ← history + user
+<span class="k">for</span> step <span class="k">in</span> 1..max_steps:                     <span class="c"># default 6, cegah loop liar</span>
+    events ← provider.stream(messages, tool_schemas)
+    kumpulkan: thinking, delta, logprobs, usage
+    <span class="k">if</span> ada tool_calls:
+        simpan pesan assistant(tool_calls)
+        <span class="k">for each</span> call:  result ← tool.run(args)   <span class="c"># timeout 30 dtk</span>
+            emit tool_call / tool_result; persist
+            messages += assistant_toolcalls + role:tool
+        messages += hint "tulis jawaban final sekarang"
+        <span class="k">continue</span>                                <span class="c"># langkah berikutnya</span>
+    <span class="k">else</span>: <span class="k">break</span>  → jawaban final terkumpul
+emit done{answer, usage, latency}; persist assistant</pre>
+  <ul>
+    <li><b>ReAct-style</b>: reason → act (tool) → observe → answer, dengan batas langkah eksplisit.</li>
+    <li>Argumen tool diakumulasi dari chunk JSON parsial (llama.cpp mengirim argument dicicil).</li>
+  </ul>
+</section>
+
+<!-- ============ 7 ============ -->
+<section class="slide">
+  <h2>5 · Protokol Message (OpenAI-compatible)</h2>
+  <pre>
+[ {role:system,  content: SYSTEM_PROMPT}          <span class="c"># identitas + aturan tool + mermaid</span>
+, {role:user,    content: "..."}
+, {role:assistant, content:null, tool_calls:[{id,type:"function",
+     function:{name:"web_search", arguments:"{\"query\":...}"}}]}
+, {role:tool, tool_call_id:"call_1", content:"{...hasil JSON...}"}
+, {role:system, content:"Tool results appended... tulis jawaban final."} ]</pre>
+  <ul>
+    <li>History internal disimpan dengan role khusus (<code>assistant_toolcalls</code>, <code>tool</code>) lalu dipetakan ke bentuk di atas — UI bisa menyembunyikan detail, LLM tetap mendapat konteks utuh.</li>
+    <li>Konteks dibatasi <code>max_context_messages</code> agar muat di laptop.</li>
+  </ul>
+</section>
+
+<!-- ============ 8 ============ -->
+<section class="slide">
+  <h2>6 · Wire Format & Parsing SSE</h2>
+  <pre>
+data: {"choices":[{"delta":{"content":"<span class="y">&lt;think&gt;</span>planning..."}}]}
+data: {"choices":[{"delta":{"content":"...<span class="y">&lt;/think&gt;</span>"},"logprobs":{
+        "content":[{"token":"Final","logprob":-0.12,"top_logprobs":[...]}}]}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"qu"}}]}}]}
+data: {"choices":[{"finish_reason":"tool_calls"}]}
+data: {"usage":{"prompt_tokens":150,...},"choices":[]}
+data: [DONE]</pre>
+  <ul>
+    <li><b>_ThinkParser</b>: state-machine 2 mode (answer/thinking) dengan suffix-hold, tahan tag <code>&lt;think&gt;</code> yang terbelah antar chunk.</li>
+    <li><b>tool_calls</b> diakumulasi per <code>index</code> (id/name/arguments dicicil) → di-parse JSON di akhir turn.</li>
+    <li><b>logprobs</b> per token → tab Tokens (prob = e^logprob + top alternatif).</li>
+    <li><code>reasoning_content</code> (format server lain) juga didukung.</li>
+  </ul>
+</section>
+
+<!-- ============ 9 ============ -->
+<section class="slide">
+  <h2>7 · Provider HuggingFace Lokal (laptop 16 GB)</h2>
+  <div class="cols">
+    <div class="card"><h3>Runtime: llama.cpp <code>llama-server</code></h3>
+      <pre>llama-server -m qwen3-8b-q4_k_m.gguf \
+  --host 0.0.0.0 --port 8081 --jinja -c 8192
+<span class="c"># GPU: tambah -ngl 99</span></pre>
+      <ul><li>API OpenAI-compatible → provider HF = subclass klien OpenAI-protocol.</li>
+      <li><code>--jinja</code> = chat-template + grammar tool-call native.</li></ul></div>
+    <div class="card"><h3>Pilihan model (Q4_K_M)</h3>
+      <table><tr><th>Model</th><th>RAM</th><th>Catatan</th></tr>
+      <tr><td><b>Qwen3-8B</b> (default)</td><td>~6 GB</td><td>all-rounder, thinking+tools</td></tr>
+      <tr><td>Qwen3-14B</td><td>~9 GB</td><td>lebih cerdas, tetap muat</td></tr>
+      <tr><td>Gemma 3 12B</td><td>~8 GB</td><td>alternatif multilingual</td></tr>
+      <tr><td>Qwen3.6-35B-A3B IQ2_M</td><td>~11.5 GB</td><td>jika ada GPU 16 GB (MoE)</td></tr></table></div>
+  </div>
+  <ul><li>OpenAI API & mock memakai antarmuka <code>BaseProvider.stream()</code> yang sama — ganti via env/UI tanpa kode baru.</li></ul>
+</section>
+
+<!-- ============ 10 ============ -->
+<section class="slide">
+  <h2>8 · Tools: Browsing Pipeline</h2>
+  <pre>
+web_search(query)
+ ├─ backend: ddg (default) | serper | tavily
+ ├─ ddg  → GET lite.duckduckgo.com/lite/?q=...
+ │         parse BS4: &lt;a href=http...&gt; judul
+ │         snippet = sibling &lt;td&gt; / &lt;tr&gt; berikutnya
+ └─ hasil ≤ N: {title,url,snippet} → role:tool
+
+fetch_url(url)
+ ├─ httpx + UA browser, follow redirect, timeout
+ ├─ BS4: buang script/style/nav/...
+ └─ teks ≤ 12.000 char + &lt;title&gt;</pre>
+  <ul>
+    <li>Tanpa API key → bisa jalan & bisa dites; hasil jadi kutipan ber-URL di jawaban.</li>
+    <li>Gagal jaringan → <code>ToolResult(summary="...gagal...", data={error})</code> → model tetap menjawab (graceful).</li>
+  </ul>
+</section>
+
+<!-- ============ 11 ============ -->
+<section class="slide">
+  <h2>9 · Tools: Diagram Pipeline</h2>
+  <pre>
+create_diagram(kind, title, nodes[], edges[])
+ ├─ normalisasi id  → [A-Za-z_][A-Za-z0-9_]*
+ ├─ escape label    → buang " | [ ] { }
+ ├─ kind: flowchart → <span class="g">flowchart TD</span>   (diagram alir)
+ │        graph     → <span class="g">flowchart LR</span>   (diagram relasi)
+ │        mindmap   → <span class="g">mindmap</span>
+ ├─ validasi: edge ke node tak dikenal → warnings (bukan crash)
+ └─ output: source Mermaid → UI <span class="k">mermaid.render()</span>
+
+LLM juga boleh emit ```mermaid langsung — markdown renderer
+mendeteksi fence dan merender otomatis.</pre>
+  <ul>
+    <li>Dua jalur kualitas: <b>deterministik</b> (tool) dan <b>kreatif</b> (LLM) — keduanya dirender sama.</li>
+  </ul>
+</section>
+
+<!-- ============ 12 ============ -->
+<section class="slide">
+  <h2>10 · Mechanistic Interpreter</h2>
+  <table>
+    <tr><th>Event</th><th>Arti</th><th>Tab UI</th></tr>
+    <tr><td><code>meta</code></td><td>provider, model, suhu, max_steps</td><td>Metrics</td></tr>
+    <tr><td><code>prompt</code></td><td>system + messages + tools persis seperti dikirim</td><td>Prompt</td></tr>
+    <tr><td><code>thinking</code></td><td>delta chain-of-thought (blok <code>&lt;think&gt;</code>)</td><td>Timeline</td></tr>
+    <tr><td><code>logprobs</code></td><td>token terpilih + top alternatif + prob</td><td>Tokens</td></tr>
+    <tr><td><code>tool_call</code></td><td>nama + argumen mentah (JSON)</td><td>Timeline</td></tr>
+    <tr><td><code>tool_result</code></td><td>summary + data (dipotong 12k)</td><td>Timeline</td></tr>
+    <tr><td><code>usage/done/error</code></td><td>token, latency, finish, kegagalan</td><td>Metrics</td></tr>
+  </table>
+  <ul style="margin-top:12px">
+    <li>Setiap event <b>ganda</b>: <code>emit()</code> → SSE <i>dan</i> <code>trace_events</code> (SQLite) → replay riwayat.</li>
+  </ul>
+</section>
+
+<!-- ============ 13 ============ -->
+<section class="slide">
+  <h2>11 · Streaming ke UI</h2>
+  <pre>
+fetch("/api/chat", POST) → res.body.getReader()
+ loop: buffer += decode(chunk)
+   potong per "\n\n" → parse "data: " → dispatch:
+     delta      → tambahkan jawaban (Markdown live + Mermaid saat fence lengkap)
+     thinking   → kotak 💭
+     tool_call  → chip animasi "web_search…"
+     tool_result→ chip ✓ + summary
+     logprobs   → tab Tokens
+ selesai → muat ulang conversation (sumber kebenaran = DB)</pre>
+  <ul>
+    <li>State React di-update per event; auto-scroll; kursor blink saat stream.</li>
+    <li>Setelah <code>agent_done</code>, UI me-reload dari API → konsisten walau stream terputus di tengah.</li>
+  </ul>
+</section>
+
+<!-- ============ 14 ============ -->
+<section class="slide">
+  <h2>12 · Persistensi & Replay</h2>
+  <pre>
+conversations(id, title, created_at, updated_at)
+messages(id, conversation_id, role, content, meta JSON, ts)
+   role: user | assistant | assistant_toolcalls | tool
+trace_events(id, conversation_id, run_id, seq, type, payload JSON, ts)</pre>
+  <ul>
+    <li><code>run_id</code> mengelompokkan event satu putaran agent → timeline per langkah.</li>
+    <li>Membuka riwayat = memuat <code>messages</code> + <code>trace</code> → Interpreter penuh untuk masa lalu.</li>
+    <li>SQLite + lock thread: cukup untuk single-node monolith, zero-ops.</li>
+  </ul>
+</section>
+
+<!-- ============ 15 ============ -->
+<section class="slide">
+  <h2>13 · Metodologi Testing (4 lapis)</h2>
+  <table>
+    <tr><th>Lapis</th><th>Apa yang dieksekusi</th><th>Teknik</th></tr>
+    <tr><td>Unit provider</td><td><code>OpenAIProtocolProvider.stream()</code></td><td><code>httpx.MockTransport</code> menyuntik byte SSE nyata (think-tag terbelah, tool_calls dicicil, logprobs, usage, error 401)</td></tr>
+    <tr><td>Unit tools</td><td>parsing DDG, ekstraksi URL, builder Mermaid, kalkulator AST</td><td>HTML fixture + MockTransport; assert struktur output</td></tr>
+    <tr><td>Integrasi API</td><td><code>POST /api/chat</code> SSE end-to-end di proses</td><td>Starlette TestClient + provider mock deterministik; assert urutan event & persistensi</td></tr>
+    <tr><td>E2E live</td><td>backend + frontend + server LLM via HTTP asli</td><td><code>scripts/fake_llama_server.py</code> = emulator llama-server dengan <b>wire format identik</b>; <code>run.py --demo</code></td></tr>
+  </table>
+  <ul><li>Prinsip: <b>jangan mock logika sendiri</b> — mock hanya di batas jaringan; parser/loop/tools asli selalu dieksekusi.</li></ul>
+</section>
+
+<!-- ============ 16 ============ -->
+<section class="slide">
+  <h2>14 · Emulator = Metodologi Kunci</h2>
+  <div class="cols">
+    <div class="card"><h3>Masalah</h3><ul>
+      <li>CI/sandbox tanpa GPU & tanpa internet eksternal.</li>
+      <li>Model asli nondeterministik → assert rapuh.</li></ul></div>
+    <div class="card"><h3>Solusi: fake_llama_server</h3><ul>
+      <li>Server HTTP terpisah (port 8081) yang <b>meniru perilaku model agentic</b>: emit <code>&lt;think&gt;</code>, memanggil tool, mengirim argument dicicil, logprobs, usage, [DONE].</li>
+      <li>Kode produksi (provider HTTP, agent loop, tools, SSE, UI) berjalan <b>tanpa diubah</b>.</li>
+      <li>Deterministik → pipeline CI-stable, sekaligus mode demo pengguna.</li></ul></div>
+  </div>
+</section>
+
+<!-- ============ 17 ============ -->
+<section class="slide">
+  <h2>15 · Failure Modes & Mitigasi</h2>
+  <table>
+    <tr><th>Kegagalan</th><th>Perilaku sistem</th></tr>
+    <tr><td>LLM server mati</td><td>health=false → banner UI + tombol mode mock; chat emit <code>error</code> bersih</td></tr>
+    <tr><td>Tool network gagal</td><td>error jadi <code>tool_result</code>; model merangkum dengan jujur</td></tr>
+    <tr><td>Model loop tool tak berujung</td><td><code>max_steps</code> memutus; jawaban parsial tetap disimpan</td></tr>
+    <tr><td>Argumen tool JSON rusak</td><td>fallback <code>{"_raw": ...}</code>; tool tak dikenal → error ke model</td></tr>
+    <tr><td>Mermaid tak valid</td><td>UI menampilkan source + badge "render error" (tidak blank)</td></tr>
+    <tr><td>Klien putus saat stream</td><td>generator finally → task cancel; DB tetap konsisten</td></tr>
+  </table>
+</section>
+
+<!-- ============ 18 ============ -->
+<section class="slide">
+  <h2>16 · Launcher & Dependensi</h2>
+  <pre>
+run.py / run.bat / run.sh
+ 1. cek python≥3.10, node, npm        → [ OK ] / [FAIL] exit
+ 2. venv + pip install backend/requirements.txt   (skip bila sudah)
+ 3. npm install frontend              (skip bila sudah)
+ 4. LLM: sudah ada :8081? --gguf? --demo? (fake server)
+ 5. uvicorn app.main:app :8000  → health poll /api/health
+ 6. next dev :3000              → poll sampai listening
+ 7. print URL; watch anak proses; Ctrl+C → terminate semua</pre>
+  <ul><li>Satu perintah, idempoten, dan <b>mengumumkan</b> status tiap dependensi — cocok untuk mesin baru.</li></ul>
+</section>
+
+<!-- ============ 19 ============ -->
+<section class="slide">
+  <h2>17 · Batasan & Roadmap</h2>
+  <div class="cols">
+    <div class="card"><h3>Batasan saat ini</h3><ul>
+      <li>Logprobs hanya bila provider mendukung (llama.cpp: ya).</li>
+      <li>SQLite single-node; belum multi-user auth.</li>
+      <li>DDG scraping bergantung struktur halaman publik.</li></ul></div>
+    <div class="card"><h3>Roadmap</h3><ul>
+      <li>Sandbox eksekusi kode (python_exec) dengan rlimit.</li>
+      <li>Attention/entropy view di interpreter (bila backend mengekspose).</li>
+      <li>Multi-agent delegate + memori jangka panjang.</li>
+      <li>Export percakapan + trace ke JSON/Markdown.</li></ul></div>
+  </div>
+</section>
+
+<!-- ============ 20 ============ -->
+<section class="slide grid-bg">
+  <span class="pill">ringkasan</span>
+  <h1 style="font-size:40px">Agent = loop ReAct + event-first transparency</h1>
+  <ul style="margin-top:20px;font-size:16px">
+    <li>Satu protokol OpenAI-streaming → HF lokal, OpenAI, mock.</li>
+    <li>Setiap satuan kerja = event: di-stream live, dipersist, bisa di-replay.</li>
+    <li>Tools schema-driven; diagram & browsing tervalidasi dan graceful.</li>
+    <li>Testing: mock hanya di batas jaringan; emulator wire-format untuk E2E.</li>
+    <li>Satu perintah jalan di laptop: <code>python3 run.py --demo</code> / <code>--gguf</code>.</li>
+  </ul>
+  <p class="sub" style="margin-top:26px">docs/METODOLOGI.md memuat versi prose lengkap slide ini.</p>
+</section>
+
+</main>
+<footer>
+  <span id="ctr">1 / 20</span>
+  <span>Ask Anything · FastAPI + Next.js · 2026</span>
+  <span><button onclick="nav(-1)">←</button> <button onclick="nav(1)">→</button></span>
+</footer>
+</div>
+<script>
+const slides=[...document.querySelectorAll(".slide")];
+let i=0;
+function show(n){
+  i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,k)=>s.classList.toggle("active",k===i));
+  document.getElementById("ctr").textContent=(i+1)+" / "+slides.length;
+  document.getElementById("bar").style.width=((i+1)/slides.length*100)+"%";
+}
+function nav(d){show(i+d)}
+addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown")nav(1);
+  if(e.key==="ArrowLeft"||e.key==="PageUp")nav(-1);
+  if(e.key==="Home")show(0); if(e.key==="End")show(slides.length-1);
+  if(e.key==="f"||e.key==="F"){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+});
+show(0);
+</script>
+</body>
+</html>

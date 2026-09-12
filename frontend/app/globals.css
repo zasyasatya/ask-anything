@@ -1,0 +1,51 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --accent: #6366f1;
+  --accent-soft: #eef2ff;
+  --accent-ring: #c7d2fe;
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", SFMono-Regular, Menlo, Consolas,
+    monospace;
+}
+
+html,
+body {
+  height: 100%;
+  background: #f4f4f5;
+  color: #18181b;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* subtle blueprint grid like the reference design */
+.grid-bg {
+  background-color: #f7f7f8;
+  background-image:
+    linear-gradient(to right, rgb(0 0 0 / 0.035) 1px, transparent 1px),
+    linear-gradient(to bottom, rgb(0 0 0 / 0.035) 1px, transparent 1px);
+  background-size: 56px 56px;
+  background-position: center top;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 8px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.mermaid svg {
+  max-width: 100%;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
