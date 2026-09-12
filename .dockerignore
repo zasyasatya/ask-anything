@@ -23,6 +23,9 @@ docker-compose*.yml
 # Data runtime & secret (jangan pernah ikut ter-bake ke image)
 data
 **/data
+models
+**/models
+**/*.gguf
 **/*.db
 **/*.sqlite
 **/*.sqlite3

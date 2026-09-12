@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator
 import httpx
 
 from .base import BaseProvider, StreamEvent, ToolCall
+from .url_utils import chat_completions_url, normalize_openai_base_url
 
 THINK_OPEN = "<think>"
 THINK_CLOSE = "</think>"
@@ -74,25 +75,57 @@ class _ThinkParser:
 
 
 class OpenAIProtocolProvider(BaseProvider):
-    """Streams chat completions from any OpenAI-compatible endpoint."""
+    """Streams chat completions from any OpenAI-compatible endpoint.
+
+    `base_url` may be given in any of the shapes people copy from API docs
+    (bare host, `…/v1`, `…/v1/`, or the full `…/v1/chat/completions`); it is
+    canonicalised by :mod:`.url_utils` before the endpoint path is appended.
+    """
 
     name = "openai"
 
     def __init__(self, base_url: str, api_key: str = "", model: str = "",
-                 transport: httpx.AsyncBaseTransport | None = None) -> None:
-        self.base_url = base_url.rstrip("/")
+                 transport: httpx.AsyncBaseTransport | None = None,
+                 extra_body: dict[str, Any] | None = None) -> None:
+        self.base_url = normalize_openai_base_url(base_url)
         self.api_key = api_key
         self.model = model
         self.transport = transport
+        # Provider-specific extras (e.g. llama.cpp/vLLM `chat_template_kwargs`).
+        self.extra_body: dict[str, Any] = dict(extra_body or {})
 
     def model_label(self) -> str:
         return self.model or "openai"
+
+    def request_url(self) -> str:
+        return chat_completions_url(self.base_url)
 
     def _headers(self) -> dict[str, str]:
         h = {"Content-Type": "application/json"}
         if self.api_key:
             h["Authorization"] = f"Bearer {self.api_key}"
         return h
+
+    def _payload(self, messages, tools, temperature, max_tokens, logprobs,
+                 top_logprobs, *, stream_options: bool = True,
+                 want_logprobs: bool = True) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if stream_options:
+            # Some third-party gateways reject this key → see the retry below.
+            payload["stream_options"] = {"include_usage": True}
+        if tools:
+            payload["tools"] = tools
+        if logprobs and want_logprobs:
+            payload["logprobs"] = True
+            payload["top_logprobs"] = top_logprobs
+        payload.update(self.extra_body)
+        return payload
 
     async def stream(
         self,
@@ -103,115 +136,130 @@ class OpenAIProtocolProvider(BaseProvider):
         logprobs: bool = False,
         top_logprobs: int = 4,
     ) -> AsyncIterator[StreamEvent]:
-        payload: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "temperature": temperature,
-            "max_tokens": max_tokens,
-            "stream": True,
-            "stream_options": {"include_usage": True},
-        }
-        if tools:
-            payload["tools"] = tools
-        if logprobs:
-            payload["logprobs"] = True
-            payload["top_logprobs"] = top_logprobs
-
-        url = f"{self.base_url}/chat/completions"
         parser = _ThinkParser()
         tool_acc: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
+
+        # Attempt 1 = full payload; attempt 2 = minimal payload for gateways
+        # that do not implement `stream_options` / `logprobs` (HTTP 400/422).
+        attempts = [
+            self._payload(messages, tools, temperature, max_tokens, logprobs,
+                          top_logprobs),
+            self._payload(messages, tools, temperature, max_tokens, logprobs,
+                          top_logprobs, stream_options=False,
+                          want_logprobs=False),
+        ]
 
         timeout = httpx.Timeout(connect=15.0, read=None, write=30.0, pool=15.0)
         try:
             async with httpx.AsyncClient(timeout=timeout,
                                          transport=self.transport) as client:
-                async with client.stream(
-                    "POST", url, json=payload, headers=self._headers()
-                ) as resp:
-                    if resp.status_code != 200:
-                        body = (await resp.aread()).decode("utf-8", "replace")
-                        yield StreamEvent(
-                            "error",
-                            {"message": f"HTTP {resp.status_code}: {body[:600]}",
-                             "status": resp.status_code},
-                        )
-                        return
-                    async for line in resp.aiter_lines():
-                        if not line.startswith("data:"):
-                            continue
-                        data = line[5:].strip()
-                        if not data or data == "[DONE]":
-                            continue
-                        try:
-                            obj = json.loads(data)
-                        except json.JSONDecodeError:
-                            continue
-
-                        usage = obj.get("usage")
-                        if usage:
-                            yield StreamEvent(
-                                "usage",
-                                {
-                                    "prompt_tokens": usage.get("prompt_tokens"),
-                                    "completion_tokens": usage.get(
-                                        "completion_tokens"),
-                                    "total_tokens": usage.get("total_tokens"),
-                                },
-                            )
-                        choices = obj.get("choices") or []
-                        if not choices:
-                            continue
-                        choice = choices[0]
-                        delta = choice.get("delta") or {}
-
-                        reasoning = delta.get("reasoning_content")
-                        if reasoning:
-                            yield StreamEvent("thinking", {"text": reasoning})
-
-                        content = delta.get("content")
-                        if content:
-                            for kind, chunk in parser.feed(content):
-                                if kind == "thinking":
-                                    yield StreamEvent("thinking", {"text": chunk})
-                                else:
-                                    yield StreamEvent("delta", {"text": chunk})
-
-                        lp = choice.get("logprobs")
-                        if lp and lp.get("content"):
-                            items = []
-                            for tok in lp["content"]:
-                                items.append(
+                for attempt, payload in enumerate(attempts):
+                    async with client.stream(
+                        "POST", self.request_url(), json=payload,
+                        headers=self._headers(),
+                    ) as resp:
+                        if resp.status_code != 200:
+                            body = (await resp.aread()).decode("utf-8", "replace")
+                            if attempt + 1 < len(attempts) and resp.status_code in (
+                                400, 404, 422
+                            ):
+                                yield StreamEvent(
+                                    "note",
                                     {
-                                        "token": tok.get("token"),
-                                        "logprob": tok.get("logprob"),
-                                        "top": [
-                                            {"token": t.get("token"),
-                                             "logprob": t.get("logprob")}
-                                            for t in tok.get("top_logprobs") or []
-                                        ],
-                                    }
+                                        "message": (
+                                            f"{resp.status_code} dari "
+                                            f"{self.request_url()} — mencoba "
+                                            "payload minimal (tanpa "
+                                            "stream_options/logprobs)"
+                                        ),
+                                        "status": resp.status_code,
+                                    },
                                 )
-                            yield StreamEvent("logprobs", {"items": items})
+                                continue
+                            yield StreamEvent(
+                                "error",
+                                {"message": f"HTTP {resp.status_code}: {body[:600]}",
+                                 "status": resp.status_code},
+                            )
+                            return
+                        async for line in resp.aiter_lines():
+                            if not line.startswith("data:"):
+                                continue
+                            data = line[5:].strip()
+                            if not data or data == "[DONE]":
+                                continue
+                            try:
+                                obj = json.loads(data)
+                            except json.JSONDecodeError:
+                                continue
 
-                        tcs = delta.get("tool_calls")
-                        if tcs:
-                            for tc in tcs:
-                                idx = tc.get("index", 0)
-                                slot = tool_acc.setdefault(
-                                    idx, {"id": "", "name": "", "arguments": ""}
+                            usage = obj.get("usage")
+                            if usage:
+                                yield StreamEvent(
+                                    "usage",
+                                    {
+                                        "prompt_tokens": usage.get("prompt_tokens"),
+                                        "completion_tokens": usage.get(
+                                            "completion_tokens"),
+                                        "total_tokens": usage.get("total_tokens"),
+                                    },
                                 )
-                                if tc.get("id"):
-                                    slot["id"] = tc["id"]
-                                fn = tc.get("function") or {}
-                                if fn.get("name"):
-                                    slot["name"] += fn["name"]
-                                if fn.get("arguments"):
-                                    slot["arguments"] += fn["arguments"]
+                            choices = obj.get("choices") or []
+                            if not choices:
+                                continue
+                            choice = choices[0]
+                            delta = choice.get("delta") or {}
 
-                        fr = choice.get("finish_reason")
-                        if fr:
-                            finish_reason = fr
+                            reasoning = delta.get("reasoning_content")
+                            if reasoning:
+                                yield StreamEvent("thinking", {"text": reasoning})
+
+                            content = delta.get("content")
+                            if content:
+                                for kind, chunk in parser.feed(content):
+                                    if kind == "thinking":
+                                        yield StreamEvent(
+                                            "thinking", {"text": chunk})
+                                    else:
+                                        yield StreamEvent("delta", {"text": chunk})
+
+                            lp = choice.get("logprobs")
+                            if lp and lp.get("content"):
+                                items = []
+                                for tok in lp["content"]:
+                                    items.append(
+                                        {
+                                            "token": tok.get("token"),
+                                            "logprob": tok.get("logprob"),
+                                            "top": [
+                                                {"token": t.get("token"),
+                                                 "logprob": t.get("logprob")}
+                                                for t in tok.get("top_logprobs") or []
+                                            ],
+                                        }
+                                    )
+                                yield StreamEvent("logprobs", {"items": items})
+
+                            tcs = delta.get("tool_calls")
+                            if tcs:
+                                for tc in tcs:
+                                    idx = tc.get("index", 0)
+                                    slot = tool_acc.setdefault(
+                                        idx, {"id": "", "name": "", "arguments": ""}
+                                    )
+                                    if tc.get("id"):
+                                        slot["id"] = tc["id"]
+                                    fn = tc.get("function") or {}
+                                    if fn.get("name"):
+                                        slot["name"] += fn["name"]
+                                    if fn.get("arguments"):
+                                        slot["arguments"] += fn["arguments"]
+
+                            fr = choice.get("finish_reason")
+                            if fr:
+                                finish_reason = fr
+                    break  # stream consumed successfully
         except httpx.HTTPError as exc:
             yield StreamEvent("error", {"message": f"connection error: {exc}"})
             return

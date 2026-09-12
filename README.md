@@ -13,6 +13,11 @@ per-token, prompt assembly, sampai metrik usage. Semuanya tampil live di panel
 - **LLM fleksibel**: HuggingFace **lokal** (llama.cpp / server OpenAI-compatible
   apa pun) **maupun OpenAI API**, plus mode `mock` untuk demo offline.
   Default: `huggingface`.
+- **Model offline sekali klik**: katalog GGUF untuk laptop **8 GB**, diunduh ke
+  `models/`, lalu dijalankan (thinking on/off) tanpa keluar dari UI.
+- **URL endpoint fleksibel**: base URL boleh ditulis
+  `https://host/v1/chat/completions` seperti pada contoh curl — otomatis
+  dinormalkan.
 - **Siap produksi**: `Dockerfile` multi-stage (backend + frontend dalam satu
   container, satu port publik) untuk deploy di **Coolify** / VPS mana pun.
 
@@ -99,43 +104,85 @@ BASE_URL=http://127.0.0.1:3000 \
 python3 scripts/capture_screenshots.py pages            # halaman /panduan & /developer
 ```
 
-## Model HuggingFace lokal untuk laptop 16 GB
+## Model offline HuggingFace untuk laptop 8 GB
 
-Rekomendasi (quant Q4_K_M, via **llama.cpp `llama-server`** yang mengekspos API
-OpenAI-compatible — tool-calling + streaming logprobs native):
+Tab **Model offline (HuggingFace)** di *Settings provider* memuat katalog GGUF
+yang sudah disaring untuk **laptop 8 GB RAM**. Pilih satu → file otomatis
+terunduh (progress bar, bisa resume) ke **folder project** `models/` → klik
+**Pakai** untuk menjadikannya model aktif, atau **Jalankan** agar aplikasi
+menyalakan `llama-server` sendiri. Toggle **Thinking** menentukan apakah model
+boleh bernalar (`chat_template_kwargs.enable_thinking`) — reasoning-nya tampil
+live di *Mechanistic Interpreter*.
 
-| Model | RAM | Catatan |
-|---|---|---|
-| **Qwen3-8B Q4_K_M** (default) | ~6 GB | All-rounder terbaik 16 GB, ~8–15 tok/s CPU, thinking + tool call |
-| Qwen3-14B Q4_K_M | ~8.5–9 GB | "Sweet spot" kualitas bila mau lebih cerdas |
-| Gemma 3 12B Q4_K_M | ~8 GB | Alternatif multilingual kuat |
-| Qwen3.6-35B-A3B IQ2_M | ~11.5 GB | Bila punya **GPU 16 GB** (MoE, sangat cepat) |
+| Model (id katalog) | Ukuran | RAM | Thinking | Catatan |
+|---|---|---|---|---|
+| **Qwen3 4B Instruct 2507** `qwen3-4b-instruct-2507-q4_k_m` ⭐ | 2.33 GiB | ≈3–4 GB | – | Rekomendasi 8 GB: cepat + tool-calling kuat |
+| Qwen3 4B `qwen3-4b-q4_k_m` | 2.33 GiB | ≈3–4.5 GB | ✅ | Pilihan utama bila ingin panel thinking terisi |
+| Gemma 3 4B IT `gemma-3-4b-it-q4_k_m` | 2.32 GiB | ≈3–4 GB | – | Multilingual; tool-calling terbatas |
+| Llama 3.2 3B Instruct `llama-3.2-3b-instruct-q4_k_m` | 1.88 GiB | ≈2.5–3 GB | – | Paling ringan/cepat |
+| Qwen3 1.7B Q8_0 `qwen3-1.7b-q8_0` | 1.71 GiB | ≈2–2.5 GB | ✅ | Ultra-ringan, kualitas Q8 |
+| Qwen3 8B `qwen3-8b-q4_k_m` | 4.68 GiB | ≈6–7 GB | ✅ | Paling cerdas yang masih muat (pakai ctx ≤ 4096 + swap) |
 
-Sumber rekomendasi: [PromptQuorum](https://www.promptquorum.com/prompt-bites/best-local-llm-16gb-ram-laptop),
-[frankx.ai](https://www.frankx.ai/blog/best-local-llm-2026),
-[LocalAIMaster](https://localaimaster.com/vram/best-llm-16gb-vram),
-[HF blog](https://huggingface.co/blog/daya-shankar/open-source-llm-models-to-run-locally).
+`models/` ada di `.gitignore` — GGUF tidak pernah masuk git.
 
 ```bash
-# 1) install llama.cpp (sekali)
-#    brew install llama.cpp          (mac)
-#    atau build: https://github.com/ggml-org/llama.cpp
-# 2) download GGUF dari HF Hub
-huggingface-cli download Qwen/Qwen3-8B-GGUF qwen3-8b-q4_k_m.gguf --local-dir ~/models
-# 3) serve (port default aplikasi: 8081)
-llama-server -m ~/models/qwen3-8b-q4_k_m.gguf --host 0.0.0.0 --port 8081 --jinja -c 8192
+# lihat katalog
+python3 run.py --list-offline-models
+
+# unduh ke ./models lalu jalankan llama-server + backend + frontend sekaligus
+python3 run.py --offline-model qwen3-4b-instruct-2507-q4_k_m
+
+# varian model thinking dengan reasoning dimatikan
+python3 run.py --offline-model qwen3-4b-q4_k_m --no-thinking
 ```
 
-GPU: tambah `-ngl 99`. Apple Silicon otomatis via Metal.
+Tanpa `run.py` pun bisa manual (satu-satunya prasyarat: llama.cpp ter-install):
 
-### OpenAI API
+```bash
+brew install llama.cpp        # mac  |  sudo apt install llama.cpp  |  build dari sumber
+llama-server -m models/Qwen3-4B-Q4_K_M.gguf --host 0.0.0.0 --port 8081 --jinja -c 4096
+```
+
+GPU: `ASK_HF_GPU_LAYERS=99` (Apple Silicon otomatis via Metal). Mesin 16 GB
+boleh langsung memakai `qwen3-8b-q4_k_m` atau quant Q5/Q6 dari repo yang sama.
+
+### OpenAI API & gateway OpenAI-compatible
 
 Set dari UI (tombol *Settings provider*) atau env:
 
 ```bash
 ASK_PROVIDER=openai ASK_OPENAI_API_KEY=sk-... python3 run.py
-# opsional base url custom (Azure/vLLM/proxy): ASK_OPENAI_BASE_URL=...
 ```
+
+Base URL boleh ditulis **dalam bentuk apa pun** yang ada di dokumentasi API —
+aplikasi menormalkannya ke *base* lalu menambahkan `/chat/completions` sendiri:
+
+```bash
+curl https://ai.sumopod.com/v1/chat/completions \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer random_token" \
+  -d '{"model":"qwen3.7-flash-2026-07-15",
+       "messages":[{"role":"user","content":"Say hello in a creative way"}],
+       "max_tokens":150,"temperature":0.7}'
+```
+
+curl di atas langsung bisa dipakai apa adanya:
+
+```bash
+ASK_PROVIDER=openai \
+ASK_OPENAI_BASE_URL="https://ai.sumopod.com/v1/chat/completions" \
+ASK_OPENAI_API_KEY="random_token" \
+ASK_OPENAI_MODEL="qwen3.7-flash-2026-07-15" \
+python3 run.py
+```
+
+Diterima apa adanya: `https://ai.sumopod.com`, `…/v1`, `…/v1/`,
+`…/v1/models`, `…/v1/chat/completions` (juga tanpa skema, atau URL yang
+ter-copy bersama markdown/kurung). Semuanya → `https://ai.sumopod.com/v1`,
+sehingga tidak pernah ada `/chat/completions/chat/completions` (404). Bila
+gateway menolak `stream_options`/`logprobs` (HTTP 400/422), provider otomatis
+mencoba ulang dengan payload minimal dan mencatatnya sebagai event `note` di
+timeline Interpreter.
 
 ## Mechanistic Interpreter
 
@@ -167,9 +214,15 @@ kotak thinking 💭, dan diagram Mermaid auto-render.
 | Variabel | Default | Keterangan |
 |---|---|---|
 | `ASK_PROVIDER` | `huggingface` | `huggingface` \| `openai` \| `mock` |
-| `ASK_HF_BASE_URL` | `http://127.0.0.1:8081/v1` | Server lokal OpenAI-compatible |
-| `ASK_HF_MODEL` | `Qwen/Qwen3-8B-GGUF` | Label model |
-| `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | OpenAI |
+| `ASK_HF_BASE_URL` | `http://127.0.0.1:8081/v1` | Server lokal/gateway OpenAI-compatible; boleh ditulis `…/v1/chat/completions` |
+| `ASK_HF_MODEL` | `Qwen/Qwen3-8B-GGUF` | Label model / nama file GGUF |
+| `ASK_HF_API_KEY` | – | Bearer token untuk server/gateway HF lokal |
+| `ASK_THINKING` | `true` | `chat_template_kwargs.enable_thinking` untuk model lokal |
+| `ASK_MODELS_DIR` | `models` | Folder project tempat GGUF diunduh |
+| `ASK_HF_ENDPOINT` | `https://huggingface.co` | Mirror HF Hub (mis. `https://hf-mirror.com`) |
+| `ASK_LLAMA_SERVER_BIN` / `ASK_LLAMA_EXTRA_ARGS` | – / – | Path & argumen tambahan `llama-server` |
+| `ASK_HF_PORT` / `ASK_HF_CTX_SIZE` / `ASK_HF_GPU_LAYERS` | 8081 / 4096 / -1 | Runtime llama.cpp (`-1` = CPU saja) |
+| `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | OpenAI / gateway kompatibel |
 | `ASK_TEMPERATURE`, `ASK_MAX_STEPS`, `ASK_LOGPROBS` | 0.7 / 6 / true | Generasi & interpreter |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+key masing-masing) |
 | `ASK_DB_PATH` | `data/ask_anything.db` | SQLite (di container: `/app/data/ask_anything.db`) |
@@ -251,23 +304,27 @@ backend/
     main.py                    # FastAPI app
     config.py                  # pydantic-settings (ASK_*)
     db.py                      # SQLite: conversations, messages, trace_events
-    providers/                 # base / openai / huggingface / mock
+    providers/                 # base / openai / huggingface / mock / url_utils
+    hf_models.py               # katalog GGUF 8 GB + downloader (resume) ke models/
+    local_llm.py               # supervisor llama-server (start/stop/status)
     tools/                     # web_search, fetch_url, diagrams, calculator
     agent/                     # loop.py (agent+tracing), prompts.py
-    api/routes.py              # /api/chat (SSE), conversations, settings, health
-  tests/                       # pytest (15 test: provider SSE parser, agent, tools, API)
+    api/routes.py              # /api/chat (SSE), conversations, settings, hf/models, health
+  tests/                       # pytest (43 test: URL, provider SSE, model offline, agent, API)
 scripts/fake_llama_server.py   # emulator llama-server (mode --demo & testing)
+scripts/download_model.py      # CLI download model offline (dipakai run.py)
 scripts/capture_screenshots.py # generator screenshot docs (Playwright, UI live)
 docs/                          # METODOLOGI.md, slides, PANDUAN-PENGGUNA.md,
                                # PANDUAN-DEVELOPER.md, DEPLOY-COOLIFY.md, images/
 frontend/                      # Next.js 16: sidebar, hero, chat, interpreter,
-                               # mermaid, halaman docs /panduan & /developer
+                               # mermaid, HFModelManager, halaman /panduan & /developer
+models/                        # (gitignored) GGUF hasil download model offline
 ```
 
 ## Development & testing
 
 ```bash
-.venv/bin/python -m pytest backend/tests -q   # 15 passed
+.venv/bin/python -m pytest backend/tests -q   # 43 passed
 cd frontend && npx tsc --noEmit && npx next build
 python3 run.py --demo                          # E2E live
 

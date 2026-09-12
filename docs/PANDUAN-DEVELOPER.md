@@ -67,13 +67,17 @@ backend/
     main.py                  # FastAPI app + mount /slides & /docs-images
     config.py                # pydantic-settings (prefix ASK_*)
     db.py                    # SQLite: conversations, messages, trace_events
-    providers/               # base / openai / huggingface / mock
+    providers/               # base / openai / huggingface / mock / url_utils
+    hf_models.py             # katalog GGUF 8 GB + downloader (stream, resume)
+    local_llm.py             # supervisor llama-server (start/stop/status)
     tools/                   # web_search, fetch_url, diagrams, calculator
     agent/                   # loop.py (agent+tracing), prompts.py
-    api/routes.py            # /api/chat (SSE), conversations, settings, health
-  tests/                     # pytest: parser SSE, agent, tools, API
+    api/routes.py            # /api/chat, conversations, settings, hf/models, health
+  tests/                     # pytest: URL, parser SSE, model offline, agent, API
+models/                      # (gitignored) GGUF hasil download
 scripts/
   fake_llama_server.py       # emulator llama-server (--demo & testing)
+  download_model.py          # CLI katalog/download (run.py --offline-model)
   capture_screenshots.py     # generator screenshot docs (Playwright)
 docs/                        # METODOLOGI.md, slides, PANDUAN-*, DEPLOY-COOLIFY.md, images/
 frontend/                    # Next.js 16: sidebar, hero, chat, interpreter, docs
@@ -127,8 +131,13 @@ troubleshooting deploy: [`DEPLOY-COOLIFY.md`](DEPLOY-COOLIFY.md).
 | GET | `/api/conversations` | Daftar percakapan (sidebar). |
 | GET | `/api/conversations/{id}` | Messages + trace lengkap (replay Interpreter). |
 | DELETE | `/api/conversations/{id}` | Hapus percakapan. |
-| GET/POST | `/api/settings` | Baca/ubah runtime settings (provider, base url, model, temperature). |
-| GET | `/api/health` | Status backend + `llm_reachable` (banner & indikator sidebar). |
+| GET/POST | `/api/settings` | Baca/ubah runtime settings (provider, base url, model, api key, thinking, temperature). Base URL dinormalkan saat disimpan. |
+| GET | `/api/hf/models` | Katalog GGUF + status file lokal + progress download + status runtime llama.cpp. |
+| POST | `/api/hf/models/{id}/download` | Unduh (atau lanjutkan) GGUF ke `models/` di background. |
+| POST | `/api/hf/models/{id}/use` | Jadikan model aktif; body `{thinking?, run?, port?, ctx?}` (`run:true` = start llama-server). |
+| POST | `/api/hf/models/{id}/delete` | Hapus GGUF dari disk. |
+| GET/POST | `/api/hf/runtime`, `/api/hf/runtime/stop` | Status / hentikan `llama-server` yang dijalankan aplikasi. |
+| GET | `/api/health` | Status backend + `llm_reachable`/`llm_status` + `local_llm` (banner & indikator sidebar). |
 | GET | `/docs` | Swagger UI FastAPI. Static mount: `/slides/*`, `/docs-images/*`. |
 
 ### Event SSE (urutan khas satu run)
@@ -182,6 +191,19 @@ Semua provider mengimplementasikan `BaseProvider.stream()` yang yield
 `done`). `HuggingFaceProvider` mewarisi `OpenAIProtocolProvider` — parser SSE
 bersama: state-machine `<think>` yang terbelah chunk, akumulasi
 `tool_calls.arguments` per index, logprobs, usage.
+
+`providers/url_utils.normalize_openai_base_url()` menerima base URL dalam bentuk
+apa pun (`host`, `…/v1`, `…/v1/models`, `…/v1/chat/completions`, tanpa skema,
+bahkan ter-copy bersama markdown/kurung) dan selalu menghasilkan
+`scheme://host[:port][/prefix/v1]`. Endpoint dirakit lewat
+`chat_completions_url()` / `models_url()` sehingga provider, health check, dan
+UI tidak pernah menghasilkan `/chat/completions/chat/completions`.
+
+`HuggingFaceProvider` menambahkan `chat_template_kwargs.enable_thinking`
+(dari `ASK_THINKING`) ke payload — switch reasoning untuk template Qwen3.
+Bila gateway membalas 400/404/422, `OpenAIProtocolProvider` mencoba ulang satu
+kali dengan payload minimal (tanpa `stream_options`/`logprobs`) dan mengirim
+event `note` ke timeline.
 
 Menambah provider baru:
 
@@ -267,9 +289,16 @@ python3 scripts/capture_screenshots.py pages
 | Variabel | Default | Keterangan |
 |---|---|---|
 | `ASK_PROVIDER` | `huggingface` | `huggingface` \| `openai` \| `mock` |
-| `ASK_HF_BASE_URL` | `http://127.0.0.1:8081/v1` | Server lokal OpenAI-compatible (llama.cpp) |
-| `ASK_HF_MODEL` | `Qwen/Qwen3-8B-GGUF` | Label model |
-| `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | Provider OpenAI |
+| `ASK_HF_BASE_URL` | `http://127.0.0.1:8081/v1` | Server lokal/gateway OpenAI-compatible; boleh ditulis `…/v1/chat/completions` |
+| `ASK_HF_MODEL` | `Qwen/Qwen3-8B-GGUF` | Label model / nama file GGUF |
+| `ASK_HF_API_KEY` | – | Bearer token server/gateway HF lokal |
+| `ASK_THINKING` | `true` | `chat_template_kwargs.enable_thinking` (reasoning model lokal) |
+| `ASK_MODELS_DIR` | `models` | Folder project tempat GGUF diunduh |
+| `ASK_HF_ENDPOINT` | `https://huggingface.co` | Mirror HF Hub untuk download |
+| `ASK_LLAMA_SERVER_BIN` | – | Path eksplisit `llama-server` |
+| `ASK_LLAMA_EXTRA_ARGS` | – | Argumen tambahan, mis. `--reasoning-format auto` |
+| `ASK_HF_PORT` / `ASK_HF_CTX_SIZE` / `ASK_HF_GPU_LAYERS` | 8081 / 4096 / -1 | Runtime llama.cpp (`-1` = CPU saja) |
+| `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | Provider OpenAI / gateway kompatibel |
 | `ASK_TEMPERATURE`, `ASK_MAX_STEPS`, `ASK_LOGPROBS` | 0.7 / 6 / true | Generasi & interpreter |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+ key masing-masing) |
 | `ASK_DB_PATH` | `data/ask_anything.db` | Lokasi SQLite |

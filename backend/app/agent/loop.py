@@ -90,6 +90,8 @@ async def run_agent(
             "temperature": settings.temperature,
             "max_steps": settings.max_steps,
             "logprobs": settings.logprobs,
+            "thinking": settings.thinking if provider.name == "huggingface"
+            else None,
         },
     )
 
@@ -149,6 +151,10 @@ async def run_agent(
                     }
                 elif ev.type == "done":
                     final_events.append(ev.data)
+                elif ev.type == "note":
+                    # Provider-level notice (e.g. payload downgrade for a
+                    # gateway that lacks stream_options/logprobs).
+                    await trace("note", ev.data)
 
             if not collected_calls:
                 break  # model produced a final answer
