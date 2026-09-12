@@ -13,6 +13,8 @@ per-token, prompt assembly, sampai metrik usage. Semuanya tampil live di panel
 - **LLM fleksibel**: HuggingFace **lokal** (llama.cpp / server OpenAI-compatible
   apa pun) **maupun OpenAI API**, plus mode `mock` untuk demo offline.
   Default: `huggingface`.
+- **Siap produksi**: `Dockerfile` multi-stage (backend + frontend dalam satu
+  container, satu port publik) untuk deploy di **Coolify** / VPS mana pun.
 
 ```
 ┌──────────────┐   SSE (/api/chat)   ┌──────────────────────────────┐
@@ -52,12 +54,36 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf
 - Tanpa server LLM & tanpa `--demo`, backend tetap jalan dan UI menawarkan
   tombol **"Pakai mode mock"** di banner peringatan.
 
+## Deploy ke Coolify (Docker)
+
+Repo membawa `Dockerfile` **single-container**: FastAPI (uvicorn, internal
+`127.0.0.1:8000`) + Next.js production (`0.0.0.0:$PORT`, default `3000`),
+dijalankan `docker/entrypoint.sh` di bawah `tini`. Next me-rewrite `/api`,
+`/slides`, `/docs-images` ke backend sehingga browser cukup bicara ke satu
+origin — dan Coolify hanya perlu me-route satu port.
+
+```bash
+docker build -t ask-anything .
+docker run --rm -p 3000:3000 -e ASK_PROVIDER=mock \
+  -v ask-anything-data:/app/data ask-anything
+# UI → http://localhost:3000 · health → http://localhost:3000/api/health
+```
+
+Di Coolify: **New Application → Build Pack `Dockerfile`** (lokasi `/Dockerfile`,
+context `.`), port `3000`, volume ke `/app/data`, lalu set env
+`ASK_PROVIDER=openai` + `ASK_OPENAI_API_KEY` (default aplikasi `huggingface`
+menunjuk llama-server lokal yang tidak ada di VPS).
+
+📘 Langkah lengkap, tabel env, persistence SQLite, dan troubleshooting:
+[`docs/DEPLOY-COOLIFY.md`](docs/DEPLOY-COOLIFY.md).
+
 ## Dokumentasi (user & developer) + screenshot aplikasi asli
 
 | Audiens | Markdown | Halaman in-app |
 |---|---|---|
 | **Pengguna** | [`docs/PANDUAN-PENGGUNA.md`](docs/PANDUAN-PENGGUNA.md) | `/panduan` |
 | **Developer** | [`docs/PANDUAN-DEVELOPER.md`](docs/PANDUAN-DEVELOPER.md) | `/developer` |
+| **Deploy / DevOps** | [`docs/DEPLOY-COOLIFY.md`](docs/DEPLOY-COOLIFY.md) | – |
 
 Keduanya memuat **screenshot aplikasi yang benar-benar berjalan** (bukan
 mockup) dari `docs/images/`: hero & galeri Explore, chat diagram + render
@@ -146,7 +172,7 @@ kotak thinking 💭, dan diagram Mermaid auto-render.
 | `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | OpenAI |
 | `ASK_TEMPERATURE`, `ASK_MAX_STEPS`, `ASK_LOGPROBS` | 0.7 / 6 / true | Generasi & interpreter |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+key masing-masing) |
-| `ASK_DB_PATH` | `data/ask_anything.db` | SQLite |
+| `ASK_DB_PATH` | `data/ask_anything.db` | SQLite (di container: `/app/data/ask_anything.db`) |
 
 Semua juga bisa diubah runtime dari UI → *Settings provider*.
 
@@ -217,6 +243,9 @@ Mekanisme inti (semua bisa dilihat di panel **Mechanistic Interpreter**):
 
 ```
 run.py / run.bat / run.sh      # launcher general: cek+install dependensi, jalankan BE+FE
+Dockerfile                     # image single-container (BE+FE) untuk Coolify/VPS
+.dockerignore                  # buang .git/node_modules/.next/.venv/data dari build context
+docker/entrypoint.sh           # supervisor: uvicorn + `next start`, trap TERM, probe LLM
 backend/
   app/
     main.py                    # FastAPI app
@@ -230,7 +259,7 @@ backend/
 scripts/fake_llama_server.py   # emulator llama-server (mode --demo & testing)
 scripts/capture_screenshots.py # generator screenshot docs (Playwright, UI live)
 docs/                          # METODOLOGI.md, slides, PANDUAN-PENGGUNA.md,
-                               # PANDUAN-DEVELOPER.md, images/ (screenshot)
+                               # PANDUAN-DEVELOPER.md, DEPLOY-COOLIFY.md, images/
 frontend/                      # Next.js 16: sidebar, hero, chat, interpreter,
                                # mermaid, halaman docs /panduan & /developer
 ```
@@ -241,6 +270,11 @@ frontend/                      # Next.js 16: sidebar, hero, chat, interpreter,
 .venv/bin/python -m pytest backend/tests -q   # 15 passed
 cd frontend && npx tsc --noEmit && npx next build
 python3 run.py --demo                          # E2E live
+
+# image produksi (sama seperti yang di-build Coolify)
+docker build -t ask-anything .
+docker run --rm -p 3000:3000 -e ASK_PROVIDER=mock \
+  -v ask-anything-data:/app/data ask-anything
 ```
 
 Catatan: pencarian web asli (DuckDuckGo) butuh internet; di lingkungan offline

@@ -59,6 +59,9 @@ final; setiap event juga persist ke `trace_events` untuk replay.*
 
 ```
 run.py / run.bat / run.sh      # launcher: cek+install dependensi, jalankan BE+FE
+Dockerfile                     # image produksi (BE+FE satu container) → Coolify/VPS
+.dockerignore                  # build context bersih (no .git/node_modules/.next/data)
+docker/entrypoint.sh           # supervisor: uvicorn + `next start`, trap TERM, probe LLM
 backend/
   app/
     main.py                  # FastAPI app + mount /slides & /docs-images
@@ -72,7 +75,7 @@ backend/
 scripts/
   fake_llama_server.py       # emulator llama-server (--demo & testing)
   capture_screenshots.py     # generator screenshot docs (Playwright)
-docs/                        # METODOLOGI.md, slides, PANDUAN-*, images/
+docs/                        # METODOLOGI.md, slides, PANDUAN-*, DEPLOY-COOLIFY.md, images/
 frontend/                    # Next.js 16: sidebar, hero, chat, interpreter, docs
 ```
 
@@ -109,6 +112,12 @@ python3 run.py --demo                          # E2E live (emulator LLM)
 | `test_providers.py` | Parser SSE protokol OpenAI: `<think>` terbelah antar chunk, akumulasi `tool_calls.arguments`, logprobs, usage. |
 | `test_api.py` | `/api/chat` end-to-end via TestClient: urutan event SSE + persist trace (`prompt`, `tool_call`, `logprobs`). |
 | `test_tools.py` | Validasi Mermaid, keamanan calculator (AST whitelist), ekstraksi `fetch_url`. |
+
+**Deploy produksi** — `Dockerfile` di root repo membangun satu image berisi
+backend + frontend (Next production server sebagai pintu masuk publik, uvicorn
+internal di `127.0.0.1:8000`), dengan `docker/entrypoint.sh` sebagai supervisor
+sekaligus penerus sinyal `TERM`. Langkah Coolify, tabel env, volume SQLite, dan
+troubleshooting deploy: [`DEPLOY-COOLIFY.md`](DEPLOY-COOLIFY.md).
 
 ## 5. HTTP API & event SSE
 
@@ -277,3 +286,5 @@ Semua juga bisa diubah runtime via `POST /api/settings` (dialog Settings).
 | Screenshot tanpa teks | Fontconfig tidak menemukan font. | Set `CHROME_FONTS` ke `fonts.conf` dengan `<dir>` font tersedia. |
 | `web_search` error di sandbox offline | Egress diblokir. | Diharapkan (graceful); pakai Serper/Tavily bila punya akses. |
 | Port 8081 bentrok | Emulator/llama-server lain jalan. | Ubah `ASK_HF_BASE_URL` atau matikan proses lama. |
+| Container (Docker) restart terus | `wait -n` di entrypoint: begitu uvicorn **atau** `next start` mati, seluruh container dimatikan agar orchestrator me-restart bersih. | Cari baris `[ask-anything] proses anak berhenti (exit N)` di log untuk tahu proses mana yang gagal. |
+| `/api/*` 404 di container produksi | Target rewrite Next (`BACKEND_URL`) di-bake saat `next build`. | Jangan ubah `BACKEND_PORT` tanpa rebuild `--build-arg BACKEND_PORT=…`. |
