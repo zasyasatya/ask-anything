@@ -181,7 +181,24 @@ https://ai.sumopod.com/v1/chat/completions   →   https://ai.sumopod.com/v1
 Aplikasi menormalkannya sendiri lalu menambahkan `/chat/completions`, jadi tidak
 pernah terjadi 404 karena path ganda. Isikan **API key** (Bearer token) bila
 gateway Anda memerlukannya; key yang sudah tersimpan hanya ditampilkan sebagai
-`ran…oken`.
+`ran…oken`. Tombol **Hapus** di samping kolom key menghapus key yang tersimpan.
+
+### 8.0 Memilih model dari daftar endpoint
+
+Tombol **Muat model** di samping kolom Base URL memanggil
+`GET <base>/models` dan mengisi **dropdown Model** — jadi Anda tidak perlu
+mengingat/mengetik nama model:
+
+- llama.cpp melaporkan model sebagai path GGUF (`/models/x.gguf`); dropdown
+  menampilkan nama pendeknya tetapi tetap mengirim id asli ke API.
+- Bila endpoint tidak terjangkau atau menolak key, pesannya muncul di bawah
+  kolom (mis. `API key ditolak (401)`) — bukan dropdown kosong tanpa sebab.
+- Model yang sedang aktif tetapi tidak ada di daftar tetap dipertahankan, dan
+  opsi **✎ Ketik nama model lain…** selalu tersedia untuk gateway yang tidak
+  menyediakan `/models`.
+
+Langkah penyetelan lengkap tiap mode (lokal / OpenAI+gateway / mock) ada di
+[`PENYESUAIAN-PROVIDER.md`](PENYESUAIAN-PROVIDER.md).
 
 ### 8.1 Model offline untuk laptop 8 GB
 

@@ -103,9 +103,6 @@ class Settings(BaseSettings):
 settings = Settings()
 
 
-_KEY_FIELDS = ("hf_api_key", "openai_api_key")
-
-
 def _mask(value: str) -> str:
     if not value:
         return ""
@@ -134,9 +131,9 @@ def update_settings(**overrides: str | float | int | bool) -> dict:
     for key, value in overrides.items():
         if key not in allowed or value is None:
             continue
-        # An untouched key field arrives as "" from the UI → keep the stored key.
-        if key in _KEY_FIELDS and value == "":
-            continue
+        # Keys are special: the field is *absent* (None) when the user did not
+        # touch it, and an explicit "" when they cleared it. Only absent keys
+        # are ignored, so a wrong/expired key can actually be removed.
         setattr(settings, key, value)
         applied[key] = value
     if any(field in applied for field in _URL_FIELDS):

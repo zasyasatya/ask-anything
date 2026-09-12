@@ -84,6 +84,16 @@ class OpenAIProtocolProvider(BaseProvider):
 
     name = "openai"
 
+    # HTTP statuses that mean "this payload shape is not accepted here" rather
+    # than "the server is broken". llama.cpp answers **500** with
+    # `logprobs is not supported with tools + stream`, so 5xx is included.
+    RETRYABLE_STATUS = (400, 404, 422, 500, 501, 502)
+
+    #: `base_url|model` → index of the first payload rung that worked. What a
+    #: server accepts does not change between turns, so remembering it saves a
+    #: guaranteed-to-fail round trip on every following request.
+    _payload_memory: dict[str, int] = {}
+
     def __init__(self, base_url: str, api_key: str = "", model: str = "",
                  transport: httpx.AsyncBaseTransport | None = None,
                  extra_body: dict[str, Any] | None = None) -> None:
@@ -93,6 +103,11 @@ class OpenAIProtocolProvider(BaseProvider):
         self.transport = transport
         # Provider-specific extras (e.g. llama.cpp/vLLM `chat_template_kwargs`).
         self.extra_body: dict[str, Any] = dict(extra_body or {})
+
+    @classmethod
+    def reset_payload_memory(cls) -> None:
+        """Forget which payload rung each server accepted (tests, config change)."""
+        cls._payload_memory.clear()
 
     def model_label(self) -> str:
         return self.model or "openai"
@@ -108,7 +123,7 @@ class OpenAIProtocolProvider(BaseProvider):
 
     def _payload(self, messages, tools, temperature, max_tokens, logprobs,
                  top_logprobs, *, stream_options: bool = True,
-                 want_logprobs: bool = True) -> dict[str, Any]:
+                 want_logprobs: bool = True, with_extras: bool = True) -> dict[str, Any]:
         payload: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
@@ -124,7 +139,11 @@ class OpenAIProtocolProvider(BaseProvider):
         if logprobs and want_logprobs:
             payload["logprobs"] = True
             payload["top_logprobs"] = top_logprobs
-        payload.update(self.extra_body)
+        if with_extras:
+            # Provider extras (llama.cpp/vLLM `chat_template_kwargs`): dropped on
+            # the last retry because a chat template without an
+            # `enable_thinking` switch answers HTTP 400 on it.
+            payload.update(self.extra_body)
         return payload
 
     async def stream(
@@ -140,40 +159,57 @@ class OpenAIProtocolProvider(BaseProvider):
         tool_acc: dict[int, dict[str, Any]] = {}
         finish_reason: str | None = None
 
-        # Attempt 1 = full payload; attempt 2 = minimal payload for gateways
-        # that do not implement `stream_options` / `logprobs` (HTTP 400/422).
+        # Retry ladder for gateways that reject parts of the payload:
+        #   1. full          — stream_options + logprobs + provider extras
+        #   2. no usage/lp   — drop `stream_options` / `logprobs` (HTTP 400/422)
+        #   3. bare          — also drop `chat_template_kwargs` (a chat template
+        #      that has no `enable_thinking` switch makes llama.cpp answer 400)
         attempts = [
-            self._payload(messages, tools, temperature, max_tokens, logprobs,
-                          top_logprobs),
-            self._payload(messages, tools, temperature, max_tokens, logprobs,
-                          top_logprobs, stream_options=False,
-                          want_logprobs=False),
+            ("penuh", self._payload(messages, tools, temperature, max_tokens,
+                                    logprobs, top_logprobs)),
+            ("tanpa stream_options/logprobs",
+             self._payload(messages, tools, temperature, max_tokens, logprobs,
+                           top_logprobs, stream_options=False,
+                           want_logprobs=False)),
+            ("payload minimal",
+             self._payload(messages, tools, temperature, max_tokens, logprobs,
+                           top_logprobs, stream_options=False,
+                           want_logprobs=False, with_extras=False)),
         ]
+
+        # Skip the rungs this server already rejected on an earlier turn.
+        memory_key = f"{self.base_url}|{self.model}"
+        start = self._payload_memory.get(memory_key, 0)
+        if start >= len(attempts):
+            start = len(attempts) - 1
+        attempts = attempts[start:]
 
         timeout = httpx.Timeout(connect=15.0, read=None, write=30.0, pool=15.0)
         try:
             async with httpx.AsyncClient(timeout=timeout,
                                          transport=self.transport) as client:
-                for attempt, payload in enumerate(attempts):
+                for attempt, (label, payload) in enumerate(attempts, start=start):
                     async with client.stream(
                         "POST", self.request_url(), json=payload,
                         headers=self._headers(),
                     ) as resp:
                         if resp.status_code != 200:
                             body = (await resp.aread()).decode("utf-8", "replace")
-                            if attempt + 1 < len(attempts) and resp.status_code in (
-                                400, 404, 422
-                            ):
+                            nxt = attempt - start + 1
+                            if nxt < len(attempts) and resp.status_code in \
+                                    self.RETRYABLE_STATUS:
                                 yield StreamEvent(
                                     "note",
                                     {
                                         "message": (
                                             f"{resp.status_code} dari "
-                                            f"{self.request_url()} — mencoba "
-                                            "payload minimal (tanpa "
-                                            "stream_options/logprobs)"
+                                            f"{self.request_url()} dengan payload "
+                                            f"{label} — mencoba ulang: "
+                                            f"{attempts[nxt][0]}"
                                         ),
                                         "status": resp.status_code,
+                                        "payload": label,
+                                        "detail": body[:300],
                                     },
                                 )
                                 continue
@@ -259,6 +295,9 @@ class OpenAIProtocolProvider(BaseProvider):
                             fr = choice.get("finish_reason")
                             if fr:
                                 finish_reason = fr
+                    # This rung works for this server — remember it so later
+                    # turns do not repeat a request that is bound to fail.
+                    self._payload_memory[memory_key] = attempt
                     break  # stream consumed successfully
         except httpx.HTTPError as exc:
             yield StreamEvent("error", {"message": f"connection error: {exc}"})
