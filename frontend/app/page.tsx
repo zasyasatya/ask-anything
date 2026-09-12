@@ -1,4 +1,5 @@
 "use client";
+import Link from "next/link";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import Sidebar from "@/components/Sidebar";
 import Hero from "@/components/Hero";
@@ -151,6 +152,18 @@ export default function Page() {
                 {settings.provider} · {settings.model}
               </span>
             )}
+            <Link
+              href="/panduan"
+              className="hidden rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white md:block"
+            >
+              Panduan
+            </Link>
+            <Link
+              href="/developer"
+              className="hidden rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white lg:block"
+            >
+              Developer
+            </Link>
             <a
               href="/slides/slides-cara-kerja.html"
               target="_blank"

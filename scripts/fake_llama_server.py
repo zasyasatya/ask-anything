@@ -23,6 +23,8 @@ app = FastAPI(title="fake-llama-server")
 MODEL = "Qwen/Qwen3-8B-GGUF"
 _SEARCH_RE = re.compile(r"\b(cari|search|berita|news|harga|price|cuaca|weather)\b", re.I)
 _DIAGRAM_RE = re.compile(r"\b(diagram|flowchart|alur|graph|graf|mindmap|skema)\b", re.I)
+_CALC_RE = re.compile(r"\b(hitung|kalkulasi|calculate|aritmetika|matematika)\b", re.I)
+_EXPR_RE = re.compile(r"(\(?-?\d[\d\.\(\)\s\+\-\*\/\%]*(?:\*\*[\d\.\(\)\s\+\-\*\/]*)*\)?)")
 
 
 def _chunk(delta: dict, finish=None, logprobs=None, usage=None, model=MODEL):
@@ -133,6 +135,28 @@ async def _generate(messages, want_logprobs: bool):
         yield "data: [DONE]\n\n"
         return
 
+    if _CALC_RE.search(last_user) and not has_tool:
+        think = "Exact arithmetic requested: delegate to the calculator tool."
+        yield _chunk({"content": "<think>"})
+        for w in think.split(" "):
+            yield _chunk({"content": " " + w})
+        yield _chunk({"content": "</think>"})
+        m = _EXPR_RE.search(last_user)
+        expr = (m.group(1).strip() if m else "(1250 * 8) / 100 + 2 ** 5")
+        args = json.dumps({"expression": expr})
+        yield _chunk({"tool_calls": [
+            {"index": 0, "id": "call_fake_3", "type": "function",
+             "function": {"name": "calculator", "arguments": ""}}]})
+        for i in range(0, len(args), 16):
+            yield _chunk({"tool_calls": [
+                {"index": 0, "id": "", "type": "function",
+                 "function": {"name": "", "arguments": args[i:i + 16]}}]})
+        yield _chunk({}, finish="tool_calls")
+        yield _chunk({}, usage={"prompt_tokens": 96, "completion_tokens": 34,
+                                "total_tokens": 130})
+        yield "data: [DONE]\n\n"
+        return
+
     # ---- final answer turn ----
     think = "All tool results are in. I will compose the final answer now."
     yield _chunk({"content": "<think>"})
@@ -154,6 +178,18 @@ async def _generate(messages, want_logprobs: bool):
                              f"{r.get('snippet', '')[:120]}\n")
         except Exception:
             pass
+    for m in messages:
+        if m.get("role") != "tool":
+            continue
+        try:
+            d = json.loads(m["content"])
+        except Exception:
+            continue
+        if isinstance(d, dict) and "result" in d:
+            parts.append(f"- kalkulasi: `{d.get('expression')}` = "
+                         f"**{d.get('result')}**\n")
+        elif isinstance(d, dict) and d.get("error"):
+            parts.append(f"- catatan tool: {str(d.get('error'))[:160]}\n")
     parts.append("\nSemua langkah (thinking, tool call, logprobs) terlihat di "
                  "panel Mechanistic Interpreter.")
 

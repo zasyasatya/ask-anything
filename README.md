@@ -52,6 +52,27 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf
 - Tanpa server LLM & tanpa `--demo`, backend tetap jalan dan UI menawarkan
   tombol **"Pakai mode mock"** di banner peringatan.
 
+## Dokumentasi (user & developer) + screenshot aplikasi asli
+
+| Audiens | Markdown | Halaman in-app |
+|---|---|---|
+| **Pengguna** | [`docs/PANDUAN-PENGGUNA.md`](docs/PANDUAN-PENGGUNA.md) | `/panduan` |
+| **Developer** | [`docs/PANDUAN-DEVELOPER.md`](docs/PANDUAN-DEVELOPER.md) | `/developer` |
+
+Keduanya memuat **screenshot aplikasi yang benar-benar berjalan** (bukan
+mockup) dari `docs/images/`: hero & galeri Explore, chat diagram + render
+Mermaid, keempat tab *Mechanistic Interpreter* (Timeline/Prompt/Tokens/
+Metrics), browsing dengan *graceful error*, calculator, settings provider,
+riwayat sidebar, banner LLM offline, aksen warna, hingga viewport mobile.
+Screenshot di-generate otomatis dari UI live:
+
+```bash
+python3 run.py --demo                                   # stack + emulator LLM
+BASE_URL=http://127.0.0.1:3000 \
+  python3 scripts/capture_screenshots.py main           # flow UI
+python3 scripts/capture_screenshots.py pages            # halaman /panduan & /developer
+```
+
 ## Model HuggingFace lokal untuk laptop 16 GB
 
 Rekomendasi (quant Q4_K_M, via **llama.cpp `llama-server`** yang mengekspos API
@@ -207,7 +228,11 @@ backend/
     api/routes.py              # /api/chat (SSE), conversations, settings, health
   tests/                       # pytest (15 test: provider SSE parser, agent, tools, API)
 scripts/fake_llama_server.py   # emulator llama-server (mode --demo & testing)
-frontend/                      # Next.js 16: sidebar, hero, chat, interpreter, mermaid
+scripts/capture_screenshots.py # generator screenshot docs (Playwright, UI live)
+docs/                          # METODOLOGI.md, slides, PANDUAN-PENGGUNA.md,
+                               # PANDUAN-DEVELOPER.md, images/ (screenshot)
+frontend/                      # Next.js 16: sidebar, hero, chat, interpreter,
+                               # mermaid, halaman docs /panduan & /developer
 ```
 
 ## Development & testing
