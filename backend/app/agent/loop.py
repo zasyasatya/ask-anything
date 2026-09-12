@@ -231,16 +231,33 @@ async def run_agent(
             llm_messages.append({"role": "system", "content": TOOL_RESULT_HINT})
 
     answer = "".join(answer_parts).strip()
+
+    # The loop can end because `max_steps` ran out while the model was still
+    # asking for tools: without a fallback the UI would render an empty bubble
+    # and the trace would claim success. Be explicit instead.
+    stopped_reason = "stop"
+    if not answer and collected_calls:
+        stopped_reason = "max_steps"
+        answer = (
+            f"Model memakai seluruh {settings.max_steps} langkah untuk memanggil "
+            f"tool ({', '.join(sorted({c['name'] for c in collected_calls}))}) "
+            "tanpa menghasilkan jawaban final. Coba sederhanakan pertanyaan, "
+            "naikkan `ASK_MAX_STEPS`, atau pakai model yang lebih besar — "
+            "semua langkahnya ada di tab Timeline."
+        )
+        await trace("note", {"message": answer, "status": "max_steps"})
+
     elapsed = round((time.time() - t0) * 1000, 1)
     usage["latency_ms"] = elapsed
     usage["steps"] = steps
-    await trace("done", {"answer": answer, **usage})
+    await trace("done", {"answer": answer, "stopped_reason": stopped_reason, **usage})
 
     db.add_message(
         conversation_id,
         "assistant",
         answer,
-        meta={"thinking": "".join(thinking_parts), "usage": usage},
+        meta={"thinking": "".join(thinking_parts), "usage": usage,
+              "stopped_reason": stopped_reason},
     )
     return {"answer": answer, "steps": steps, "usage": usage,
             "run_id": run_id, "error": None}

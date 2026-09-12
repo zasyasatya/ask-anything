@@ -131,7 +131,8 @@ troubleshooting deploy: [`DEPLOY-COOLIFY.md`](DEPLOY-COOLIFY.md).
 | GET | `/api/conversations` | Daftar percakapan (sidebar). |
 | GET | `/api/conversations/{id}` | Messages + trace lengkap (replay Interpreter). |
 | DELETE | `/api/conversations/{id}` | Hapus percakapan. |
-| GET/POST | `/api/settings` | Baca/ubah runtime settings (provider, base url, model, api key, thinking, temperature). Base URL dinormalkan saat disimpan. |
+| GET/POST | `/api/settings` | Baca/ubah runtime settings (provider, base url, model, api key, thinking, temperature, max_steps, logprobs). Base URL dinormalkan saat disimpan; field key yang tidak dikirim tidak berubah, `""` = hapus key; `provider` tak dikenal → 422. |
+| POST | `/api/models` | Daftar model sebuah endpoint (`provider`/`base_url`/`api_key` opsional → default setting aktif). Menormalkan bentuk `data[].id`, `models[].model`, dan list string; tidak pernah 500 (`{ok:false,error}`). Sumber: `providers/discovery.py`. |
 | GET | `/api/hf/models` | Katalog GGUF + status file lokal + progress download + status runtime llama.cpp. |
 | POST | `/api/hf/models/{id}/download` | Unduh (atau lanjutkan) GGUF ke `models/` di background. |
 | POST | `/api/hf/models/{id}/use` | Jadikan model aktif; body `{thinking?, run?, port?, ctx?}` (`run:true` = start llama-server). |
@@ -153,8 +154,10 @@ troubleshooting deploy: [`DEPLOY-COOLIFY.md`](DEPLOY-COOLIFY.md).
 | `tool_call` | `id`, `name`, `arguments` mentah | chip tool + Timeline |
 | `tool_result` | `id`, `name`, `summary`, `data` | chip ✓ + Timeline |
 | `usage` | prompt/completion/total tokens | Metrics |
-| `done` | `answer`, `latency_ms`, `steps` | selesai + persist |
+| `note` | `message`, `status`, `payload`, `detail` | Timeline (oranye): retry ladder provider, `max_steps` habis |
+| `done` | `answer`, `latency_ms`, `steps`, `stopped_reason` | selesai + persist |
 | `error` | `message` | banner inline + Timeline |
+| (frame) | `: keep-alive` tiap 10 dtk saat stream diam | diabaikan klien; menahan proxy menutup koneksi |
 
 ```bash
 curl -N localhost:8000/api/chat -H 'Content-Type: application/json' \

@@ -15,6 +15,9 @@ per-token, prompt assembly, sampai metrik usage. Semuanya tampil live di panel
   Default: `huggingface`.
 - **Model offline sekali klik**: katalog GGUF untuk laptop **8 GB**, diunduh ke
   `models/`, lalu dijalankan (thinking on/off) tanpa keluar dari UI.
+- **Daftar model otomatis**: tombol **Muat model** mengisi dropdown model dari
+  `GET <base>/models` endpoint yang sedang dikonfigurasi (OpenAI, llama.cpp,
+  vLLM, gateway) — plus opsi ketik manual bila endpoint tak memberi daftar.
 - **URL endpoint fleksibel**: base URL boleh ditulis
   `https://host/v1/chat/completions` seperti pada contoh curl — otomatis
   dinormalkan.
@@ -88,7 +91,13 @@ menunjuk llama-server lokal yang tidak ada di VPS).
 |---|---|---|
 | **Pengguna** | [`docs/PANDUAN-PENGGUNA.md`](docs/PANDUAN-PENGGUNA.md) | `/panduan` |
 | **Developer** | [`docs/PANDUAN-DEVELOPER.md`](docs/PANDUAN-DEVELOPER.md) | `/developer` |
+| **Penyetelan provider per mode** | [`docs/PENYESUAIAN-PROVIDER.md`](docs/PENYESUAIAN-PROVIDER.md) | – |
 | **Deploy / DevOps** | [`docs/DEPLOY-COOLIFY.md`](docs/DEPLOY-COOLIFY.md) | – |
+
+`PENYESUAIAN-PROVIDER.md` memuat langkah penyesuaian tiap mode (`huggingface`
+lokal / `openai` + gateway / `mock`), cara memuat **daftar model** dari endpoint,
+retry ladder payload, tabel troubleshooting, dan **log percobaan nyata** dengan
+model asli (SmolLM2-135M-Instruct di llama.cpp, jawaban sungguhan).
 
 Keduanya memuat **screenshot aplikasi yang benar-benar berjalan** (bukan
 mockup) dari `docs/images/`: hero & galeri Explore, chat diagram + render
@@ -180,9 +189,16 @@ Diterima apa adanya: `https://ai.sumopod.com`, `…/v1`, `…/v1/`,
 `…/v1/models`, `…/v1/chat/completions` (juga tanpa skema, atau URL yang
 ter-copy bersama markdown/kurung). Semuanya → `https://ai.sumopod.com/v1`,
 sehingga tidak pernah ada `/chat/completions/chat/completions` (404). Bila
-gateway menolak `stream_options`/`logprobs` (HTTP 400/422), provider otomatis
-mencoba ulang dengan payload minimal dan mencatatnya sebagai event `note` di
-timeline Interpreter.
+gateway menolak `stream_options`/`logprobs` (HTTP 400/422) **atau** server
+menolak `logprobs`+`tools`+`stream` (llama.cpp menjawab **HTTP 500**), provider
+turun bertingkat ke payload minimal — termasuk membuang
+`chat_template_kwargs` bila template tidak mengenal `enable_thinking` — dan
+mencatatnya sebagai event `note` di timeline Interpreter. Rung yang berhasil
+diingat per endpoint, jadi turn berikutnya tidak mengulang request gagal.
+
+Langkah penyetelan tiap mode (lokal / OpenAI+gateway / mock), cara memuat daftar
+model, dan log percobaan dengan model sungguhan:
+[`docs/PENYESUAIAN-PROVIDER.md`](docs/PENYESUAIAN-PROVIDER.md).
 
 ## Mechanistic Interpreter
 
@@ -310,7 +326,8 @@ backend/
     tools/                     # web_search, fetch_url, diagrams, calculator
     agent/                     # loop.py (agent+tracing), prompts.py
     api/routes.py              # /api/chat (SSE), conversations, settings, hf/models, health
-  tests/                       # pytest (43 test: URL, provider SSE, model offline, agent, API)
+  tests/                       # pytest (62 test: URL, provider SSE, daftar model,
+                             #         retry ladder, keep-alive SSE, agent, API)
 scripts/fake_llama_server.py   # emulator llama-server (mode --demo & testing)
 scripts/download_model.py      # CLI download model offline (dipakai run.py)
 scripts/capture_screenshots.py # generator screenshot docs (Playwright, UI live)
@@ -324,7 +341,7 @@ models/                        # (gitignored) GGUF hasil download model offline
 ## Development & testing
 
 ```bash
-.venv/bin/python -m pytest backend/tests -q   # 43 passed
+.venv/bin/python -m pytest backend/tests -q   # 62 passed
 cd frontend && npx tsc --noEmit && npx next build
 python3 run.py --demo                          # E2E live
 

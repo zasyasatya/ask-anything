@@ -12,6 +12,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 import pytest  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _forget_payload_memory():
+    """Providers remember which payload rung a server accepted; tests must not."""
+    from app.providers import OpenAIProtocolProvider
+
+    OpenAIProtocolProvider.reset_payload_memory()
+    yield
+    OpenAIProtocolProvider.reset_payload_memory()
+
+
 @pytest.fixture()
 def client():
     from fastapi.testclient import TestClient

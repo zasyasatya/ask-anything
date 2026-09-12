@@ -1,6 +1,7 @@
 import type {
   Conversation,
   HFModelsResponse,
+  ProviderModels,
   SettingsInfo,
   TraceEvent,
 } from "./types";
@@ -43,6 +44,16 @@ export async function updateSettings(patch: Record<string, unknown>): Promise<Se
 
 export async function health(): Promise<Record<string, unknown>> {
   return fetchJson<Record<string, unknown>>("/api/health");
+}
+
+/** Models an OpenAI-compatible endpoint serves (dropdown in Settings). */
+export async function listProviderModels(
+  probe: { provider?: string; base_url?: string; api_key?: string } = {}
+): Promise<ProviderModels> {
+  return fetchJson<ProviderModels>("/api/models", {
+    method: "POST",
+    body: JSON.stringify(probe),
+  });
 }
 
 /** Offline HuggingFace models: catalog + local files + llama.cpp runtime. */

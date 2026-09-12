@@ -8,7 +8,7 @@ from typing import Any, AsyncIterator
 
 import httpx
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
 from .. import db, hf_models
@@ -16,14 +16,32 @@ from ..agent.loop import run_agent
 from ..config import settings, update_settings
 from ..local_llm import runtime as llm_runtime
 from ..providers import build_provider
+from ..providers.discovery import list_remote_models
 from ..providers.url_utils import models_url
 
 router = APIRouter(prefix="/api")
+
+# Test seam: tests replace this with an httpx.MockTransport so the model
+# discovery endpoint can be exercised without a live LLM server.
+DISCOVERY_TRANSPORT: httpx.AsyncBaseTransport | None = None
 
 
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
+
+
+class ModelsProbe(BaseModel):
+    """Probe an endpoint's model list *before* the settings are saved.
+
+    `base_url` / `api_key` default to the stored values of `provider`; an
+    explicit `api_key` (including "") overrides them so the UI can test a key
+    the user just typed (or deliberately cleared).
+    """
+
+    provider: str | None = None
+    base_url: str | None = None
+    api_key: str | None = None
 
 
 class SettingsUpdate(BaseModel):
@@ -38,6 +56,20 @@ class SettingsUpdate(BaseModel):
     openai_model: str | None = None
     openai_api_key: str | None = None
     temperature: float | None = None
+    max_steps: int | None = None
+    logprobs: bool | None = None
+
+    @field_validator("provider")
+    @classmethod
+    def _known_provider(cls, v: str | None) -> str | None:
+        """An unknown provider silently degraded to the HF default before."""
+        if v is None:
+            return v
+        v = v.strip().lower()
+        if v not in ("huggingface", "openai", "mock"):
+            raise ValueError(
+                "provider harus salah satu dari: huggingface, openai, mock")
+        return v
 
 
 class UseModelRequest(BaseModel):
@@ -49,6 +81,12 @@ class UseModelRequest(BaseModel):
 
 def _sse(obj: dict[str, Any]) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
+
+
+# SSE keep-alive: a comment frame, ignored by clients but enough to stop
+# proxies from closing a stream that is silent while the LLM thinks.
+KEEPALIVE = ": keep-alive\n\n"
+KEEPALIVE_S = 10.0
 
 
 @router.post("/chat")
@@ -92,7 +130,14 @@ async def chat(req: ChatRequest):
         try:
             yield _sse({"type": "start", "conversation_id": cid})
             while True:
-                ev = await queue.get()
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_S)
+                except asyncio.TimeoutError:
+                    # SSE comment (bukan `data:`) → diabaikan klien, tetapi
+                    # menjaga proxy (Next rewrite, nginx, Coolify) tidak menutup
+                    # koneksi yang diam sementara LLM masih berpikir.
+                    yield KEEPALIVE
+                    continue
                 if ev is None:
                     break
                 yield _sse(ev)
@@ -134,6 +179,37 @@ async def get_settings():
 @router.post("/settings")
 async def post_settings(update: SettingsUpdate):
     return update_settings(**update.model_dump())
+
+
+# ---------------------------------------------------------------------------
+# Model list of an OpenAI-compatible endpoint (dropdown in *Settings provider*)
+# ---------------------------------------------------------------------------
+@router.post("/models")
+async def list_models(probe: ModelsProbe):
+    provider = (probe.provider or settings.provider or "").strip().lower()
+
+    if provider == "mock":
+        return {"ok": True, "provider": "mock", "base_url": None, "url": None,
+                "status": None, "active_model": "mock-agent (offline demo)",
+                "models": [{"id": "mock-agent", "label": "mock-agent (offline demo)"}],
+                "count": 1, "error": None}
+
+    if provider == "openai":
+        base = settings.openai_base_url if probe.base_url is None else probe.base_url
+        key = settings.openai_api_key if probe.api_key is None else probe.api_key
+        active = settings.openai_model
+    elif provider == "huggingface":
+        base = settings.hf_base_url if probe.base_url is None else probe.base_url
+        key = settings.hf_api_key if probe.api_key is None else probe.api_key
+        active = settings.hf_model
+    else:
+        return {"ok": False, "provider": provider, "base_url": None, "url": None,
+                "status": None, "active_model": None, "models": [], "count": 0,
+                "error": f"provider tidak dikenal: {provider or '(kosong)'}"}
+
+    result = await list_remote_models(base, key, transport=DISCOVERY_TRANSPORT)
+    return {**result, "provider": provider, "base_url": base or None,
+            "active_model": active, "count": len(result.get("models") or [])}
 
 
 # ---------------------------------------------------------------------------

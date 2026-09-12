@@ -43,6 +43,25 @@ export interface SettingsInfo {
   llm_reachable?: boolean;
 }
 
+export interface ProviderModel {
+  id: string;
+  label: string;
+}
+
+/** Answer of `POST /api/models` — model list of the probed endpoint. */
+export interface ProviderModels {
+  ok: boolean;
+  provider?: string;
+  base_url?: string | null;
+  url?: string | null;
+  status?: number | null;
+  active_model?: string | null;
+  models: ProviderModel[];
+  count: number;
+  error?: string | null;
+  detail?: string;
+}
+
 export interface DownloadState {
   model_id: string;
   status: "idle" | "downloading" | "ready" | "error";
