@@ -130,21 +130,62 @@ def main() -> None:
                     help="run the emulated local HF server (no GPU/GGUF needed)")
     ap.add_argument("--gguf", type=str, default="",
                     help="path to a GGUF file; starts llama-server if installed")
+    ap.add_argument("--offline-model", type=str, default="",
+                    help="id model offline dari katalog: diunduh ke ./models "
+                         "lalu dijalankan dengan llama-server "
+                         "(lihat --list-offline-models)")
+    ap.add_argument("--list-offline-models", action="store_true",
+                    help="tampilkan katalog model offline untuk laptop 8 GB")
+    ap.add_argument("--no-thinking", action="store_true",
+                    help="matikan reasoning (<think>) pada model lokal")
     ap.add_argument("--skip-frontend", action="store_true")
     ap.add_argument("--install-only", action="store_true")
     args = ap.parse_args()
 
     (ROOT / "data").mkdir(exist_ok=True)
+
     check_core_deps()
     py = ensure_backend_deps()
+    if args.list_offline_models:
+        # katalog berasal dari app.hf_models → butuh interpreter backend (.venv)
+        subprocess.run([str(py), str(ROOT / "scripts" / "download_model.py"),
+                        "--list"], cwd=ROOT)
+        return
     ensure_frontend_deps()
     if args.install_only:
         print("All dependencies installed. Re-run without --install-only.")
         return
 
+    # ---- offline catalog model: download into ./models, then serve it ----
+    if args.offline_model:
+        print(f"== Model offline: {args.offline_model} ==")
+        proc = subprocess.run(
+            [str(py), str(ROOT / "scripts" / "download_model.py"),
+             args.offline_model], cwd=ROOT, capture_output=True, text=True)
+        sys.stdout.write(proc.stdout)
+        if proc.returncode != 0:
+            sys.stderr.write(proc.stderr)
+            fail(f"download model gagal (code {proc.returncode})")
+        gguf = ""
+        for line in proc.stdout.splitlines():
+            if line.startswith("GGUF_PATH="):
+                gguf = line.split("=", 1)[1]
+        if not gguf or not Path(gguf).is_file():
+            fail("GGUF tidak ditemukan setelah download")
+        args.gguf = gguf
+        if not shutil.which("llama-server"):
+            warn("GGUF sudah tersimpan, tetapi `llama-server` belum ter-install "
+                 "— pasang llama.cpp lalu jalankan:\n"
+                 f"         llama-server -m {gguf} --host 0.0.0.0 "
+                 f"--port {args.llm_port} --jinja -c 4096")
+        ok(f"model siap di {gguf}")
+
     env = os.environ.copy()
     env["ASK_PROVIDER"] = args.provider
     env["ASK_DB_PATH"] = str(ROOT / "data" / "ask_anything.db")
+    env["ASK_MODELS_DIR"] = str(ROOT / "models")
+    if args.no_thinking:
+        env["ASK_THINKING"] = "0"
     env["BACKEND_URL"] = f"http://127.0.0.1:{args.backend_port}"
 
     procs: list[tuple[str, subprocess.Popen]] = []

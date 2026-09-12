@@ -168,7 +168,49 @@ tanpa restart:
 | `mock` | Demo offline deterministik untuk uji UI & dokumen ini. |
 
 ![Settings provider](images/11-settings-provider.png)
-*Dialog settings: provider, base URL, model, dan slider temperature.*
+*Dialog settings: tab **Provider & endpoint**, tab **Model offline
+(HuggingFace)**, dan slider temperature.*
+
+Base URL boleh ditulis dalam bentuk apa pun yang Anda temukan di dokumentasi
+API — termasuk URL endpoint lengkap dari contoh curl:
+
+```
+https://ai.sumopod.com/v1/chat/completions   →   https://ai.sumopod.com/v1
+```
+
+Aplikasi menormalkannya sendiri lalu menambahkan `/chat/completions`, jadi tidak
+pernah terjadi 404 karena path ganda. Isikan **API key** (Bearer token) bila
+gateway Anda memerlukannya; key yang sudah tersimpan hanya ditampilkan sebagai
+`ran…oken`.
+
+### 8.1 Model offline untuk laptop 8 GB
+
+Tab **Model offline (HuggingFace)** berisi katalog GGUF yang sudah disaring
+untuk RAM 8 GB. Alurnya tiga langkah, semuanya di dalam dialog ini:
+
+1. **Download** — file diunduh ke folder project `models/` (progress bar +
+   kecepatan; bila koneksi putus, klik lagi untuk melanjutkan dari bagian yang
+   sudah terunduh).
+2. **Pakai** — model itu menjadi model aktif provider `huggingface`.
+3. **Jalankan** — aplikasi menyalakan `llama-server` sendiri dengan GGUF
+   tersebut (tombol aktif bila `llama-server` ter-install; kalau belum, muncul
+   petunjuk install). Tombol **Stop** di bagian bawah mematikan servernya.
+
+Toggle **Thinking (reasoning)** mengirim
+`chat_template_kwargs.enable_thinking` ke model lokal — matikan bila model
+terlalu lambat atau bila Anda hanya butuh jawaban langsung. Model yang
+mendukung thinking ditandai `thinking: ya` di kartunya (mis.
+`qwen3-4b-q4_k_m`, `qwen3-1.7b-q8_0`, `qwen3-8b-q4_k_m`).
+
+Lewat terminal juga bisa:
+
+```bash
+python3 run.py --list-offline-models                          # lihat katalog
+python3 run.py --offline-model qwen3-4b-instruct-2507-q4_k_m  # unduh + jalankan
+python3 run.py --offline-model qwen3-4b-q4_k_m --no-thinking  # tanpa reasoning
+```
+
+Folder `models/` masuk `.gitignore` — GGUF tidak pernah ikut ter-commit.
 
 ![Banner LLM offline](images/12-banner-llm-offline.png)
 *Bila provider `huggingface` dipilih tetapi server lokal tidak terjangkau,

@@ -11,6 +11,7 @@ const TYPE_STYLE: Record<string, { dot: string; label: string }> = {
   tool_call: { dot: "bg-sky-500", label: "tool_call" },
   tool_result: { dot: "bg-emerald-500", label: "tool_result" },
   usage: { dot: "bg-zinc-400", label: "usage" },
+  note: { dot: "bg-orange-400", label: "note" },
   done: { dot: "bg-emerald-600", label: "done" },
   error: { dot: "bg-red-500", label: "error" },
 };
@@ -160,6 +161,7 @@ export default function Interpreter({
               <p>model    : {String(meta?.model ?? "—")}</p>
               <p>temp     : {String(meta?.temperature ?? "—")}</p>
               <p>max_steps: {String(meta?.max_steps ?? "—")}</p>
+              <p>thinking : {String(meta?.thinking ?? "—")}</p>
               <p>steps    : {String(done?.steps ?? "—")}</p>
               <p>latency  : {String(done?.latency_ms ?? usage ? `${(done as any)?.latency_ms ?? "—"} ms` : "—")}</p>
             </div>

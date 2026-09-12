@@ -11,12 +11,18 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__, db
 from .api.routes import router
 from .config import settings
+from .local_llm import runtime as llm_runtime
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db.init_db(settings.db_path)
-    yield
+    settings.resolved_models_dir().mkdir(parents=True, exist_ok=True)
+    try:
+        yield
+    finally:
+        # Never orphan a llama-server we started for an offline model.
+        await llm_runtime.stop()
 
 
 app = FastAPI(

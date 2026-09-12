@@ -12,6 +12,11 @@ out/
 # runtime data (sqlite db, process logs)
 data/
 
+# downloaded GGUF models (ratusan MB–GB; jangan pernah masuk git)
+models/
+*.gguf
+*.gguf.part
+
 # env
 .env
 .env.local

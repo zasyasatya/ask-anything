@@ -1,4 +1,9 @@
-import type { Conversation, SettingsInfo, TraceEvent } from "./types";
+import type {
+  Conversation,
+  HFModelsResponse,
+  SettingsInfo,
+  TraceEvent,
+} from "./types";
 
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
@@ -38,6 +43,44 @@ export async function updateSettings(patch: Record<string, unknown>): Promise<Se
 
 export async function health(): Promise<Record<string, unknown>> {
   return fetchJson<Record<string, unknown>>("/api/health");
+}
+
+/** Offline HuggingFace models: catalog + local files + llama.cpp runtime. */
+export async function listHFModels(): Promise<HFModelsResponse> {
+  return fetchJson<HFModelsResponse>("/api/hf/models");
+}
+
+export async function downloadHFModel(
+  id: string
+): Promise<Record<string, unknown>> {
+  return fetchJson<Record<string, unknown>>(`/api/hf/models/${id}/download`, {
+    method: "POST",
+  });
+}
+
+export async function deleteHFModel(
+  id: string
+): Promise<Record<string, unknown>> {
+  return fetchJson<Record<string, unknown>>(`/api/hf/models/${id}/delete`, {
+    method: "POST",
+  });
+}
+
+/** Select a downloaded GGUF as the active model (and optionally run it). */
+export async function useHFModel(
+  id: string,
+  opts: { thinking?: boolean; run?: boolean; port?: number; ctx?: number } = {}
+): Promise<Record<string, unknown>> {
+  return fetchJson<Record<string, unknown>>(`/api/hf/models/${id}/use`, {
+    method: "POST",
+    body: JSON.stringify(opts),
+  });
+}
+
+export async function stopHFRuntime(): Promise<Record<string, unknown>> {
+  return fetchJson<Record<string, unknown>>("/api/hf/runtime/stop", {
+    method: "POST",
+  });
 }
 
 /** Streams one agentic turn; every interpreter event is delivered to onEvent. */
