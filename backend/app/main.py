@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from . import __version__, db
 from .api.routes import router
@@ -34,6 +36,11 @@ app.add_middleware(
 )
 
 app.include_router(router)
+
+# Serve docs/ (slides & metodologi) at /slides — frontend proxies /slides/*.
+_DOCS = Path(__file__).resolve().parents[2] / "docs"
+if _DOCS.is_dir():
+    app.mount("/slides", StaticFiles(directory=_DOCS, html=True), name="slides")
 
 
 @app.get("/")

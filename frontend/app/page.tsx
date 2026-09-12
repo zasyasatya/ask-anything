@@ -151,6 +151,14 @@ export default function Page() {
                 {settings.provider} · {settings.model}
               </span>
             )}
+            <a
+              href="/slides/slides-cara-kerja.html"
+              target="_blank"
+              rel="noreferrer"
+              className="hidden rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white md:block"
+            >
+              Docs & Slides →
+            </a>
             <button
               onClick={() => setShowInt((v) => !v)}
               className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${

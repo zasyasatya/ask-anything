@@ -129,6 +129,69 @@ kotak thinking 💭, dan diagram Mermaid auto-render.
 
 Semua juga bisa diubah runtime dari UI → *Settings provider*.
 
+## Cara kerja agent (detail)
+
+> 📚 **Slide interaktif & metodologi lengkap**: buka
+> [`docs/slides-cara-kerja.html`](docs/slides-cara-kerja.html) (jalan langsung
+> di browser, navigasi `←`/`→`) atau via app di `/slides/slides-cara-kerja.html`,
+> plus prose di [`docs/METODOLOGI.md`](docs/METODOLOGI.md).
+
+### Loop ReAct dengan pagar pengaman
+
+Agent berjalan sebagai loop **reason → act → observe → answer**:
+
+```mermaid
+sequenceDiagram
+    participant U as User / UI
+    participant API as FastAPI /api/chat (SSE)
+    participant A as Agent Loop
+    participant P as Provider (HF/OpenAI/mock)
+    participant T as Tools
+    U->>API: POST {message}
+    API->>A: spawn task + asyncio.Queue
+    A->>P: stream(messages, tool_schemas)
+    P-->>A: thinking / delta / logprobs / tool_calls
+    A-->>U: SSE event live (Interpreter)
+    alt ada tool_calls (maks ASK_MAX_STEPS langkah)
+        A->>T: eksekusi (timeout 30s)
+        T-->>A: ToolResult (summary + data)
+        A->>P: messages += assistant(tool_calls) + role:tool
+        P-->>A: jawaban final (observe selesai)
+    end
+    A-->>U: done{answer, usage, latency}
+    A->>A: persist messages + trace_events
+```
+
+Mekanisme inti (semua bisa dilihat di panel **Mechanistic Interpreter**):
+
+1. **Prompt assembly** — history (termasuk pesan `tool` & `assistant_toolcalls`)
+   dikonversi ke protokol OpenAI dan dikirim bersama system prompt + schema
+   tools; tab *Prompt* menampilkan persis apa yang diterima LLM.
+2. **Streaming parsing** — klien SSE menangani realitas wire-format: blok
+   `<think>…</think>` yang terbelah antar chunk (state-machine parser),
+   `tool_calls.arguments` yang datang dicicil (akumulasi per index),
+   `reasoning_content`, logprobs per token, dan `usage`.
+3. **Eksekusi tools** — setiap call di-emit (`tool_call` dengan argumen
+   mentah), dijalankan via registry schema-driven, hasilnya (`tool_result`)
+   dikembalikan ke model sebagai message `role:tool` supaya model
+   *mengamati* sebelum menjawab; hint sistem meminta jawaban final.
+4. **Pagar pengaman** — `max_steps` (loop liar), timeout tool 30 dtk, payload
+   dipangkas 12k, error tool diberikan ke model sebagai data (graceful),
+   klien putus → task di-cancel, DB tetap konsisten.
+5. **Persist & replay** — setiap event ditulis ke `trace_events`
+   (conversation_id, run_id, seq, type, payload) sehingga riwayat percakapan
+   membuka kembali seluruh timeline, prompt, logprobs, dan metriknya.
+
+### Pipeline tools
+
+- **Browsing**: `web_search` (DDG lite → parse BS4 judul/URL/snippet; Serper/
+  Tavily opsional) lalu `fetch_url` (ekstraksi teks ≤ 12k char). Gagal jaringan
+  ≠ crash: error menjadi `tool_result` yang dikutip model secara jujur.
+- **Diagram**: `create_diagram(kind=flowchart|graph|mindmap, nodes, edges)`
+  menormalisasi id, escape label, memvalidasi edge, dan memproduksi Mermaid;
+  frontend merender via `mermaid.render()`. Model juga boleh emit fence
+  ` ```mermaid ` langsung — markdown renderer mendeteksinya otomatis.
+
 ## Struktur repo
 
 ```
