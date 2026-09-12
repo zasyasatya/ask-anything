@@ -1,0 +1,40 @@
+# VCS & file build-config (tidak perlu masuk build context)
+.git
+.gitignore
+.gitattributes
+.github
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Dependencies & artifact: di-install / di-build ulang DI DALAM image
+**/node_modules
+**/.next
+**/out
+**/dist
+**/__pycache__
+**/*.py[cod]
+.venv
+**/.venv
+.pytest_cache
+**/.pytest_cache
+**/tsconfig.tsbuildinfo
+
+# Data runtime & secret (jangan pernah ikut ter-bake ke image)
+data
+**/data
+**/*.db
+**/*.sqlite
+**/*.sqlite3
+.env
+.env.*
+**/*.log
+
+# Launcher lokal & tooling dokumentasi (container pakai docker/entrypoint.sh)
+run.bat
+scripts/
+README.md
+
+# OS
+.DS_Store
+Thumbs.db
