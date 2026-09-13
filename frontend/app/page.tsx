@@ -19,14 +19,46 @@ import type { Conversation, SettingsInfo, TraceEvent } from "@/lib/types";
 
 const EMPTY_LIVE: LiveState = { answer: "", thinking: "", tools: [] };
 
+/**
+ * Riwayat → tampilan.
+ *
+ * Pesan `role:"tool"` tidak ditampilkan sendiri; hasilnya **dilipat** ke pesan
+ * `assistant_toolcalls` pendahulunya sebagai `meta.tool_results`, sehingga chip
+ * tool di riwayat menampilkan status yang sama seperti saat run berlangsung
+ * (jumlah hasil, gagal, durasi) — bukan sekadar centang.
+ */
 function mapMessages(raw: Array<Record<string, unknown>>): DispMsg[] {
-  return raw
-    .filter((m) => ["user", "assistant", "assistant_toolcalls"].includes(m.role as string))
-    .map((m) => ({
-      role: m.role as string,
-      content: (m.content as string) || "",
-      meta: (m.meta as Record<string, unknown>) || {},
-    }));
+  const out: DispMsg[] = [];
+  for (const m of raw) {
+    const role = m.role as string;
+    const meta = (m.meta as Record<string, unknown>) || {};
+    if (role === "tool") {
+      for (let i = out.length - 1; i >= 0; i--) {
+        if (out[i].role !== "assistant_toolcalls") continue;
+        const prev = out[i].meta || {};
+        prev.tool_results = [
+          ...((prev.tool_results as unknown[]) || []),
+          {
+            name: meta.name,
+            source: meta.source,
+            ok: meta.ok,
+            hits: meta.hits,
+            summary: meta.summary,
+            error: meta.error,
+            new_sources: meta.new_sources,
+            duration_ms: meta.duration_ms,
+            callId: meta.tool_call_id,
+          },
+        ];
+        out[i].meta = prev;
+        break;
+      }
+      continue;
+    }
+    if (!["user", "assistant", "assistant_toolcalls"].includes(role)) continue;
+    out.push({ role, content: (m.content as string) || "", meta });
+  }
+  return out;
 }
 
 export default function Page() {
@@ -93,16 +125,38 @@ export default function Page() {
         } else if (ev.type === "tool_call") {
           setLive((l) => ({
             ...l,
-            tools: [...l.tools, { name: ev.name as string, status: "running" }],
+            tools: [
+              ...l.tools,
+              {
+                name: ev.name as string,
+                status: "running",
+                callId: ev.id as string | undefined,
+                source: ev.source as string | undefined,
+              },
+            ],
           }));
         } else if (ev.type === "tool_result") {
           setLive((l) => ({
             ...l,
-            tools: l.tools.map((t, i) =>
-              i === l.tools.length - 1
-                ? { ...t, status: "done", summary: ev.summary as string }
-                : t
-            ),
+            tools: l.tools.map((t, i) => {
+              // cocokkan by id bila ada; fallback: pemanggilan terakhir yang
+              // belum selesai (beberapa tool bisa jalan berurutan dalam 1 step)
+              const match =
+                (ev.id != null && t.callId === ev.id && t.status === "running") ||
+                (i === l.tools.length - 1 && t.status === "running");
+              return match
+                ? {
+                    ...t,
+                    status: ev.ok === false ? "failed" : "done",
+                    summary: ev.summary as string,
+                    source: ev.source as string | undefined,
+                    ok: ev.ok as boolean | undefined,
+                    hits: ev.hits as number | null | undefined,
+                    duration_ms: ev.duration_ms as number | undefined,
+                    new_sources: ev.new_sources as number | undefined,
+                  }
+                : t;
+            }),
           }));
         } else if (ev.type === "error") {
           setLive((l) => ({ ...l, answer: l.answer + `\n\n> ⚠️ ${ev.message}` }));
@@ -142,25 +196,30 @@ export default function Page() {
       />
 
       <main className="flex min-w-0 flex-1 flex-col bg-[#f7f7f8]">
-        <header className="flex h-12 shrink-0 items-center justify-between border-b border-zinc-200/70 bg-white/60 px-4 backdrop-blur">
-          <p className="truncate text-sm text-zinc-500">
+        <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-zinc-200/70 bg-white/60 px-4 backdrop-blur">
+          <p className="min-w-0 flex-1 truncate text-sm text-zinc-500">
             {conversations.find((c) => c.id === activeId)?.title || "New chat"}
           </p>
-          <div className="flex items-center gap-2">
+          {/* shrink-0 + nowrap: saat Interpreter membuka (460px hilang), tombol
+              tidak boleh menimpa judul atau bertumpuk satu sama lain. */}
+          <div className="flex shrink-0 items-center gap-2">
             {settings && (
-              <span className="hidden rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[10.5px] text-zinc-500 sm:block">
+              <span
+                title={`${settings.provider} · ${settings.model}`}
+                className="hidden max-w-[190px] truncate whitespace-nowrap rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[10.5px] text-zinc-500 sm:block"
+              >
                 {settings.provider} · {settings.model}
               </span>
             )}
             <Link
               href="/panduan"
-              className="hidden rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white md:block"
+              className="hidden shrink-0 rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white sm:block"
             >
               Panduan
             </Link>
             <Link
               href="/developer"
-              className="hidden rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white lg:block"
+              className="hidden shrink-0 rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white lg:block"
             >
               Developer
             </Link>
@@ -168,13 +227,13 @@ export default function Page() {
               href="/slides/slides-cara-kerja.html"
               target="_blank"
               rel="noreferrer"
-              className="hidden rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white md:block"
+              className="hidden shrink-0 whitespace-nowrap rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white xl:block"
             >
               Docs & Slides →
             </a>
             <button
               onClick={() => setShowInt((v) => !v)}
-              className={`rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
+              className={`shrink-0 whitespace-nowrap rounded-lg border px-3 py-1.5 text-xs font-medium transition ${
                 showInt
                   ? "border-zinc-800 bg-zinc-900 text-white"
                   : "border-zinc-300 bg-white/70 text-zinc-600 hover:bg-white"

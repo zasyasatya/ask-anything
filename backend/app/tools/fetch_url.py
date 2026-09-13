@@ -16,7 +16,7 @@ async def run_fetch_url(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     url = str(args.get("url", "")).strip()
     if not url.startswith(("http://", "https://")):
         return ToolResult(summary=f"fetch_url: URL tidak valid: {url}",
-                          data={"error": "invalid url"})
+                          data={"error": "invalid url"}, ok=False, hits=0)
     try:
         resp = await ctx.http.get(
             url,
@@ -27,7 +27,7 @@ async def run_fetch_url(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         resp.raise_for_status()
     except httpx.HTTPError as exc:
         return ToolResult(summary=f"fetch_url gagal: {exc}",
-                          data={"error": str(exc)})
+                          data={"error": str(exc)}, ok=False, hits=0)
 
     soup = BeautifulSoup(resp.text, "html.parser")
     for tag in soup(["script", "style", "noscript", "svg", "iframe", "nav",
@@ -39,6 +39,7 @@ async def run_fetch_url(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
     return ToolResult(
         summary=f"fetch_url {url}: {len(text)} karakter",
         data={"url": url, "title": title, "text": text},
+        hits=1 if text else 0,
     )
 
 
@@ -48,6 +49,8 @@ FETCH_URL = Tool(
         "Fetch a web page and return its readable text content. Use after "
         "web_search to read a specific source in depth."
     ),
+    source="browser",
+    evidence=True,
     parameters={
         "type": "object",
         "properties": {

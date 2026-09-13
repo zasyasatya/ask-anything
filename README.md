@@ -3,14 +3,27 @@
 Platform AI chatbot **agentic** — bukan hanya menjawab: agent ini bisa *browsing*
 web, men-generate **diagram alir (flowchart)** maupun **diagram graph** yang
 dirender live di UI sebagai **graph HTML interaktif** (pan/zoom/drag node/klik
-untuk relasi — dengan Mermaid sebagai mode pembanding), dan — yang membuatnya
-berbeda — **seluruh proses LLM terlihat**: thinking/reasoning, tool call + argumen mentah, hasil tool, logprobs
-per-token, prompt assembly, sampai metrik usage. Semuanya tampil live di panel
-**Mechanistic Interpreter**.
+untuk relasi — dengan Mermaid sebagai mode pembanding, dan kanvas yang bisa
+**layar penuh**), dan — yang membuatnya berbeda — **seluruh proses LLM terlihat**:
+thinking/reasoning, tool call + argumen mentah, hasil tool, logprobs per-token,
+prompt assembly, sampai metrik usage. Semuanya tampil live di panel
+**Mechanistic Interpreter** sebagai **log eksekusi** (satu baris per langkah,
+dengan status + durasi), bukan sebagai narasi panjang.
+
+Setiap keluaran diberi **lencana asal** — 🌐 **Browser** (bukti web, wajib
+disitasi), 🔀 **Tool diagram** (konten yang dibuat alat, bukan sumber), 🧮
+**Kalkulator** — dan setiap klaim dari browsing **tersitasi ke URL asalnya**:
+tool browser mendaftarkan sumber bernomor, model menulis `[1]`, backend
+memverifikasi marker itu, dan UI menandainya bila ada nomor yang tidak ada di
+daftar. Bila browser tidak menghasilkan apa pun, UI mengatakannya
+(`0 hasil — belum ada data`) alih-alih menampilkan gelembung kosong atau
+sitasi karangan.
 
 - **Backend**: FastAPI (monolith) dengan streaming SSE terbaru.
-- **Frontend**: Next.js 16 (latest) + Tailwind, design system light/indigo
-  (sidebar riwayat per tanggal, hero grid, prompt card, chips, Explore).
+- **Frontend**: Next.js 16 (latest) + Tailwind, design system light/indigo.
+  Navbar kiri **bisa di-collapse/expand** (`Ctrl+B`, tersimpan) sehingga ruang
+  chat & kanvas ikut meluas; kolom chat lega (maks 1180px), kartu diagram
+  `min(66vh,620px)` + layar penuh, panel Interpreter bisa diseret 380–980px.
 - **Tiga mode LLM**: `huggingface` (**inference lokal** — model HuggingFace
   dijalankan `transformers` langsung di proses backend, tanpa llama.cpp),
   `openai` (OpenAI API **atau gateway OpenAI-compatible** apa pun), dan `mock`
@@ -113,6 +126,7 @@ ter-install di image — jadi untuk VPS pakai provider `openai`.
 |---|---|---|
 | **Pengguna** | [`docs/PANDUAN-PENGGUNA.md`](docs/PANDUAN-PENGGUNA.md) | `/panduan` |
 | **Developer** | [`docs/PANDUAN-DEVELOPER.md`](docs/PANDUAN-DEVELOPER.md) | `/developer` |
+| **Dokumen teknis** (setiap paket + cara kerjanya) | [`docs/TEKNIS.md`](docs/TEKNIS.md) | – |
 | **Penyetelan provider per mode** | [`docs/PENYESUAIAN-PROVIDER.md`](docs/PENYESUAIAN-PROVIDER.md) | – |
 | **Deploy / DevOps** | [`docs/DEPLOY-COOLIFY.md`](docs/DEPLOY-COOLIFY.md) | – |
 
@@ -121,15 +135,26 @@ lokal / `openai` + gateway / `mock`), cara memuat **daftar model** dari endpoint
 retry ladder payload + fallback non-streaming, diagnostik **Test koneksi**,
 tabel troubleshooting, dan **log percobaan nyata** (chat sungguhan lewat SSE).
 
-Keduanya memuat **screenshot aplikasi yang benar-benar berjalan** (bukan
-mockup) dari `docs/images/`: hero & galeri Explore, chat diagram + render
-Mermaid, keempat tab *Mechanistic Interpreter* (Timeline/Prompt/Tokens/
-Metrics), browsing dengan *graceful error*, calculator, settings provider,
-riwayat sidebar, banner LLM offline, aksen warna, hingga viewport mobile.
-Screenshot di-generate otomatis dari UI live:
+`TEKNIS.md` adalah rujukan mendalam: **inventaris setiap dependency** (versi,
+apa fungsinya, bagaimana ia bekerja di kode ini — termasuk yang *sengaja tidak*
+dipakai dan alasannya), plus uraian algoritma layout graph, parser Mermaid
+toleran, retry ladder provider, pipeline sitasi, dan batas ukuran/timeout yang
+berlaku.
+
+Semua dokumen memuat **screenshot aplikasi yang benar-benar berjalan** (bukan
+mockup) dari `docs/images/`: hero & galeri Explore, navbar dalam keadaan
+collapsed, ruang chat lebar + Interpreter berdampingan, kartu diagram dengan
+badge provenance dan mode **layar penuh**, kelima tab *Mechanistic Interpreter*
+(Log / LLM / Tools / Sumber / Metrik), jawaban bersitasi, browsing 0 hasil
+sebagai status eksplisit, calculator, settings provider, riwayat sidebar,
+banner LLM offline, aksen warna, hingga viewport mobile. Screenshot di-generate
+otomatis dari UI live — dan didahului smoke test UI supaya yang difoto pasti
+perilaku yang benar:
 
 ```bash
 python3 run.py --demo                                   # stack + emulator LLM
+python3 scripts/fake_search_server.py --port 8099 &     # gateway demo (opsional)
+python3 scripts/smoke_ui.py                             # 30 pemeriksaan UI
 BASE_URL=http://127.0.0.1:3000 \
   python3 scripts/capture_screenshots.py main           # flow UI
 python3 scripts/capture_screenshots.py pages            # halaman /panduan & /developer
@@ -246,25 +271,35 @@ Panel kanan UI (tombol `Mechanistic Interpreter →`) menampilkan **semua** yang
 LLM & agent lakukan, per-event, dan juga tersimpan di SQLite sehingga riwayat
 bisa di-replay:
 
+Panel ini **membuka blackbox**, bukan menjelaskannya dengan paragraf — isinya
+baris log, tabel, dan payload mentah. Strip di atas tab selalu menunjukkan
+angka: `ev · llm · tool · browser · sumber · err` + status sitasi. Panel bisa
+diseret untuk dilebarkan (380–980px, tersimpan).
+
 | Tab | Isi |
 |---|---|
-| **Timeline** | Urutan event: `meta → thinking → tool_call → tool_result → … → done`, tiap baris bisa dibentangkan jadi JSON mentah |
-| **Prompt** | Prompt assembly: system prompt + messages persis seperti dikirim ke LLM + daftar tools |
-| **Tokens** | Logprobs streaming: token terpilih, probability bar, top alternatif (hanya mode `openai`/`hf_mode=server`; inference lokal tidak mengirim logprobs) |
-| **Metrics** | provider/model, temperature, steps, latency, token usage, jumlah event/error |
+| **Log** *(default)* | Satu baris per langkah: `t+` relatif, actor, aksi, status (`ok` / `0 hasil` / `gagal`), provenance, durasi. Delta & thinking **diringkas jadi hitungan** (`89 delta · 625 B`), tiap baris bisa dibuka jadi JSON mentah. Tombol **copy log** menyalin semuanya apa adanya. |
+| **LLM** | Blackbox per langkah: messages persis yang dikirim, schema tools, **raw completion**, chain-of-thought, `tool_calls` yang diminta model, `finish_reason`, + chip logprobs per token (hanya mode `openai`/`hf_mode=server` & mock; inference lokal tidak mengirim logprobs) |
+| **Tools** | Tiap eksekusi: argumen JSON dari model, payload hasil mentah, `ok`/`error`/`0 hasil`, durasi, provenance, jumlah sumber yang terdaftar, catatan provider (retry ladder, `max_steps` habis) |
+| **Sumber** | Tabel sitasi bernomor: asal (`browser` + tool), judul/URL, status dikutip, hasil verifikasi (`cited` / `appended` / `no-evidence`) dan penanda nomor tak valid |
+| **Metrik** | provider/model, temperature, max_tokens, steps terpakai, `stopped_reason`, latency, token usage, jumlah tool/browser/sumber/error/notes |
 
-Event yang sama juga dirender inline di chat: chip tool (`web_search ✓`),
-kotak thinking 💭, dan diagram auto-render dalam dua mode: **Graph interaktif**
-(default) atau **Mermaid**.
+Event yang sama juga dirender inline di chat: chip tool **berlencana asal**
+(`web_search · Browser · 3 hasil`), kotak thinking 💭, diagram auto-render dalam
+dua mode (**Graph interaktif** default / **Mermaid**) dengan badge provenance,
+marker sitasi `[1]` yang tertaut ke URL, dan bar Sitasi di bawah jawaban.
 
 ## Tools agent
 
-| Tool | Fungsi |
-|---|---|
-| `web_search` | Cari web — DuckDuckGo lite default (tanpa API key); Serper/Tavily opsional via env |
-| `fetch_url` | Ambil & ekstrak teks sebuah halaman (readability ringan) |
-| `create_diagram` | Generate Mermaid: `flowchart` (diagram alir), `graph` (relasi), `mindmap` — tervalidasi server-side; UI merender sebagai graph interaktif |
-| `calculator` | Aritmetika aman (AST) |
+Tiap tool mendeklarasikan **asal hasilnya** (`Tool.source`), dan itulah yang
+dipakai UI untuk melabeli:
+
+| Tool | Asal | Fungsi |
+|---|---|---|
+| `web_search` | 🌐 browser | Cari web — DuckDuckGo lite default (tanpa API key); Serper/Tavily opsional via env. Hasilnya menjadi **sumber bernomor** yang wajib disitasi |
+| `fetch_url` | 🌐 browser | Ambil & ekstrak teks sebuah halaman (readability ringan); sumber ditandai `read=True` |
+| `create_diagram` | 🔀 tool diagram | Generate Mermaid: `flowchart`, `graph`, `mindmap` — tervalidasi server-side; UI merender sebagai graph interaktif. **Bukan** bukti web, jadi tidak pernah masuk registri sitasi |
+| `calculator` | 🧮 compute | Aritmetika aman (AST), dapat diverifikasi ulang tanpa sitasi |
 
 ## Konfigurasi (env, prefix `ASK_`)
 
@@ -283,6 +318,7 @@ kotak thinking 💭, dan diagram auto-render dalam dua mode: **Graph interaktif*
 | `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | OpenAI / gateway kompatibel |
 | `ASK_TEMPERATURE`, `ASK_MAX_STEPS`, `ASK_LOGPROBS` | 0.7 / 6 / true | Generasi & interpreter |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+key masing-masing) |
+| `ASK_SEARCH_DDG_URL` | `https://lite.duckduckgo.com/lite/` | Endpoint pencarian — ke gateway internal/self-host, atau `scripts/fake_search_server.py` untuk uji E2E tanpa internet |
 | `ASK_DB_PATH` | `data/ask_anything.db` | SQLite (di container: `/app/data/ask_anything.db`) |
 
 Semua juga bisa diubah runtime dari UI → *Settings provider*.
@@ -345,6 +381,12 @@ Mekanisme inti (semua bisa dilihat di panel **Mechanistic Interpreter**):
 - **Browsing**: `web_search` (DDG lite → parse BS4 judul/URL/snippet; Serper/
   Tavily opsional) lalu `fetch_url` (ekstraksi teks ≤ 12k char). Gagal jaringan
   ≠ crash: error menjadi `tool_result` yang dikutip model secara jujur.
+- **Sitasi**: tiap URL yang benar-benar disentuh tool browser masuk registri
+  sumber bernomor (`app/sources.py`); daftarnya diumpankan balik ke model tepat
+  setelah payload tool supaya ia menulis `[n]`. Nomor itu lalu **diverifikasi**
+  (`cited` / `uncited` / `invalid`), blok `## Sumber` disisipkan bila model lupa,
+  dan hasilnya disimpan di `messages.meta` + event `sources`/`citations`. Tidak
+  ada hasil = tidak ada sitasi: UI menampilkan status itu, bukan angka karangan.
 - **Diagram**: `create_diagram(kind=flowchart|graph|mindmap, nodes, edges)`
   menormalisasi id, escape label, memvalidasi edge, dan memproduksi Mermaid.
   Model juga boleh emit fence ` ```mermaid ` langsung — markdown renderer

@@ -14,17 +14,18 @@
 
 1. [Mulai dalam 1 menit](#1-mulai-dalam-1-menit)
 2. [Mengenal layar utama](#2-mengenal-layar-utama)
-3. [Chat pertama Anda](#3-chat-pertama-anda)
-4. [Membaca jawaban agent](#4-membaca-jawaban-agent)
-5. [Browsing & penanganan error](#5-browsing--penanganan-error)
-6. [Mechanistic Interpreter](#6-mechanistic-interpreter)
-7. [Riwayat percakapan](#7-riwayat-percakapan)
-8. [Settings provider](#8-settings-provider)
-9. [Tampilan, aksen & mobile](#9-tampilan-aksen--mobile)
-10. [Materi belajar lanjutan](#10-materi-belajar-lanjutan)
-11. [Tips prompt yang efektif](#11-tips-prompt-yang-efektif)
-12. [Troubleshooting](#12-troubleshooting)
-13. [Data & privasi](#13-data--privasi)
+3. [Navbar collapsible & ruang chat lega](#3-navbar-collapsible--ruang-chat-lega)
+4. [Chat pertama Anda](#4-chat-pertama-anda)
+5. [Membaca jawaban agent: provenance & sitasi](#5-membaca-jawaban-agent-provenance--sitasi)
+6. [Browsing & penanganan error](#6-browsing--penanganan-error)
+7. [Mechanistic Interpreter](#7-mechanistic-interpreter)
+8. [Riwayat percakapan](#8-riwayat-percakapan)
+9. [Settings provider](#9-settings-provider)
+10. [Tampilan, aksen & mobile](#10-tampilan-aksen--mobile)
+11. [Materi belajar lanjutan](#11-materi-belajar-lanjutan)
+12. [Tips prompt yang efektif](#12-tips-prompt-yang-efektif)
+13. [Troubleshooting](#13-troubleshooting)
+14. [Data & privasi](#14-data--privasi)
 
 ---
 
@@ -70,8 +71,9 @@ python3 run.py --model Qwen/Qwen3-1.7B
 
 | Bagian | Fungsi |
 |---|---|
-| **Sidebar kiri** | Tombol `New chat`, riwayat percakapan berkelompok tanggal (`Today`, `Yesterday`, …), indikator status LLM (hijau/merah), tombol `Settings provider`. |
+| **Navbar kiri** | Bisa **di-collapse** jadi rail ikon (64px) atau **di-expand** (268px) lewat tombol `‹` di pojok atau `Ctrl/Cmd+B`. berisi `New chat`, riwayat berkelompok tanggal (`Today`, `Yesterday`, …), indikator status LLM (hijau/merah), dan `Settings provider`. Pilihan Anda tersimpan antar-sesi. |
 | **Header** | Judul percakapan aktif, chip provider+model (mis. `huggingface · Qwen/Qwen3-1.7B`), tautan `Panduan`, `Developer`, `Docs & Slides`, dan tombol `Mechanistic Interpreter →`. |
+| **Ruang chat** | Kolom percakapan **lebar** (sampai 1180px, minus padding) dan otomatis memanfaatkan ruang saat navbar di-collapse. |
 | **Composer** | Kotak pertanyaan. Kirim dengan `Enter` atau tombol `Ask`; `Shift+Enter` untuk baris baru. Saat agent bekerja tombol menjadi `Thinking…`. |
 | **Badge `4 tools`** | Daftar tool aktif: `web_search`, `fetch_url`, `create_diagram`, `calculator` (hover untuk tooltip). |
 | **Chip contoh & Explore** | Prompt siap pakai per kategori (Browsing / Diagram / Tools); klik untuk mengisi composer. |
@@ -79,7 +81,61 @@ python3 run.py --model Qwen/Qwen3-1.7B
 ![Galeri Explore](images/02-hero-explore.png)
 *Galeri Explore dengan tab kategori. Klik kartu untuk memakai promptnya.*
 
-## 3. Chat pertama Anda
+## 3. Navbar collapsible & ruang chat lega
+
+Navbar kiri bisa diperkecil jadi **rail ikon 64px** atau dibuka penuh
+**268px**. Ada tiga cara menoggle:
+
+1. Tombol `‹` / `›` di pojok kanan-atas navbar;
+2. Pintasan keyboard **`Ctrl+B`** (macOS: `Cmd+B`);
+3. Lebar tersimpan otomatis, jadi pilihan Anda bertahan setelah refresh.
+
+![Navbar collapsed](images/19-sidebar-collapsed.png)
+*Navbar collapsed: merek, `New chat`, riwayat sebagai titik (judul tetap terbaca
+lewat tooltip saat kursor diarahkan, dan tetap bisa dipilih dengan keyboard),
+indikator status LLM, dan Settings sebagai ikon. Kanvas diagram mengambil alih
+ruang yang dilepaskan.*
+
+Saat collapsed, seluruh lebar itu dikembalikan ke **ruang chat** — berguna untuk
+diagram besar, tabel, dan panel Interpreter yang terbuka berdampingan.
+
+| Layout | Kapan dipakai |
+|---|---|
+| Navbar expand + chat + Interpreter | Membaca log per langkah; tiga panel sekaligus muat di layar ≥1600px. |
+| Navbar collapse + chat + Interpreter | Layar sedang/laptop: diagram & log tetap lebar. |
+| Navbar collapse saja | Fokus membaca jawaban/kanban visual. |
+
+![Ruang chat + Interpreter](images/28-wide-room-plus-interpreter.png)
+*Ruang chat (max 1180px) dan Interpreter berdampingan; kartu diagram mengisi
+seluruh kolom teks, tidak lagi dipotong kolom sempit.*
+
+![Navbar collapsed, ruang meluas](images/29-wide-room-navbar-collapsed.png)
+*Hal yang sama setelah `Ctrl+B`: kolom chat & kanvas melebar ~200px.*
+
+### 3.1 Kanvas visualisasi: lebar & layar penuh
+
+Kartu diagram memakai tinggi fleksibel `min(66vh, 620px)` (minimum 380px) dan
+bisa dilayarkan penuh:
+
+| Kontrol | Fungsi |
+|---|---|
+| **Layar penuh** (pojok kanan-atas kartu) | Kanvas jadi fullscreen. `Esc` atau tombol **Keluar** untuk kembali. |
+| **Graph / Mermaid** | Renderer interaktif (tahan sumber rusak) vs renderer Mermaid asli. Preferensi tersimpan global. |
+| `↓ TD` / `→ LR` | Arah layout graph. |
+| `−` / `%` / `+` / pas-ke-layar | Zoom; dobel-klik latar juga memicu fit. |
+| Drag node / drag latar | Atur posisi / geser kanvas. Scroll = zoom. |
+
+![Kanvas layar penuh](images/21-canvas-fullscreen.png)
+*Mode layar penuh. Strip “fullscreen native · Esc keluar” menandakan Fullscreen
+API asli dipakai. Bila browser menolaknya (mis. aplikasi dibuka di dalam iframe
+tanpa izin), kartu otomatis pindah ke **focus mode** — overlay `fixed inset-0`
+yang terlihat sama, dan strip itu menyebutkan alasannya, bukan diam-diam gagal.*
+
+Kanvas juga men-*refit* otomatis saat kartunya berubah ukuran (navbar
+di-collapse, panel di-drag, layar diputar), jadi diagram tidak tertinggal
+sekecil ukuran awal.
+
+## 4. Chat pertama Anda
 
 1. Klik chip contoh (mis. `Diagram alir →`) atau ketik pertanyaan sendiri.
 2. Periksa badge `4 tools` dan pilihan aksen warna di baris bawah composer.
@@ -91,19 +147,58 @@ python3 run.py --model Qwen/Qwen3-1.7B
 *Composer terisi prompt contoh setelah klik chip.*
 
 ![Chat diagram + interpreter](images/04-chat-diagram-interpreter.png)
-*Satu run lengkap: chip tool `create_diagram ✓`, jawaban teks, diagram yang
-dirender live, dan Interpreter (kanan) yang merekam semua event.*
+*Satu run lengkap: chip tool `create_diagram · Tool diagram`, jawaban teks,
+diagram yang dirender live di kartu berprofil tinggi, dan Interpreter (kanan)
+yang merekam semua event sebagai baris log.*
 
-## 4. Membaca jawaban agent
+## 5. Membaca jawaban agent: provenance & sitasi
 
-| Elemen UI | Artinya |
-|---|---|
-| Kotak `💭 thinking` | Reasoning mentah model sebelum memutuskan langkah (saat streaming). |
-| Chip tool (`web_search ✓`, `create_diagram ✓`, …) | Agent memanggil tool tersebut; ✓ = selesai. Hover untuk ringkasan hasil. |
-| Kartu `graph interaktif` | Diagram alir / graph / mindmap hasil tool, dirender sebagai graph HTML yang bisa di-zoom, digeser, dan diklik (default). Toggle ke mode `mermaid diagram` tersedia di kartu yang sama. |
-| Teks markdown | Jawaban final: list, tabel, tautan sumber, dan blok kode dirender otomatis. |
+Setiap keluaran agent diberi **lencana asal** supaya jelas mana bukti eksternal
+dan mana konten buatan tool:
 
-### 4.1 Mode diagram: Graph interaktif vs Mermaid
+| Lencana | Tool | Artinya |
+|---|---|---|
+| 🌐 **Browser** | `web_search`, `fetch_url` | Diambil langsung dari web. **Wajib disitasi** — tiap URL masuk registri sumber bernomor. |
+| 🔀 **Tool diagram** | `create_diagram` | Struktur dibuat model, sintaks Mermaid dibangkitkan backend secara deterministik. **Bukan** sumber web, jadi tidak bisa disitasi sebagai bukti. |
+| 🧮 **Kalkulator** | `calculator` | Aritmetika lokal yang bisa diverifikasi ulang. Tidak butuh sitasi. |
+
+![Kanvas + provenance diagram](images/20-canvas-diagram.png)
+*Kartu diagram menampilkan “dari tool create_diagram”. Bila sumber Mermaid
+ditulis model langsung di dalam jawaban (bukan lewat tool), lencana berubah
+menjadi “ditulis model di jawaban” — keduanya jujur menyebut bahwa itu bukan
+bukti eksternal.*
+
+### 5.1 Sitasi: wajib, dan bisa diklik
+
+Setelah tool browser mengembalikan hasil, backend menyusun daftar sumber
+bernomor dan mengumpankannya ke model; model menulis `[n]` tepat setelah
+kalimat yang dibuktikannya. Angka itu lalu **diverifikasi**:
+
+- `[1]` di jawaban jadi chip superscript yang tertaut ke URL sumbernya;
+- sebuah bar **Sitasi** di bawah jawaban mendaftar tiap sumber + status
+  (`✓ dikutip` / `belum dikutip`) + dari tool mana ia datang;
+- nomor yang tidak ada di daftar ditandai **merah** (“tidak valid”), bukan
+  disembunyikan;
+- kalau model lupa menyisipkan marker sama sekali, blok `## Sumber`
+  **ditambahkan otomatis** supaya jawaban tetap dapat diperiksa, dan statusnya
+  dilaporkan sebagai `appended`.
+
+![Jawaban bersitasi](images/24-chat-browsing-cited.png)
+*Satu run browsing: chip `web_search · Browser`, jawaban dengan marker `[1]`
+yang bisa diklik, daftar `## Sumber`, dan bar Sitasi “1/3 klaim bersitasi”
+dengan status kutipan per sumber. Panel kanan memperlihatkan `sumber 3` dan
+`citations → cited · 1/3 dikutip`.*
+
+![Bar sitasi](images/25-citation-bar.png)
+*Detail bar Sitasi: nomor, judul (talian ke URL), tool asal, lencana `browser`,
+dan status dikutip.*
+
+> **Jujur soal keterbatasan.** Bila browsing tidak menghasilkan apa pun, agent
+> tidak mengarang sitasi. UI menampilkan `Browser · 0 hasil — belum ada data`
+> dan bar Sitasi berbunyi “belum ada hasil browser — tidak ada yang bisa
+> disitasi”. Lihat §6.
+
+### 5.2 Mode diagram: Graph interaktif vs Mermaid
 
 Setiap kartu diagram punya dua mode render (preferensi tersimpan otomatis di
 browser):
@@ -122,57 +217,97 @@ memilih.
 *Tool `calculator`: ekspresi dikirim sebagai argumen tool, hasilnya dikutip
 agent pada jawaban final.*
 
-## 5. Browsing & penanganan error
+## 6. Browsing & penanganan error
 
 Untuk informasi terkini agent memanggil `web_search` (DuckDuckGo lite tanpa
 API key; Serper/Tavily opsional via env), dan dapat melanjutkan dengan
 `fetch_url` untuk membaca satu halaman penuh (teks diekstrak, ≤ 12k karakter).
 
-Bila jaringan gagal, error **tidak** mematikan percakapan: status error
-dikembalikan ke model sebagai data (`tool_result` berstatus error), dan model
-menjawab dengan jujur menyebutkan keterbatasannya — pola *graceful
-degradation* yang sengaja dirancang.
+Ada **tiga** hasil yang mungkin, dan keduanya ditampilkan apa adanya:
+
+| Hasil | Ditampilkan sebagai | Sitasi |
+|---|---|---|
+| Hasil ditemukan | `Browser · N hasil` (hijau) | URL terdaftar sebagai sumber bernomor; jawaban diharapkan menulis `[n]`. |
+| Kosong (query tidak ketemu) | `Browser · 0 hasil — belum ada data` (kuning) | Tidak ada yang bisa disitasi; bar Sitasi mengatakannya. |
+| Gagal (jaringan/endpoint mati) | chip merah `gagal` + catatan `note:no-results`/error di log | Agent menjawab hanya dari yang terverifikasi, tanpa mengarang sumber. |
+
+![Browser 0 hasil](images/27-tool-empty-state.png)
+*Status “0 hasil — belum ada data” pada chip tool: bukan bubble kosong, bukan
+pula jawaban berbunga-bunga.*
 
 ![Browsing error graceful](images/09-chat-browsing-error.png)
-*Contoh: `web_search` gagal di lingkungan offline; error tampil sebagai
-tool_result dan agent tetap merangkum dengan menyebut kegagalannya.*
+*Lingkungan tanpa akses internet: `web_search` gagal, error masuk ke stream
+sebagai `tool_result`, dan agent tetap merangkum dengan menyebut kegagalannya —
+pola graceful degradation yang sengaja dirancang.*
 
-## 6. Mechanistic Interpreter
+### 6.1 Mengarahkan pencarian ke gateway lain
+
+`ASK_SEARCH_DDG_URL` (atau **Settings → POST /api/settings**) menentukan ke mana
+`web_search` mengirim permintaan. Selain untuk gateway pencarian internal
+/self-host, ini memungkinkan demo & uji end-to-end di mesin tanpa internet:
+
+```bash
+python3 scripts/fake_search_server.py --port 8099       # server demo lokal (data fiktif)
+ASK_SEARCH_DDG_URL=http://127.0.0.1:8099/lite/ python3 run.py
+```
+
+> Screenshot alur “browsing + sitasi” di dokumen ini dibuat dengan **server demo
+> tersebut** — kontennya fiktif. Yang difoto adalah perilaku sistem (registry
+> sumber → `[n]` → verifikasi), bukan fakta dari web.
+
+## 7. Mechanistic Interpreter
 
 Panel kanan (tombol `Mechanistic Interpreter →`) merekam **semua** event satu
-run, dan tersimpan di SQLite sehingga riwayat bisa di-**replay** penuh.
+run, dan tersimpan di SQLite sehingga riwayat bisa di-**replay** penuh. Tujuannya
+spesifik: **membuka blackbox** — bukan menjelaskan prosesnya dalam paragraf.
+Karena itu isinya baris, tabel, dan payload mentah; panel bisa diseret tepi
+kirinya untuk melebar (380–980px, tersimpan).
+
+Strip di atas tab selalu menampilkan angka: `ev`, `llm`, `tool`,
+`browser berhasil/total`, `sumber`, `err`, dan status sitasi.
 
 | Tab | Isi | Kapan dipakai |
 |---|---|---|
-| **Timeline** | Urutan event `meta → thinking → tool_call → tool_result → … → done`; tiap baris bisa dibentangkan menjadi JSON mentah. | Memeriksa langkah agent & argumen tool. |
-| **Prompt** | Prompt assembly persis seperti dikirim ke LLM: system prompt, messages, schema tools. | Debug perilaku model. |
-| **Tokens** | Logprobs streaming per token: token terpilih, bar probabilitas, alternatif teratas. | Melihat keyakinan model per token. |
-| **Metrics** | Provider/model, temperature, steps, latensi, token usage, jumlah event/error. | Mengukur performa run. |
+| **Log** *(default)* | Satu baris per langkah: `t+0.04s · create_diag… · tool.exec · running · Tool diagram · {"kin…` — lengkap dengan durasi, status (`ok` / `0 hasil` / `gagal`) dan lencana provenance. Delta & thinking **diringkas jadi hitungan** (mis. `89 delta · 625 B`), bukan ditempel sebagai teks. Baris bisa dibuka untuk JSON mentahnya. Ada tombol **copy log**. | Memeriksa urutan eksekusi & mencari langkah yang lambat/gagal. |
+| **LLM** | Permintaan dan respons **mentah per langkah**: messages persis yang dikirim, schema tools, raw completion, chain-of-thought `<think>`, `tool_calls` yang diminta model, `finish_reason`, plus chip logprob per token bila provider mengirimnya. | Debug perilaku model; melihat apa yang sebenarnya keluar. |
+| **Tools** | Per pemanggilan: argumen JSON dari model, payload hasil, `ok`/`error`/`0 hasil`, durasi, provenance, jumlah sumber yang terdaftar, dan catatan provider. | Memastikan tool benar-benar berjalan seperti yang tercatat. |
+| **Sumber** | Tabel sitasi: nomor, asal (`browser` + tool), judul/URL, status dikutip, dan hasil verifikasi (`cited` / `appended` / `no-evidence`) + penanda nomor tak valid. | Memeriksa apakah klaim benar-benar punya dasar. |
+| **Metrik** | Provider/model, temperature, max_tokens, steps terpakai, `stopped_reason`, latensi, token usage, jumlah tool/browser hit/sumber/error/notes. | Mengukur biaya & performa. |
 
-![Timeline expanded](images/05-interpreter-timeline-expanded.png)
-*Tab Timeline dengan baris event dibentangkan (JSON mentah per event).*
+![Tab Log](images/22-interpreter-log.png)
+*Tab Log: setiap langkah satu baris — timestamp relatif, actor, aksi, status,
+provenance, detail teknis, durasi.*
 
-![Tab Prompt](images/06-interpreter-prompt.png)
-*Tab Prompt: system prompt + messages + tools persis seperti diterima LLM.*
+![Baris log dibentangkan](images/05-interpreter-timeline-expanded.png)
+*Satu baris dibuka: payload JSON mentah event itu, apa adanya.*
 
-![Tab Tokens](images/07-interpreter-tokens.png)
-*Tab Tokens: logprobs per token dengan bar probabilitas & alternatif
-(tersedia pada mode openai/server yang mendukung dan mode mock; inference lokal tidak mengirim logprobs).*
+![Tab LLM](images/06-interpreter-prompt.png)
+*Tab LLM: system prompt, messages persis yang diterima model, raw completion,
+dan tool_calls yang diminta — sisi “blackbox” dari run yang sama.*
 
-![Tab Metrics](images/08-interpreter-metrics.png)
-*Tab Metrics: ringkasan run — provider, model, temperature, steps, latensi, usage.*
+![Tab Sumber](images/23-interpreter-sources.png)
+*Tab Sumber: registri sitasi bernomor + status verifikasi. Bila browser belum
+menghasilkan apa pun, tab ini mengatakannya, bukan menampilkan tabel kosong.*
 
-## 7. Riwayat percakapan
+![Tab Tools](images/07-interpreter-tokens.png)
+*Tab Tools (dinamai ulang dari “Tokens”; logprob kini tampil di tab LLM sebagai
+chip per token).*
+
+![Tab Metrik](images/08-interpreter-metrics.png)
+*Tab Metrik: angka mentah run — provider, model, temperature, steps, latensi, usage.*
+
+## 8. Riwayat percakapan
 
 Setiap percakapan tersimpan otomatis di SQLite lokal **beserta trace
 event-nya**. Klik judul di sidebar untuk membuka kembali pesan *dan* replay
-Interpreter-nya (Timeline/Prompt/Tokens/Metrics tetap lengkap).
+Interpreter-nya (Log/LLM/Tools/Sumber/Metrik tetap lengkap — trace
+menyimpan event yang sama seperti saat run berlangsung).
 
 ![Sidebar riwayat](images/13-sidebar-history.png)
 *Riwayat dikelompokkan per tanggal; indikator “LLM server terhubung”; tombol
 Settings provider di bawah.*
 
-## 8. Settings provider
+## 9. Settings provider
 
 Tombol `Settings provider` membuka dialog pemilihan LLM — berlaku runtime
 tanpa restart:
@@ -199,7 +334,7 @@ pernah terjadi 404 karena path ganda. Isikan **API key** (Bearer token) bila
 gateway Anda memerlukannya; key yang sudah tersimpan hanya ditampilkan sebagai
 `ran…oken`. Tombol **Hapus** di samping kolom key menghapus key yang tersimpan.
 
-### 8.0 Memilih model dari daftar endpoint
+### 9.0 Memilih model dari daftar endpoint
 
 Tombol **Muat model** di samping kolom Base URL memanggil
 `GET <base>/models` dan mengisi **dropdown Model** — jadi Anda tidak perlu
@@ -213,7 +348,7 @@ mengingat/mengetik nama model:
   opsi **✎ Ketik nama model lain…** selalu tersedia untuk gateway yang tidak
   menyediakan `/models`.
 
-### 8.0.1 Test koneksi — mengetahui penyebab error API
+### 9.0.1 Test koneksi — mengetahui penyebab error API
 
 Tombol **Test koneksi** menjalankan tiga request sungguhan ke endpoint yang
 sedang diisi: `GET /models`, chat **non-streaming** (bentuk persis contoh
@@ -226,7 +361,7 @@ terlihat berbeda.
 Langkah penyetelan lengkap tiap mode (lokal / OpenAI+gateway / mock) ada di
 [`PENYESUAIAN-PROVIDER.md`](PENYESUAIAN-PROVIDER.md).
 
-### 8.1 Model offline langsung dari HuggingFace
+### 9.1 Model offline langsung dari HuggingFace
 
 Tab **Model offline (HuggingFace)** mencari model **berdasarkan namanya** di
 HuggingFace Hub — tidak ada katalog tetap, jadi model baru apa pun bisa dipakai:
@@ -265,7 +400,7 @@ Folder `models/` masuk `.gitignore` — bobot model tidak pernah ikut ter-commit
 *Bila model lokal belum dimuat (atau endpoint tidak terjangkau), banner kuning
 muncul dengan tombol “Buka Settings” dan sekali-klik “Pakai mode mock”.*
 
-## 9. Tampilan, aksen & mobile
+## 10. Tampilan, aksen & mobile
 
 Empat aksen warna (indigo, violet, orange, zinc) tersedia di composer — klik
 titik warna untuk mengganti aksen seluruh UI seketika. Layout responsif sampai
@@ -277,7 +412,7 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 ![Mobile](images/15-mobile-hero.png)
 *Tampilan mobile 390×844.*
 
-## 10. Materi belajar lanjutan
+## 11. Materi belajar lanjutan
 
 - **Slide interaktif** “cara kerja agent”: tombol `Docs & Slides →` di header
   atau `/slides/slides-cara-kerja.html` (navigasi `←`/`→`).
@@ -288,7 +423,7 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 ![Slides](images/14-slides-cara-kerja.png)
 *Slide interaktif disajikan backend di `/slides` dan diproxy frontend.*
 
-## 11. Tips prompt yang efektif
+## 12. Tips prompt yang efektif
 
 - Sebutkan kata kunci kemampuan: `cari/berita` → browsing,
   `diagram/alur/graph/mindmap` → diagram, `hitung` → calculator.
@@ -299,7 +434,7 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 - Lanjutkan percakapan untuk merevisi diagram — riwayat dikirim sebagai
   konteks langkah berikutnya.
 
-## 12. Troubleshooting
+## 13. Troubleshooting
 
 | Gejala | Penyebab umum | Solusi |
 |---|---|---|
@@ -311,7 +446,7 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 | Diagram tidak muncul | Model tidak menghasilkan Mermaid valid. | Ulangi dengan prompt eksplisit “diagram alir”; validasi server-side akan menolak Mermaid rusak dan memberikannya kembali ke model. Mode **Graph** tetap merender bagian sumber yang terbaca; tombol “salin” di kartu memudahkan menempelkan sumber ke editor Mermaid eksternal. |
 | UI tampil tapi tidak interaktif | Dev-server Next 16 memblokir resource cross-origin. | Tambahkan host ke `allowedDevOrigins` di `next.config.ts` (sudah disetel untuk 127.0.0.1 & *.e2b.app), lalu restart. |
 
-## 13. Data & privasi
+## 14. Data & privasi
 
 - Semua percakapan + trace tersimpan **lokal** di SQLite
   (`data/ask_anything.db`, lokasi bisa diubah via `ASK_DB_PATH`).

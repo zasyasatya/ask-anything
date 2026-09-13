@@ -15,22 +15,29 @@ Prasyarat
      - set env CHROME_EXE ke binary Chromium apa pun (mis. hasil ekstrak
        paket npm @sparticuz/chromium untuk lingkungan tanpa akses CDN),
        opsional CHROME_LIBS (LD_LIBRARY_PATH tambahan) dan CHROME_FONTS
-       (FONTCONFIG_FILE / dir fontconfig).
+       (FONTCONFIG_FILE / dir fontconfig). Tanpa FONTCONFIG_FILE yang benar,
+       teks pada tangkapan layar hilang sama sekali.
 
 Pemakaian
 ---------
     BASE_URL=http://127.0.0.1:3000 python3 scripts/capture_screenshots.py main
     python3 scripts/capture_screenshots.py pages      # halaman /panduan & /developer
 
-Stage `main`  : seluruh flow UI (hero, chat, interpreter, settings, dll.)
+Stage `main`  : seluruh flow UI (hero, navbar collapse, chat + sitasi, kanvas
+                fullscreen, interpreter log/LLM/sumber, settings, riwayat)
 Stage `pages` : screenshot halaman dokumentasi in-app (jalan setelah stage main,
-                karena halaman tersebut menampilkan gambar hasil stage main).
+                karena halaman tersebut menampilkan gambar hasil stage main)
+
+Catatan kejujuran data: alur "browser" memakai gateway pencarian demo lokal
+(`scripts/fake_search_server.py`, via ASK_SEARCH_DDG_URL) supaya pipeline
+sitasi bisa difoto end-to-end di lingkungan tanpa internet. Kontennya fiktif;
+caption di dokumentasi mengatakannya. Tanpa gateway itu, tool browser memang
+menghasilkan 0 dan UI menampilkannya sebagai status, bukan gelembung kosong.
 """
 from __future__ import annotations
 
 import os
 import sys
-import time
 from pathlib import Path
 
 from playwright.sync_api import sync_playwright
@@ -39,6 +46,8 @@ REPO = Path(__file__).resolve().parents[1]
 OUT = REPO / "docs" / "images"
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:3000")
 API = os.environ.get("API_URL", "http://127.0.0.1:8000")
+#: gateway pencarian demo (lihat docstring). Kosongkan untuk mencoba internet asli.
+SEARCH_DEMO = os.environ.get("SEARCH_DEMO_URL", "http://127.0.0.1:8099/lite/")
 
 CHROME_EXE = os.environ.get("CHROME_EXE")
 CHROME_LIBS = os.environ.get("CHROME_LIBS")
@@ -57,14 +66,33 @@ ARGS = [
 ]
 
 VIEWPORT = {"width": 1440, "height": 900}
+WIDE = {"width": 1680, "height": 950}
 MOBILE = {"width": 390, "height": 844}
 
 
 def browser_kwargs() -> dict:
+    """Launch options for Playwright.
+
+    Untuk Chromium hasil ekstrak `@sparticuz/chromium` (binary + `lib/` +
+    `fonts.conf` dalam satu folder), cukup set CHROME_EXE — lib dan fontconfig
+    dicari di sampingnya. Tanpa `lib/` di LD_LIBRARY_PATH binary gagal load
+    (mis. `libnspr4.so: cannot open shared object file`); tanpa FONTCONFIG_FILE
+    yang benar, screenshot ter-render tapi teksnya hilang.
+    """
     kw: dict = {"args": ARGS, "timeout": 90_000}
     env = dict(os.environ)
-    if CHROME_EXE:
-        kw["executable_path"] = CHROME_EXE
+    exe = Path(CHROME_EXE) if CHROME_EXE else None
+    if exe:
+        kw["executable_path"] = str(exe)
+        side_lib = exe.parent / "lib"
+        side_conf = exe.parent / "fonts.conf"
+        if side_lib.is_dir():
+            env["LD_LIBRARY_PATH"] = (
+                str(side_lib) + ":" + env.get("LD_LIBRARY_PATH", "")
+            ).rstrip(":")
+        if side_conf.is_file():
+            env.setdefault("FONTCONFIG_FILE", str(side_conf))
+            env.setdefault("FONTCONFIG_PATH", str(exe.parent))
     if CHROME_LIBS:
         env["LD_LIBRARY_PATH"] = CHROME_LIBS + ":" + env.get("LD_LIBRARY_PATH", "")
     if CHROME_FONTS:
@@ -82,6 +110,12 @@ class Shots:
         path = OUT / f"{name}.png"
         self.page.screenshot(path=str(path), **kw)
         print(f"  ✔ {path.relative_to(REPO)}")
+        return path
+
+    def element(self, locator, name: str) -> Path:
+        path = OUT / f"{name}.png"
+        locator.screenshot(path=str(path))
+        print(f"  ✔ {path.relative_to(REPO)} (element)")
         return path
 
 
@@ -111,6 +145,25 @@ def set_settings(update: dict) -> None:
     urllib.request.urlopen(req, timeout=15).read()
 
 
+def new_chat(page) -> None:
+    page.click('button:has-text("New chat")')
+    page.wait_for_timeout(350)
+
+
+def close_interpreter(page) -> None:
+    if page.locator('[data-testid="interpreter"]').count():
+        page.click('header button:has-text("Mechanistic Interpreter")')
+        page.wait_for_selector('[data-testid="interpreter"]', state="detached")
+        page.wait_for_timeout(350)
+
+
+def open_interpreter(page) -> None:
+    if not page.locator('[data-testid="interpreter"]').count():
+        page.click('header button:has-text("Mechanistic Interpreter")')
+        page.wait_for_selector('[data-testid="interpreter"]')
+        page.wait_for_timeout(400)
+
+
 def stage_main(page: "Shots") -> None:
     p = page.page
     OUT.mkdir(parents=True, exist_ok=True)
@@ -127,81 +180,148 @@ def stage_main(page: "Shots") -> None:
     page.save("02-hero-explore")
     p.evaluate("document.querySelector('.grid-bg')?.scrollTo(0, 0)")
 
-    print("[3] Banner troubleshooting (provider huggingface, LLM offline)")
-    set_settings({"hf_base_url": "http://127.0.0.1:9/v1"})
-    p.reload(wait_until="networkidle")
-    p.wait_for_timeout(1200)
-    if p.locator("text=LLM lokal tidak terjangkau").count():
-        page.save("12-banner-llm-offline")
-    set_settings({"hf_base_url": "http://127.0.0.1:8081/v1"})
-    p.reload(wait_until="networkidle")
-    p.wait_for_timeout(800)
+    print("[3] Navbar collapsed → expand")
+    p.click('[data-testid="sidebar-toggle"]')
+    p.wait_for_selector('[data-testid="sidebar"][data-collapsed="true"]')
+    p.wait_for_timeout(450)
+    page.save("19-sidebar-collapsed")
+    page.element(p.locator('[data-testid="sidebar"]'), "13-sidebar-history")
+    p.click('[data-testid="sidebar-toggle"]')
+    p.wait_for_selector('[data-testid="sidebar"][data-collapsed="false"]')
+    p.wait_for_timeout(400)
 
-    print("[4] Composer terisi via chip")
+    print("[4] Banner troubleshooting (provider huggingface, model belum dimuat)")
+    saved_provider = "mock"
+    set_settings({"provider": "huggingface"})
+    p.reload(wait_until="networkidle")
+    p.wait_for_timeout(1400)
+    if p.locator("text=Belum ada model offline yang dimuat").count():
+        page.save("12-banner-llm-offline")
+    set_settings({"provider": saved_provider})
+    p.reload(wait_until="networkidle")
+    p.wait_for_timeout(900)
+
+    print("[5] Composer terisi via chip")
     p.click('button:has-text("Diagram alir →")')
     p.wait_for_timeout(300)
     page.save("03-composer-filled")
 
-    print("[5] Kirim prompt diagram → chat + Mermaid + Interpreter")
+    print("[6] Diagram → kanvas graph lebar + provenance + interpreter")
+    if SEARCH_DEMO:
+        set_settings({"search_ddg_url": SEARCH_DEMO})
     p.locator("textarea").first.press("Enter")
-    p.wait_for_selector('main svg[id^="mm-"]', timeout=60_000)
+    p.wait_for_selector('[data-testid="graph-canvas"]', timeout=60_000)
     wait_idle(p)
     p.wait_for_timeout(600)
     page.save("04-chat-diagram-interpreter")
+    page.element(p.locator('[data-testid="diagram-card"]').first, "20-canvas-diagram")
 
-    print("[6] Interpreter: timeline expanded")
-    for i in range(2):
-        p.locator("aside details summary").nth(i).click()
-        p.wait_for_timeout(150)
+    print("[7] Kanvas layar penuh")
+    p.click('[data-testid="diagram-fullscreen"]')
+    p.wait_for_selector('[data-testid="diagram-card"][data-fullscreen="true"]')
+    p.wait_for_timeout(800)
+    page.save("21-canvas-fullscreen")
+    p.keyboard.press("Escape")
+    p.wait_for_selector('[data-testid="diagram-card"][data-fullscreen="false"]')
+    p.wait_for_timeout(400)
+
+    print("[8] Interpreter: tab Log (eksekusi tool)")
+    open_interpreter(p)
+    page.save("22-interpreter-log")
+    # satu baris dibuka supaya payload mentah terlihat
+    row = p.locator('[data-testid^="log-row-"]').nth(4)
+    if row.count():
+        row.click()
+        p.wait_for_timeout(300)
     page.save("05-interpreter-timeline-expanded")
 
-    print("[7] Interpreter: Prompt / Tokens / Metrics")
-    for tab, name in [("Prompt", "06-interpreter-prompt"),
-                      ("Tokens", "07-interpreter-tokens"),
-                      ("Metrics", "08-interpreter-metrics")]:
-        p.locator(f'aside button:has-text("{tab}")').first.click()
-        p.wait_for_timeout(350)
+    print("[9] Interpreter: LLM (blackbox) / Sumber / Metrik")
+    for tab, name in [("LLM", "06-interpreter-prompt"),
+                      ("Sumber", "23-interpreter-sources"),
+                      ("Metrik", "08-interpreter-metrics")]:
+        p.locator(f'[data-testid="interpreter"] button:has-text("{tab}")').first.click()
+        p.wait_for_timeout(400)
         page.save(name)
+    p.locator('[data-testid="interpreter"] button:has-text("Tools")').first.click()
+    p.wait_for_timeout(350)
+    page.save("07-interpreter-tokens")
 
-    print("[8] Browsing (tool error ditangani graceful)")
-    p.click('aside button:has-text("New chat")')
+    print("[10] Browsing: hasil + sitasi (gateway demo lokal)")
+    new_chat(p)
+    close_interpreter(p)
+    send_prompt(p, "Cari berita teknologi terkini minggu ini, rangkum 3 teratas lengkap dengan link sumber.")
+    page.save("24-chat-browsing-cited")
+    if p.locator('[data-testid="citation-bar"]').count():
+        page.element(p.locator('[data-testid="citation-bar"]').first, "25-citation-bar")
+    if p.locator('[data-testid="tool-chip-web_search"]').count():
+        page.element(p.locator("main").first, "26-tool-badges")
+
+    print("[11] Interpreter pada run bersitasi")
+    open_interpreter(p)
+    p.locator('[data-testid="interpreter"] button:has-text("Sumber")').first.click()
     p.wait_for_timeout(400)
+    page.save("23-interpreter-sources")
+    close_interpreter(p)
+
+    print("[12] Browsing tanpa hasil (internet diblokir) — status, bukan bubble kosong")
+    set_settings({"search_ddg_url": "http://127.0.0.1:9/lite/"})
+    new_chat(p)
     send_prompt(p, "Cari berita teknologi terkini minggu ini, rangkum 3 teratas lengkap dengan link sumber.")
     page.save("09-chat-browsing-error")
+    if p.locator('[data-testid="tool-chip-web_search"]').count():
+        page.element(p.locator('[data-testid="tool-chip-web_search"]').first, "27-tool-empty-state")
+    if SEARCH_DEMO:
+        set_settings({"search_ddg_url": SEARCH_DEMO})
 
-    print("[9] Calculator")
-    p.click('aside button:has-text("New chat")')
-    p.wait_for_timeout(400)
+    print("[13] Ruang chat lega (lebar penuh) — kalkulator")
+    new_chat(p)
     send_prompt(p, "Hitung (1250 * 8) / 100 + 2 ** 5 dan jelaskan urutannya.")
     page.save("10-chat-calculator")
 
-    print("[10] Settings provider")
+    print("[14] Layout lebar: chat + interpreter berdampingan")
+    with p.context.browser.new_context(viewport=WIDE, device_scale_factor=2) as ctx:
+        w = ctx.new_page()
+        w.goto(BASE, wait_until="networkidle")
+        new_chat(w)
+        send_prompt(w, "Buatkan diagram alir proses registrasi pengguna dengan langkah validasi email.")
+        # run yang sudah selesai otomatis membuka interpreter; helper ini
+        # idempoten (tidak men-toggle-nya jadi tertutup lagi).
+        open_interpreter(w)
+        w.wait_for_timeout(500)
+        w.screenshot(path=str(OUT / "28-wide-room-plus-interpreter.png"))
+        print(f"  ✔ {OUT / '28-wide-room-plus-interpreter.png'}")
+        # dan saat navbar di-collapse: ruang makin lega
+        w.click('[data-testid="sidebar-toggle"]')
+        w.wait_for_timeout(450)
+        w.screenshot(path=str(OUT / "29-wide-room-navbar-collapsed.png"))
+        print(f"  ✔ {OUT / '29-wide-room-navbar-collapsed.png'}")
+
+    print("[15] Settings provider")
+    p.goto(BASE, wait_until="networkidle")
     p.click('button:has-text("Settings provider")')
     p.wait_for_selector('text=Provider')
-    p.wait_for_timeout(300)
+    p.wait_for_timeout(400)
     page.save("11-settings-provider")
     p.click('button:has-text("Cancel")')
     p.wait_for_timeout(300)
 
-    print("[11] Sidebar riwayat")
-    p.locator("aside").first.screenshot(path=str(OUT / "13-sidebar-history.png"))
-    print(f"  ✔ {OUT / '13-sidebar-history.png'}")
+    print("[16] Sidebar riwayat (expanded)")
+    page.element(p.locator('[data-testid="sidebar"]'), "13-sidebar-history")
 
-    print("[12] Slides cara kerja")
+    print("[17] Slides cara kerja")
     p.goto(f"{BASE}/slides/slides-cara-kerja.html", wait_until="networkidle")
     p.wait_for_timeout(1500)
     page.save("14-slides-cara-kerja")
 
-    print("[13] Aksen warna")
+    print("[18] Aksen warna")
     p.goto(BASE, wait_until="networkidle")
-    p.click('aside button:has-text("New chat")')
-    p.wait_for_timeout(400)
+    new_chat(p)
     p.click('button[title="orange"]')
     p.wait_for_timeout(300)
     page.save("16-accent-orange")
     p.click('button[title="indigo"]')
 
-    print("[14] Mobile viewport")
+    print("[19] Mobile viewport")
     with p.context.browser.new_context(viewport=MOBILE, device_scale_factor=2) as ctx:
         m = ctx.new_page()
         m.goto(BASE, wait_until="networkidle")

@@ -48,10 +48,17 @@ function anchor(
 export default function GraphView({
   model,
   height = 460,
+  fill = false,
+  fitSignal = 0,
   onNodeCount,
 }: {
   model: GraphModel;
-  height?: number;
+  /** tinggi kanvas: angka = px, string = CSS (mis. "100%"). */
+  height?: number | string;
+  /** isi tinggi container (dipakai saat fullscreen/focus mode). */
+  fill?: boolean;
+  /** naikkan angka ini untuk memaksa refit (mis. setelah masuk/keluar fullscreen). */
+  fitSignal?: number;
   onNodeCount?: (n: number) => void;
 }) {
   const [dirOverride, setDirOverride] = useState<"TD" | "LR" | null>(null);
@@ -64,6 +71,9 @@ export default function GraphView({
     | { mode: "node"; id: string; startX: number; startY: number; ox: number; oy: number; moved: boolean }
     | null
   >(null);
+
+  /** Angka fallback untuk perhitungan yang butuh px (prop `height` boleh CSS string). */
+  const heightPx = typeof height === "number" ? height : 460;
 
   const directed = useMemo<GraphModel>(
     () => ({ ...model, direction: dirOverride ?? model.direction }),
@@ -94,7 +104,7 @@ export default function GraphView({
   const fit = useCallback(() => {
     const el = containerRef.current;
     const cw = el?.clientWidth || 800;
-    const ch = el?.clientHeight || height;
+    const ch = el?.clientHeight || heightPx;
     if (!layout.width || !layout.height) return;
     const k = clamp(Math.min(cw / layout.width, ch / layout.height) * 0.96, MIN_K, 1.4);
     setTf({
@@ -102,13 +112,34 @@ export default function GraphView({
       x: (cw - layout.width * k) / 2,
       y: (ch - layout.height * k) / 2,
     });
-  }, [layout, height]);
+  }, [layout, heightPx]);
 
   const didInit = useRef(false);
   useEffect(() => {
     fit();
     didInit.current = true;
   }, [fit]);
+
+  // Refit saat ukuran container berubah (panel di-resize, navbar di-collapse,
+  // masuk/keluar fullscreen) — tanpa ini kanvas tetap sekecil ukuran awal.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let raf = 0;
+    const ro = new ResizeObserver(() => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => fit());
+    });
+    ro.observe(el);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+    };
+  }, [fit]);
+
+  useEffect(() => {
+    if (fitSignal > 0) fit();
+  }, [fitSignal, fit]);
 
   // zoom wheel (non-passive agar bisa preventDefault scroll halaman)
   useEffect(() => {
@@ -133,7 +164,7 @@ export default function GraphView({
   const zoomBy = (factor: number) => {
     const el = containerRef.current;
     const cw = el?.clientWidth || 800;
-    const ch = el?.clientHeight || height;
+    const ch = el?.clientHeight || heightPx;
     setTf((t) => {
       const k = clamp(t.k * factor, MIN_K, MAX_K);
       const wx = (cw / 2 - t.x) / t.k;
@@ -240,8 +271,8 @@ export default function GraphView({
       data-testid="graph-canvas"
       role="group"
       aria-label="Graph interaktif: drag untuk geser, scroll untuk zoom, klik node untuk detail"
-      className="relative w-full touch-none select-none overflow-hidden rounded-b-xl bg-[radial-gradient(circle,#e4e4e7_1px,transparent_1px)] [background-size:18px_18px]"
-      style={{ height, cursor: "grab" }}
+      className={`relative w-full touch-none select-none overflow-hidden bg-[radial-gradient(circle,#e4e4e7_1px,transparent_1px)] [background-size:18px_18px] ${fill ? "h-full min-h-0 flex-1" : "rounded-b-xl"}`}
+      style={fill ? { cursor: "grab" } : { height, cursor: "grab" }}
       onPointerDown={onCanvasPointerDown}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}

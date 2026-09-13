@@ -51,8 +51,9 @@ class MockProvider(BaseProvider):
         }
 
     @staticmethod
-    def _diagram_source(messages: list[dict[str, Any]]) -> str | None:
-        """Ambil sumber Mermaid dari hasil tool create_diagram (bila ada)."""
+    def _tool_payloads(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Payload JSON dari setiap pesan tool (role == "tool")."""
+        out: list[dict[str, Any]] = []
         for m in messages:
             if m.get("role") != "tool":
                 continue
@@ -60,9 +61,27 @@ class MockProvider(BaseProvider):
                 data = json.loads(m.get("content") or "")
             except ValueError:
                 continue
-            if isinstance(data, dict) and data.get("mermaid"):
+            if isinstance(data, dict):
+                out.append(data)
+        return out
+
+    @staticmethod
+    def _diagram_source(messages: list[dict[str, Any]]) -> str | None:
+        """Ambil sumber Mermaid dari hasil tool create_diagram (bila ada)."""
+        for data in MockProvider._tool_payloads(messages):
+            if data.get("mermaid"):
                 return str(data["mermaid"])
         return None
+
+    @staticmethod
+    def _search_hits(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Hasil web_search yang benar-benar ada — tidak pernah dikarang."""
+        hits: list[dict[str, Any]] = []
+        for data in MockProvider._tool_payloads(messages):
+            for r in data.get("results") or []:
+                if isinstance(r, dict) and r.get("url"):
+                    hits.append(r)
+        return hits
 
     async def stream(
         self,
@@ -131,16 +150,30 @@ class MockProvider(BaseProvider):
             {"text": "Konteks lengkap (termasuk hasil tool bila ada). "
                       "Saya rangkum menjadi jawaban akhir."},
         )
-        answer = (
-            "Berikut ringkasan saya: agent Ask-Anything menerima pertanyaan, "
-            "merencanakan langkah, memanggil tool bila perlu, lalu menyusun "
-            "jawaban final yang bisa memuat diagram Mermaid."
-        )
+        hits = self._search_hits(messages)
+        if hits:
+            # Hanya fakta yang benar-benar ada di payload yang boleh disitasi.
+            first = hits[0]
+            answer = (
+                "Berikut ringkasan saya: agent Ask-Anything menerima pertanyaan, "
+                "merencanakan langkah, memanggil tool bila perlu, lalu menyusun "
+                "jawaban final. Hasil browsing berasal dari sumber bernomor, "
+                f"mis. {str(first.get('title') or first.get('url'))[:60]} [1]."
+            )
+        else:
+            answer = (
+                "Berikut ringkasan saya: agent Ask-Anything menerima pertanyaan, "
+                "merencanakan langkah, memanggil tool bila perlu, lalu menyusun "
+                "jawaban final yang bisa memuat diagram Mermaid. "
+                "Catatan: browsing belum menghasilkan data apa pun, jadi tidak "
+                "ada klaim yang bisa disitasi pada jawaban ini."
+            )
         diagram = self._diagram_source(messages)
         if diagram:
             answer = (
-                "Diagram berikut dirender otomatis oleh UI — pilih mode "
-                "**Graph** untuk versi interaktif:\n\n```mermaid\n"
+                "Diagram berikut dihasilkan tool **create_diagram** (bukan sumber "
+                "web) dan dirender otomatis oleh UI — pilih mode **Graph** untuk "
+                "versi interaktif:\n\n```mermaid\n"
                 + diagram
                 + "\n```\n\n"
                 + answer
