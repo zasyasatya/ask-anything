@@ -6,6 +6,7 @@ answers — with fake streaming logprobs so the interpreter UI is fully testable
 from __future__ import annotations
 
 import asyncio
+import json
 import math
 import re
 from typing import Any, AsyncIterator
@@ -48,6 +49,20 @@ class MockProvider(BaseProvider):
             "diagram": bool(_DIAGRAM_RE.search(text)),
             "already_tool": already_tool,
         }
+
+    @staticmethod
+    def _diagram_source(messages: list[dict[str, Any]]) -> str | None:
+        """Ambil sumber Mermaid dari hasil tool create_diagram (bila ada)."""
+        for m in messages:
+            if m.get("role") != "tool":
+                continue
+            try:
+                data = json.loads(m.get("content") or "")
+            except ValueError:
+                continue
+            if isinstance(data, dict) and data.get("mermaid"):
+                return str(data["mermaid"])
+        return None
 
     async def stream(
         self,
@@ -116,11 +131,21 @@ class MockProvider(BaseProvider):
             {"text": "Konteks lengkap (termasuk hasil tool bila ada). "
                       "Saya rangkum menjadi jawaban akhir."},
         )
-        answer_words = (
+        answer = (
             "Berikut ringkasan saya: agent Ask-Anything menerima pertanyaan, "
             "merencanakan langkah, memanggil tool bila perlu, lalu menyusun "
             "jawaban final yang bisa memuat diagram Mermaid."
-        ).split(" ")
+        )
+        diagram = self._diagram_source(messages)
+        if diagram:
+            answer = (
+                "Diagram berikut dirender otomatis oleh UI — pilih mode "
+                "**Graph** untuk versi interaktif:\n\n```mermaid\n"
+                + diagram
+                + "\n```\n\n"
+                + answer
+            )
+        answer_words = answer.split(" ")
         for i, word in enumerate(answer_words):
             chunk = word if i == 0 else " " + word
             yield StreamEvent("delta", {"text": chunk})

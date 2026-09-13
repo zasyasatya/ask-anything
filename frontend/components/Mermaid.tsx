@@ -4,7 +4,19 @@ import mermaid from "mermaid";
 
 let initialized = false;
 
-export default function Mermaid({ source, title }: { source: string; title?: string }) {
+export default function Mermaid({
+  source,
+  title,
+  bare,
+  onError,
+}: {
+  source: string;
+  title?: string;
+  /** tanpa kartu pembungkus (saat dipakai di dalam DiagramBlock) */
+  bare?: boolean;
+  /** callback status error render (null = sukses) */
+  onError?: (msg: string | null) => void;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -26,15 +38,39 @@ export default function Mermaid({ source, title }: { source: string; title?: str
         if (!cancelled && ref.current) {
           ref.current.innerHTML = svg;
           setError(null);
+          onError?.(null);
         }
       })
       .catch((e) => {
-        if (!cancelled) setError(String(e?.message || e));
+        if (!cancelled) {
+          const msg = String(e?.message || e);
+          setError(msg);
+          onError?.(msg);
+        }
       });
     return () => {
       cancelled = true;
     };
-  }, [source]);
+  }, [source, onError]);
+
+  const body = error ? (
+    <pre className="overflow-x-auto font-mono text-xs text-zinc-600">{source}</pre>
+  ) : (
+    <div ref={ref} className="flex justify-center overflow-x-auto" />
+  );
+
+  if (bare) {
+    return (
+      <div>
+        {error && (
+          <span className="mb-2 inline-block rounded-md bg-red-50 px-2 py-0.5 text-[11px] text-red-600">
+            render error
+          </span>
+        )}
+        {body}
+      </div>
+    );
+  }
 
   return (
     <div className="my-3 rounded-xl border border-zinc-200 bg-white p-3 shadow-card">
@@ -53,11 +89,7 @@ export default function Mermaid({ source, title }: { source: string; title?: str
           </span>
         )}
       </div>
-      {error ? (
-        <pre className="overflow-x-auto font-mono text-xs text-zinc-600">{source}</pre>
-      ) : (
-        <div ref={ref} className="flex justify-center overflow-x-auto" />
-      )}
+      {body}
     </div>
   );
 }

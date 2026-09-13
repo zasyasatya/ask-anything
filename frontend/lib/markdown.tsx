@@ -1,7 +1,8 @@
 /* Minimal, dependency-free markdown renderer: headings, lists, bold, inline
-   code, links, blockquotes and fenced code (mermaid auto-rendered). */
+   code, links, blockquotes and fenced code (mermaid → DiagramBlock:
+   graph HTML interaktif secara default, Mermaid sebagai mode alternatif). */
 import type { ReactNode } from "react";
-import Mermaid from "@/components/Mermaid";
+import DiagramBlock from "@/components/DiagramBlock";
 
 function inline(text: string, keyBase: string): ReactNode[] {
   const out: ReactNode[] = [];
@@ -57,7 +58,7 @@ export default function Markdown({ text }: { text: string }) {
       i++; // closing fence
       const code = buf.join("\n");
       if (lang === "mermaid") {
-        blocks.push(<Mermaid key={key++} source={code} />);
+        blocks.push(<DiagramBlock key={key++} source={code} />);
       } else {
         blocks.push(
           <pre key={key++} className="my-2 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-50 p-3 font-mono text-xs leading-5 text-zinc-700">

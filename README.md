@@ -1,9 +1,10 @@
 # Ask Anything
 
 Platform AI chatbot **agentic** — bukan hanya menjawab: agent ini bisa *browsing*
-web, men-generate **diagram alir (flowchart)** maupun **diagram graph** (Mermaid,
-dirender live di UI), dan — yang membuatnya berbeda — **seluruh proses LLM
-terlihat**: thinking/reasoning, tool call + argumen mentah, hasil tool, logprobs
+web, men-generate **diagram alir (flowchart)** maupun **diagram graph** yang
+dirender live di UI sebagai **graph HTML interaktif** (pan/zoom/drag node/klik
+untuk relasi — dengan Mermaid sebagai mode pembanding), dan — yang membuatnya
+berbeda — **seluruh proses LLM terlihat**: thinking/reasoning, tool call + argumen mentah, hasil tool, logprobs
 per-token, prompt assembly, sampai metrik usage. Semuanya tampil live di panel
 **Mechanistic Interpreter**.
 
@@ -253,7 +254,8 @@ bisa di-replay:
 | **Metrics** | provider/model, temperature, steps, latency, token usage, jumlah event/error |
 
 Event yang sama juga dirender inline di chat: chip tool (`web_search ✓`),
-kotak thinking 💭, dan diagram Mermaid auto-render.
+kotak thinking 💭, dan diagram auto-render dalam dua mode: **Graph interaktif**
+(default) atau **Mermaid**.
 
 ## Tools agent
 
@@ -261,7 +263,7 @@ kotak thinking 💭, dan diagram Mermaid auto-render.
 |---|---|
 | `web_search` | Cari web — DuckDuckGo lite default (tanpa API key); Serper/Tavily opsional via env |
 | `fetch_url` | Ambil & ekstrak teks sebuah halaman (readability ringan) |
-| `create_diagram` | Generate Mermaid: `flowchart` (diagram alir), `graph` (relasi), `mindmap` — tervalidasi server-side |
+| `create_diagram` | Generate Mermaid: `flowchart` (diagram alir), `graph` (relasi), `mindmap` — tervalidasi server-side; UI merender sebagai graph interaktif |
 | `calculator` | Aritmetika aman (AST) |
 
 ## Konfigurasi (env, prefix `ASK_`)
@@ -344,9 +346,16 @@ Mekanisme inti (semua bisa dilihat di panel **Mechanistic Interpreter**):
   Tavily opsional) lalu `fetch_url` (ekstraksi teks ≤ 12k char). Gagal jaringan
   ≠ crash: error menjadi `tool_result` yang dikutip model secara jujur.
 - **Diagram**: `create_diagram(kind=flowchart|graph|mindmap, nodes, edges)`
-  menormalisasi id, escape label, memvalidasi edge, dan memproduksi Mermaid;
-  frontend merender via `mermaid.render()`. Model juga boleh emit fence
-  ` ```mermaid ` langsung — markdown renderer mendeteksinya otomatis.
+  menormalisasi id, escape label, memvalidasi edge, dan memproduksi Mermaid.
+  Model juga boleh emit fence ` ```mermaid ` langsung — markdown renderer
+  mendeteksinya otomatis dan meneruskannya ke **DiagramBlock**: parser Mermaid
+  toleran (`lib/graph/parseMermaid.ts`, tidak pernah melempar exception)
+  menerjemahkan sumber menjadi model graph, layout layered deterministik
+  (`lib/graph/layout.ts`) menempatkan node, dan `GraphView.tsx` merendernya
+  sebagai komponen HTML interaktif (pan, zoom, drag node, klik = inspektur
+  relasi, toggle arah TD/LR). Mode **Mermaid** (`mermaid.render()`,
+  `securityLevel: strict`) tetap tersedia sebagai pembanding; bila Mermaid
+  gagal parse, UI menawarkan fallback satu klik ke mode Graph.
 
 ## Struktur repo
 
@@ -377,14 +386,16 @@ scripts/capture_screenshots.py # generator screenshot docs (Playwright, UI live)
 docs/                          # METODOLOGI.md, slides, PANDUAN-PENGGUNA.md,
                                # PANDUAN-DEVELOPER.md, DEPLOY-COOLIFY.md, images/
 frontend/                      # Next.js 16: sidebar, hero, chat, interpreter,
-                               # mermaid, HFModelManager, halaman /panduan & /developer
+                               # DiagramBlock/GraphView (graph interaktif) +
+                               # Mermaid, HFModelManager, /panduan & /developer
 models/                        # (gitignored) model HuggingFace hasil download
 ```
 
 ## Development & testing
 
 ```bash
-.venv/bin/python -m pytest backend/tests -q   # 100 passed
+.venv/bin/python -m pytest backend/tests -q   # pytest backend (API, tools, provider)
+cd frontend && npm test                       # vitest: parser/layout graph + komponen interaktif
 cd frontend && npx tsc --noEmit && npx next build
 python3 run.py --demo                          # E2E live
 
