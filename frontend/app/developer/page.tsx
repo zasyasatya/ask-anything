@@ -63,7 +63,7 @@ export default function DeveloperPage() {
         <UL
           items={[
             <>Backend: <C>backend/app/</C> — FastAPI + SQLite (conversations, messages, trace_events).</>,
-            <>Frontend: <C>frontend/</C> — Next.js 16 App Router, Tailwind, mermaid untuk render diagram.</>,
+            <>Frontend: <C>frontend/</C> — Next.js 16 App Router, Tailwind, graph HTML interaktif + Mermaid untuk render diagram.</>,
             <>Demo: <C>scripts/fake_llama_server.py</C> mengemulasi server OpenAI-compatible (wire-format SSE lengkap: think block, tool_calls dicicil, logprobs, usage).</>,
           ]}
         />
@@ -123,6 +123,7 @@ python3 run.py --demo                          # E2E live (emulator LLM)`}</Code
             ["test_providers.py", "Parser SSE protokol OpenAI: think-block terbelah, akumulasi tool_calls.arguments, logprobs, usage."],
             ["test_api.py", "Endpoint /api/chat end-to-end via TestClient: event SSE + persist trace (prompt, tool_call, logprobs)."],
             ["test_tools.py", "Validasi diagram Mermaid, keamanan calculator (AST), ekstraksi fetch_url."],
+            ["vitest (frontend)", "Parser Mermaid toleran, layout graph, interaksi GraphView & DiagramBlock (npm test)."],
           ]}
         />
       </section>
@@ -237,6 +238,7 @@ FOO = Tool(name="foo", description="...", parameters={...}, run=run_foo)
             ["lib/api.ts", "Klien SSE (parser baris data:), CRUD conversations, settings, health."],
             ["components/ChatView.tsx", "Render pesan, chip tool, kotak thinking, live answer."],
             ["components/Interpreter.tsx", "4 tab trace (Timeline/Prompt/Tokens/Metrics) dari event live maupun replay."],
+            ["components/DiagramBlock.tsx + GraphView.tsx", "Mode diagram: parser Mermaid toleran → layout layered → graph HTML interaktif (pan/zoom/drag/klik); Mermaid SVG sebagai mode pembanding & fallback."],
             ["components/Mermaid.tsx", "mermaid.render() aman (securityLevel strict) untuk fence ```mermaid & hasil tool."],
             ["next.config.ts", "Rewrite /api, /slides, /docs-images ke backend (same-origin utk browser & preview)."],
           ]}

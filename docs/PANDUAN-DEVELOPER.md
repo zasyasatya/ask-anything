@@ -46,7 +46,9 @@ loop hidup di backend; provider (HuggingFace lokal / OpenAI / mock) dan tools
 
 - **Backend** `backend/app/`: FastAPI + SQLite (`conversations`, `messages`,
   `trace_events`).
-- **Frontend** `frontend/`: Next.js App Router + Tailwind + Mermaid.
+- **Frontend** `frontend/`: Next.js App Router + Tailwind; diagram dirender
+  dua mode — parser Mermaid toleran + layout layered + `GraphView` (HTML
+  interaktif) sebagai default, `Mermaid.tsx` (SVG statis) sebagai pembanding.
 - **Demo/test** `scripts/fake_llama_server.py`: server OpenAI-compatible tiruan dengan
   wire-format SSE lengkap (`<think>` terbelah chunk, `tool_calls.arguments`
   dicicil per index, logprobs, usage) — dipakai `run.py --demo` dan test
@@ -111,7 +113,8 @@ interaktif** (state kosong) — gejala yang mudah salah diagnosis.
 ## 4. Menjalankan & testing
 
 ```bash
-.venv/bin/python -m pytest backend/tests -q   # 15 passed
+.venv/bin/python -m pytest backend/tests -q   # pytest backend
+cd frontend && npm test                        # vitest (jsdom): parser, layout, GraphView, DiagramBlock
 cd frontend && npx tsc --noEmit && npx next build
 python3 run.py --demo                          # E2E live (emulator LLM)
 ```
@@ -121,6 +124,15 @@ python3 run.py --demo                          # E2E live (emulator LLM)
 | `test_providers.py` | Parser SSE protokol OpenAI: `<think>` terbelah antar chunk, akumulasi `tool_calls.arguments`, logprobs, usage. |
 | `test_api.py` | `/api/chat` end-to-end via TestClient: urutan event SSE + persist trace (`prompt`, `tool_call`, `logprobs`). |
 | `test_tools.py` | Validasi Mermaid, keamanan calculator (AST whitelist), ekstraksi `fetch_url`. |
+
+Test frontend (`cd frontend && npm test`, vitest + Testing Library di jsdom):
+
+| File test | Cakupan |
+|---|---|
+| `lib/graph/parseMermaid.test.ts` | Terjemahan Mermaid → model graph: bentuk node, label pipe/teks, rantai & `&`, subgraph, mindmap, serta toleransi (baris prosa, kurung tak seimbang, edge menggantung) — parser tidak boleh melempar exception. |
+| `lib/graph/layout.test.ts` | Layout layered: urutan rank TD/LR, bebas tumpukan, aman siklus, deterministik, bounding box subgraph. |
+| `components/GraphView.test.tsx` | Interaksi: klik node → inspektur relasi, drag node vs pan latar, zoom tombol/wheel, toggle arah, keyboard (Enter/Esc). |
+| `components/DiagramBlock.test.tsx` | Mode render: default Graph, persistensi preferensi localStorage, badge baris dilewati, fallback satu klik saat Mermaid error. |
 
 **Deploy produksi** — `Dockerfile` di root repo membangun satu image berisi
 backend + frontend (Next production server sebagai pintu masuk publik, uvicorn
@@ -257,7 +269,10 @@ FOO = Tool(name="foo", description="...", parameters={...}, run=run_foo)
 | `lib/api.ts` | Klien SSE (parser baris `data:`), CRUD conversations, settings, health. |
 | `components/ChatView.tsx` | Render pesan, chip tool, kotak thinking, live answer. |
 | `components/Interpreter.tsx` | 4 tab trace dari event live maupun replay. |
-| `components/Mermaid.tsx` | `mermaid.render()` (`securityLevel: strict`) untuk fence ```mermaid & hasil tool. |
+| `components/DiagramBlock.tsx` | Kartu diagram dua mode (Graph interaktif default / Mermaid), preferensi di localStorage, badge baris dilewati, fallback saat Mermaid error, tombol salin sumber. |
+| `components/GraphView.tsx` | Renderer graph HTML interaktif: node `<button>` (fokus/klik/drag), edge SVG, pan/zoom/fit, toggle arah TD/LR, panel inspektur relasi. |
+| `lib/graph/parseMermaid.ts`, `lib/graph/layout.ts` | Parser Mermaid toleran (tidak pernah melempar) → model graph; layout layered deterministik (rank + barycenter + koordinat). |
+| `components/Mermaid.tsx` | `mermaid.render()` (`securityLevel: strict`) untuk fence ```mermaid & hasil tool (mode pembanding). |
 | `next.config.ts` | Rewrite `/api`, `/slides`, `/docs-images` ke backend (same-origin untuk browser & preview) + `allowedDevOrigins`. |
 
 Gambar dokumentasi disajikan backend via mount `/docs-images` (direktori

@@ -132,7 +132,7 @@ python3 run.py --demo`}</Code>
         <Shot
           src="/docs-images/04-chat-diagram-interpreter.png"
           alt="Chat dengan diagram mermaid dan interpreter"
-          caption="Hasil permintaan diagram: chip tool create_diagram ✓, jawaban teks, diagram Mermaid yang dirender live, dan panel Interpreter (kanan) yang merekam seluruh event."
+          caption="Hasil permintaan diagram: chip tool create_diagram ✓, jawaban teks, diagram yang dirender live sebagai graph interaktif, dan panel Interpreter (kanan) yang merekam seluruh event."
         />
       </section>
 
@@ -151,8 +151,8 @@ python3 run.py --demo`}</Code>
               "Agent memanggil tool tersebut; ✓ berarti selesai. Arahkan kursor untuk melihat ringkasan hasilnya.",
             ],
             [
-              <>Kartu <C>mermaid diagram</C></>,
-              "Diagram alir / graph / mindmap yang dirender live dari kode Mermaid hasil tool.",
+              <>Kartu <C>graph interaktif</C></>,
+              "Diagram alir / graph / mindmap dirender sebagai graph HTML: zoom, pan, drag node, klik untuk relasi; toggle ke mode Mermaid tersedia.",
             ],
             [
               <>Teks markdown</>,
@@ -315,7 +315,7 @@ python3 run.py --demo`}</Code>
             ["Tab Tokens kosong", "Provider tidak mengirim logprobs (inference lokal & sebagian API).", "Pakai mode openai/server yang mendukung logprobs, atau mode mock."],
             ["API error tanpa penjelasan", "Key salah / nama model tidak ada / payload ditolak gateway.", "Settings → Test koneksi: tiga request nyata dijalankan, status + pesan server ditampilkan."],
             ["Download model gagal 'repo privat/gated'", "Repo HuggingFace butuh persetujuan (mis. DeepSeek).", "Isi Token HuggingFace di tab Model offline, atau set ASK_HF_TOKEN."],
-            ["Diagram tidak muncul", "Model tidak emit Mermaid valid.", "Ulangi dengan prompt eksplisit 'diagram alir'; validasi server-side menolak Mermaid rusak dan memberikannya kembali ke model."],
+            ["Diagram tidak muncul", "Model tidak emit Mermaid valid.", "Ulangi dengan prompt eksplisit 'diagram alir'; mode Graph tetap merender bagian yang terbaca, dan toggle Mermaid menawarkan fallback sebaliknya."],
           ]}
         />
       </section>

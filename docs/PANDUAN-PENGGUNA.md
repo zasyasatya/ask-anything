@@ -91,8 +91,8 @@ python3 run.py --model Qwen/Qwen3-1.7B
 *Composer terisi prompt contoh setelah klik chip.*
 
 ![Chat diagram + interpreter](images/04-chat-diagram-interpreter.png)
-*Satu run lengkap: chip tool `create_diagram ✓`, jawaban teks, diagram Mermaid
-yang dirender live, dan Interpreter (kanan) yang merekam semua event.*
+*Satu run lengkap: chip tool `create_diagram ✓`, jawaban teks, diagram yang
+dirender live, dan Interpreter (kanan) yang merekam semua event.*
 
 ## 4. Membaca jawaban agent
 
@@ -100,8 +100,23 @@ yang dirender live, dan Interpreter (kanan) yang merekam semua event.*
 |---|---|
 | Kotak `💭 thinking` | Reasoning mentah model sebelum memutuskan langkah (saat streaming). |
 | Chip tool (`web_search ✓`, `create_diagram ✓`, …) | Agent memanggil tool tersebut; ✓ = selesai. Hover untuk ringkasan hasil. |
-| Kartu `mermaid diagram` | Diagram alir / graph / mindmap hasil tool, dirender live via Mermaid. |
+| Kartu `graph interaktif` | Diagram alir / graph / mindmap hasil tool, dirender sebagai graph HTML yang bisa di-zoom, digeser, dan diklik (default). Toggle ke mode `mermaid diagram` tersedia di kartu yang sama. |
 | Teks markdown | Jawaban final: list, tabel, tautan sumber, dan blok kode dirender otomatis. |
+
+### 4.1 Mode diagram: Graph interaktif vs Mermaid
+
+Setiap kartu diagram punya dua mode render (preferensi tersimpan otomatis di
+browser):
+
+| Mode | Perilaku |
+|---|---|
+| **Graph** (default) | Sumber Mermaid diterjemahkan menjadi komponen HTML: node adalah elemen asli yang bisa **diklik** (menyorot relasi + panel detail), **di-drag** untuk menata ulang, latar bisa di-**drag** (pan) dan di-**scroll** (zoom), tombol `− / + / fit`, serta toggle arah layout `↓ TD` / `→ LR`. Parser bersifat toleran: baris Mermaid yang rusak dilewati dan dicatat sebagai badge “N baris dilewati”, bukan error seluruh diagram. |
+| **Mermaid** | Renderer Mermaid asli (SVG statis). Bila sumber rusak dan Mermaid gagal, muncul banner kuning dengan tombol **“Pakai mode Graph”** sebagai fallback satu klik. |
+
+Interaksi cepat mode Graph: klik node = lihat relasi masuk/keluar (klik chip
+relasi untuk lompat ke node tersebut); klik latar / `Esc` = tutup panel;
+dobel-klik latar = pas-ke-layar; keyboard: `Tab` berpindah node, `Enter`
+memilih.
 
 ![Percakapan kalkulator](images/10-chat-calculator.png)
 *Tool `calculator`: ekspresi dikirim sebagai argumen tool, hasilnya dikutip
@@ -293,7 +308,7 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 | Tool `web_search` berstatus error | Tidak ada akses internet dari backend. | Normal di lingkungan offline (graceful). Konfigurasi Serper/Tavily bila punya key. |
 | Tab Tokens kosong | Provider tidak mengirim logprobs. | Pakai mode `openai`/server yang mendukung, atau mode mock. |
 | “API error” tanpa penjelasan | Key salah, nama model tidak ada, atau payload ditolak gateway. | Settings → **Test koneksi**; status + pesan server ditampilkan per-request. |
-| Diagram tidak muncul | Model tidak menghasilkan Mermaid valid. | Ulangi dengan prompt eksplisit “diagram alir”; validasi server-side akan menolak Mermaid rusak dan memberikannya kembali ke model. |
+| Diagram tidak muncul | Model tidak menghasilkan Mermaid valid. | Ulangi dengan prompt eksplisit “diagram alir”; validasi server-side akan menolak Mermaid rusak dan memberikannya kembali ke model. Mode **Graph** tetap merender bagian sumber yang terbaca; tombol “salin” di kartu memudahkan menempelkan sumber ke editor Mermaid eksternal. |
 | UI tampil tapi tidak interaktif | Dev-server Next 16 memblokir resource cross-origin. | Tambahkan host ke `allowedDevOrigins` di `next.config.ts` (sudah disetel untuk 127.0.0.1 & *.e2b.app), lalu restart. |
 
 ## 13. Data & privasi

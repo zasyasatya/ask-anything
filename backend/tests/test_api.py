@@ -78,3 +78,12 @@ def test_delete_conversation(client):
     cid = next(e for e in evs if e["type"] == "start")["conversation_id"]
     assert client.delete(f"/api/conversations/{cid}").json()["ok"] is True
     assert client.get(f"/api/conversations/{cid}").json()["error"] == "not found"
+
+
+def test_chat_diagram_answer_embeds_mermaid_fence(client):
+    """Jawaban final mock memuat fence ```mermaid supaya UI (DiagramBlock)
+    punya sumber untuk mode Graph interaktif / Mermaid."""
+    evs = _events(client, "buatkan diagram alur proses pemesanan")
+    done = next(e for e in evs if e["type"] == "agent_done")
+    assert "```mermaid" in done["answer"]
+    assert "flowchart" in done["answer"]
