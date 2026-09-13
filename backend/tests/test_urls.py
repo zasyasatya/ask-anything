@@ -47,13 +47,18 @@ def test_chat_completions_url_never_duplicates_path():
     assert chat_completions_url("https://ai.sumopod.com") == SUMOPOD
 
 
+def _one_chunk(text="hi"):
+    return ('data: {"choices":[{"index":0,"delta":{"content":"%s"}}]}\n\n'
+            'data: [DONE]\n\n' % text)
+
+
 async def test_provider_posts_to_single_chat_completions_path():
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["url"] = str(request.url)
         seen["auth"] = request.headers.get("authorization")
-        return httpx.Response(200, text="data: [DONE]\n\n")
+        return httpx.Response(200, text=_one_chunk())
 
     provider = OpenAIProtocolProvider(
         SUMOPOD, api_key="random_token", model="qwen3.7-flash-2026-07-15",
@@ -63,7 +68,21 @@ async def test_provider_posts_to_single_chat_completions_path():
         [{"role": "user", "content": "Say hello in a creative way"}], [])]
     assert seen["url"] == SUMOPOD
     assert seen["auth"] == "Bearer random_token"
-    assert [e.type for e in events] == ["done"]
+    assert [e.type for e in events] == ["delta", "done"]
+
+
+async def test_empty_stream_is_reported_not_swallowed():
+    """200 + hanya `data: [DONE]` = jawaban kosong tanpa penjelasan (bug lama)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="data: [DONE]\n\n")
+
+    provider = OpenAIProtocolProvider(
+        SUMOPOD, model="qwen3.7-flash-2026-07-15",
+        transport=httpx.MockTransport(handler))
+    events = [e async for e in provider.stream([{"role": "user", "content": "hi"}], [])]
+    assert [e.type for e in events] == ["error"]
+    assert "kosong" in events[0].data["message"]
 
 
 async def test_provider_retries_without_stream_options_on_400():

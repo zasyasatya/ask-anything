@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
-"""Ask Anything — one-command launcher (backend + frontend + optional local LLM).
+"""Ask Anything — one-command launcher (backend + frontend + model offline).
 
 Checks every dependency (python, node, npm, pip packages, node modules),
 installs what is missing, then starts everything and health-checks it.
 
 Examples:
-    python run.py                      # huggingface default; uses llama-server on :8081 if reachable
-    python run.py --demo               # no GPU needed: emulated local HF server (fake_llama_server)
-    python run.py --provider openai    # use OpenAI API (set ASK_OPENAI_API_KEY first)
-    python run.py --gguf model.gguf    # start llama-server with a GGUF from the HF Hub
+    python run.py                          # provider huggingface, inference lokal
+    python run.py --search qwen3           # cari model di HuggingFace
+    python run.py --model Qwen/Qwen3-1.7B  # unduh ke ./models + jadikan aktif
+    python run.py --install-local          # pasang PyTorch + transformers
+    python run.py --demo                   # server OpenAI-compatible tiruan
+    python run.py --provider openai        # OpenAI / gateway (ASK_OPENAI_API_KEY)
 """
 from __future__ import annotations
 
@@ -28,8 +30,8 @@ IS_WIN = os.name == "nt"
 
 
 def venv_python() -> Path:
-    return ROOT / ".venv" / ("Scripts" if IS_WIN else "bin") / (
-        "python.exe" if IS_WIN else "python")
+    return ROOT / ".venv" / (
+        "Scripts" if IS_WIN else "bin") / ("python.exe" if IS_WIN else "python")
 
 
 def ok(msg: str) -> None:
@@ -101,6 +103,25 @@ def ensure_backend_deps() -> Path:
     return py
 
 
+def install_local_stack(py: Path) -> None:
+    """PyTorch + transformers: hanya dibutuhkan untuk inference model lokal."""
+    print("== Local inference stack (torch + transformers) ==")
+    probe = subprocess.run([str(py), "-c", "import torch, transformers"],
+                           capture_output=True)
+    if probe.returncode == 0:
+        version = subprocess.run(
+            [str(py), "-c",
+             "import torch, transformers; "
+             "print(torch.__version__, transformers.__version__)"],
+            capture_output=True, text=True).stdout.strip()
+        ok(f"torch/transformers tersedia ({version})")
+        return
+    print("  installing backend/requirements-local.txt (±1–2 GB, bisa lama) …")
+    subprocess.run([str(py), "-m", "pip", "install", "-r",
+                    str(BACKEND / "requirements-local.txt")], check=True)
+    ok("torch + transformers ter-install")
+
+
 def ensure_frontend_deps() -> None:
     print("== Frontend (Next.js) ==")
     if not (FRONTEND / "node_modules").exists():
@@ -119,23 +140,37 @@ def start(proc_name: str, cmd: list[str], cwd: Path, env: dict) -> subprocess.Po
                             shell=IS_WIN)
 
 
+def model_cli(py: Path, args: list[str], capture: bool = False
+              ) -> subprocess.CompletedProcess:
+    return subprocess.run([str(py), str(ROOT / "scripts" / "download_model.py"),
+                           *args], cwd=ROOT, capture_output=capture,
+                          text=capture)
+
+
 def main() -> None:
-    ap = argparse.ArgumentParser(description=__doc__)
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--provider", choices=["huggingface", "openai", "mock"],
                     default=os.environ.get("ASK_PROVIDER", "huggingface"))
+    ap.add_argument("--hf-mode", choices=["local", "server"], default="local",
+                    help="local = inference di proses backend (transformers); "
+                         "server = URL OpenAI-compatible")
     ap.add_argument("--backend-port", type=int, default=8000)
     ap.add_argument("--frontend-port", type=int, default=3000)
-    ap.add_argument("--llm-port", type=int, default=8081)
+    ap.add_argument("--llm-port", type=int, default=8081,
+                    help="port server OpenAI-compatible untuk --demo")
     ap.add_argument("--demo", action="store_true",
-                    help="run the emulated local HF server (no GPU/GGUF needed)")
-    ap.add_argument("--gguf", type=str, default="",
-                    help="path to a GGUF file; starts llama-server if installed")
-    ap.add_argument("--offline-model", type=str, default="",
-                    help="id model offline dari katalog: diunduh ke ./models "
-                         "lalu dijalankan dengan llama-server "
-                         "(lihat --list-offline-models)")
-    ap.add_argument("--list-offline-models", action="store_true",
-                    help="tampilkan katalog model offline untuk laptop 8 GB")
+                    help="jalankan server OpenAI-compatible tiruan "
+                         "(scripts/fake_llama_server.py) lalu pakai hf_mode=server")
+    ap.add_argument("--model", type=str, default="",
+                    help="repo HuggingFace, mis. Qwen/Qwen3-1.7B — diunduh ke "
+                         "./models lalu dijadikan model aktif")
+    ap.add_argument("--search", type=str, default="",
+                    help="cari model di HuggingFace lalu keluar")
+    ap.add_argument("--list-models", action="store_true",
+                    help="tampilkan model yang sudah terunduh di ./models")
+    ap.add_argument("--install-local", action="store_true",
+                    help="install PyTorch + transformers (butuh untuk model lokal)")
     ap.add_argument("--no-thinking", action="store_true",
                     help="matikan reasoning (<think>) pada model lokal")
     ap.add_argument("--skip-frontend", action="store_true")
@@ -146,75 +181,77 @@ def main() -> None:
 
     check_core_deps()
     py = ensure_backend_deps()
-    if args.list_offline_models:
-        # katalog berasal dari app.hf_models → butuh interpreter backend (.venv)
-        subprocess.run([str(py), str(ROOT / "scripts" / "download_model.py"),
-                        "--list"], cwd=ROOT)
-        return
+
+    # ---- CLI model offline (tidak menjalankan server) ----
+    if args.search:
+        raise SystemExit(model_cli(py, ["--search", args.search]).returncode)
+    if args.list_models:
+        raise SystemExit(model_cli(py, ["--list"]).returncode)
+    if args.install_local:
+        install_local_stack(py)
+        if args.install_only:
+            return
+
     ensure_frontend_deps()
     if args.install_only:
         print("All dependencies installed. Re-run without --install-only.")
         return
 
-    # ---- offline catalog model: download into ./models, then serve it ----
-    if args.offline_model:
-        print(f"== Model offline: {args.offline_model} ==")
-        proc = subprocess.run(
-            [str(py), str(ROOT / "scripts" / "download_model.py"),
-             args.offline_model], cwd=ROOT, capture_output=True, text=True)
+    # ---- model offline: unduh ke ./models, jadikan aktif ----
+    hf_mode = args.hf_mode
+    if args.model:
+        print(f"== Model offline: {args.model} ==")
+        proc = model_cli(py, [args.model], capture=True)
         sys.stdout.write(proc.stdout)
         if proc.returncode != 0:
-            sys.stderr.write(proc.stderr)
+            sys.stderr.write(proc.stderr or "")
             fail(f"download model gagal (code {proc.returncode})")
-        gguf = ""
+        model_dir = ""
         for line in proc.stdout.splitlines():
-            if line.startswith("GGUF_PATH="):
-                gguf = line.split("=", 1)[1]
-        if not gguf or not Path(gguf).is_file():
-            fail("GGUF tidak ditemukan setelah download")
-        args.gguf = gguf
-        if not shutil.which("llama-server"):
-            warn("GGUF sudah tersimpan, tetapi `llama-server` belum ter-install "
-                 "— pasang llama.cpp lalu jalankan:\n"
-                 f"         llama-server -m {gguf} --host 0.0.0.0 "
-                 f"--port {args.llm_port} --jinja -c 4096")
-        ok(f"model siap di {gguf}")
+            if line.startswith("MODEL_DIR="):
+                model_dir = line.split("=", 1)[1]
+        if not model_dir or not Path(model_dir).is_dir():
+            fail("folder model tidak ditemukan setelah download")
+        install_local_stack(py)      # inference lokal butuh torch
+        hf_mode = "local"
+        ok(f"model siap di {model_dir}")
 
     env = os.environ.copy()
     env["ASK_PROVIDER"] = args.provider
     env["ASK_DB_PATH"] = str(ROOT / "data" / "ask_anything.db")
     env["ASK_MODELS_DIR"] = str(ROOT / "models")
+    env["ASK_HF_MODE"] = "server" if args.demo else hf_mode
+    if args.model:
+        env["ASK_HF_MODEL"] = args.model
     if args.no_thinking:
         env["ASK_THINKING"] = "0"
     env["BACKEND_URL"] = f"http://127.0.0.1:{args.backend_port}"
 
     procs: list[tuple[str, subprocess.Popen]] = []
     try:
-        # ---- optional local LLM server ----
-        llm_url = f"http://127.0.0.1:{args.llm_port}/v1"
-        if args.provider == "huggingface":
+        # ---- server OpenAI-compatible (hanya untuk --demo / hf_mode=server) ----
+        if args.demo:
+            llm_url = f"http://127.0.0.1:{args.llm_port}/v1"
+            env["ASK_HF_BASE_URL"] = llm_url
+            env["ASK_HF_MODEL"] = "fake-local-model"
             if url_alive(f"{llm_url}/models"):
-                ok(f"local HF LLM server already reachable at {llm_url}")
-            elif args.gguf and shutil.which("llama-server"):
-                print(f"  starting llama-server with {args.gguf} …")
-                p = start("llama", ["llama-server", "-m", args.gguf, "--host",
-                                    "0.0.0.0", "--port", str(args.llm_port),
-                                    "-ngl", "99"], ROOT, env)
-                procs.append(("llama-server", p))
-            elif args.demo or env.get("ASK_DEMO") == "1":
-                print("  --demo: starting emulated local HF server "
-                      "(fake_llama_server) …")
-                p = start("fakellm", [str(py), str(ROOT / "scripts" /
-                          "fake_llama_server.py")], ROOT, env)
-                procs.append(("fake-llama", p))
-                if not wait_url(f"{llm_url}/models", 20):
-                    fail("emulated LLM server did not come up; see "
-                         "data/fakellm.log")
-                ok(f"emulated HF LLM server at {llm_url}")
+                ok(f"server OpenAI-compatible sudah hidup di {llm_url}")
             else:
-                warn(f"no local LLM server at {llm_url}. "
-                     "Start `llama-server` (see README) or re-run with --demo. "
-                     "Backend will still run; chats will error until then.")
+                print("  --demo: menjalankan server tiruan (fake_llama_server) …")
+                p = start("fakellm", [str(py), str(ROOT / "scripts" /
+                                                   "fake_llama_server.py")],
+                          ROOT, env)
+                procs.append(("fake-server", p))
+                if not wait_url(f"{llm_url}/models", 20):
+                    fail("server tiruan tidak hidup; lihat data/fakellm.log")
+                ok(f"server tiruan di {llm_url}")
+        elif args.provider == "huggingface" and hf_mode == "local":
+            probe = subprocess.run([str(py), "-c", "import torch, transformers"],
+                                   capture_output=True)
+            if probe.returncode != 0:
+                warn("PyTorch/transformers belum ter-install — model lokal belum "
+                     "bisa dijalankan.\n         python run.py --install-local\n"
+                     "         (atau pakai --provider openai / --demo)")
 
         # ---- backend ----
         print("== Starting backend ==")
@@ -241,7 +278,9 @@ def main() -> None:
         print("  Ask Anything is running")
         print(f"  UI      : http://127.0.0.1:{args.frontend_port}")
         print(f"  API     : http://127.0.0.1:{args.backend_port}/api/health")
-        print(f"  provider: {args.provider}")
+        print(f"  provider: {args.provider}"
+              + (f" ({'server' if args.demo else hf_mode})"
+                 if args.provider == "huggingface" else ""))
         print("  Ctrl+C stops everything.")
         print("==============================================\n")
 

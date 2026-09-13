@@ -39,14 +39,15 @@ loop hidup di backend; provider (HuggingFace lokal / OpenAI / mock) dan tools
                                      │  hf / openai / mock  search │
                                      │        │             fetch  │
                                      │        ▼             diagram│
-                                     │  llama-server(8081)  calc   │
+                                     │  models/<repo>       calc   │
+                                     │  (transformers in-process)  │
                                      └──────────────────────────────┘
 ```
 
 - **Backend** `backend/app/`: FastAPI + SQLite (`conversations`, `messages`,
   `trace_events`).
 - **Frontend** `frontend/`: Next.js App Router + Tailwind + Mermaid.
-- **Demo/test** `scripts/fake_llama_server.py`: emulator llama-server dengan
+- **Demo/test** `scripts/fake_llama_server.py`: server OpenAI-compatible tiruan dengan
   wire-format SSE lengkap (`<think>` terbelah chunk, `tool_calls.arguments`
   dicicil per index, logprobs, usage) — dipakai `run.py --demo` dan test
   integrasi provider.
@@ -67,17 +68,21 @@ backend/
     main.py                  # FastAPI app + mount /slides & /docs-images
     config.py                # pydantic-settings (prefix ASK_*)
     db.py                    # SQLite: conversations, messages, trace_events
-    providers/               # base / openai / huggingface / mock / url_utils
-    hf_models.py             # katalog GGUF 8 GB + downloader (stream, resume)
-    local_llm.py             # supervisor llama-server (start/stop/status)
+    providers/               # base / openai / hf_local / huggingface / mock /
+                             # url_utils / discovery / diagnostics
+    hf_hub.py                # pencarian HuggingFace Hub + downloader multi-model
+    local_inference.py       # engine transformers: load/unload/stream + tool call
+    streamtags.py            # parser blok think/tool-call pada token stream
     tools/                   # web_search, fetch_url, diagrams, calculator
     agent/                   # loop.py (agent+tracing), prompts.py
     api/routes.py            # /api/chat, conversations, settings, hf/models, health
-  tests/                     # pytest: URL, parser SSE, model offline, agent, API
-models/                      # (gitignored) GGUF hasil download
+  tests/                     # pytest (100): URL, parser SSE, retry ladder +
+                             # fallback, diagnostik endpoint, Hub downloader,
+                             # inference lokal dengan model nyata
+models/                      # (gitignored) model HuggingFace hasil download
 scripts/
-  fake_llama_server.py       # emulator llama-server (--demo & testing)
-  download_model.py          # CLI katalog/download (run.py --offline-model)
+  fake_llama_server.py       # server OpenAI-compatible tiruan (--demo & testing)
+  download_model.py          # CLI cari/unduh model (run.py --search/--model)
   capture_screenshots.py     # generator screenshot docs (Playwright)
 docs/                        # METODOLOGI.md, slides, PANDUAN-*, DEPLOY-COOLIFY.md, images/
 frontend/                    # Next.js 16: sidebar, hero, chat, interpreter, docs
@@ -133,11 +138,15 @@ troubleshooting deploy: [`DEPLOY-COOLIFY.md`](DEPLOY-COOLIFY.md).
 | DELETE | `/api/conversations/{id}` | Hapus percakapan. |
 | GET/POST | `/api/settings` | Baca/ubah runtime settings (provider, base url, model, api key, thinking, temperature, max_steps, logprobs). Base URL dinormalkan saat disimpan; field key yang tidak dikirim tidak berubah, `""` = hapus key; `provider` tak dikenal → 422. |
 | POST | `/api/models` | Daftar model sebuah endpoint (`provider`/`base_url`/`api_key` opsional → default setting aktif). Menormalkan bentuk `data[].id`, `models[].model`, dan list string; tidak pernah 500 (`{ok:false,error}`). Sumber: `providers/discovery.py`. |
-| GET | `/api/hf/models` | Katalog GGUF + status file lokal + progress download + status runtime llama.cpp. |
-| POST | `/api/hf/models/{id}/download` | Unduh (atau lanjutkan) GGUF ke `models/` di background. |
-| POST | `/api/hf/models/{id}/use` | Jadikan model aktif; body `{thinking?, run?, port?, ctx?}` (`run:true` = start llama-server). |
-| POST | `/api/hf/models/{id}/delete` | Hapus GGUF dari disk. |
-| GET/POST | `/api/hf/runtime`, `/api/hf/runtime/stop` | Status / hentikan `llama-server` yang dijalankan aplikasi. |
+| POST | `/api/models/test` | **Diagnostik endpoint**: `GET /models` + chat non-streaming (bentuk curl) + chat streaming, masing-masing dengan status/latensi/pesan server + hint. Sumber: `providers/diagnostics.py`. |
+| GET | `/api/hf/search?q=` | Cari model di HuggingFace Hub; repo id persis di-resolve langsung. |
+| GET | `/api/hf/models` | Model di `models/` + semua progres unduhan + status engine inference. |
+| GET | `/api/hf/downloads` | Progres unduhan (di-poll UI tiap 1,2 dtk). |
+| POST | `/api/hf/models/download` | Unduh/lanjutkan repo; body `{repo_id}` (di body karena repo id mengandung `/`). |
+| POST | `/api/hf/models/cancel` | Batalkan unduhan. |
+| POST | `/api/hf/models/use` | Jadikan model aktif + muat; body `{repo_id, thinking?, load?}`. |
+| POST | `/api/hf/models/delete` | Hapus folder model dari disk. |
+| GET/POST | `/api/hf/runtime`, `/api/hf/runtime/stop` | Status engine transformers / lepas model dari memori. |
 | GET | `/api/health` | Status backend + `llm_reachable`/`llm_status` + `local_llm` (banner & indikator sidebar). |
 | GET | `/docs` | Swagger UI FastAPI. Static mount: `/slides/*`, `/docs-images/*`. |
 
@@ -293,14 +302,17 @@ python3 scripts/capture_screenshots.py pages
 |---|---|---|
 | `ASK_PROVIDER` | `huggingface` | `huggingface` \| `openai` \| `mock` |
 | `ASK_HF_BASE_URL` | `http://127.0.0.1:8081/v1` | Server lokal/gateway OpenAI-compatible; boleh ditulis `…/v1/chat/completions` |
-| `ASK_HF_MODEL` | `Qwen/Qwen3-8B-GGUF` | Label model / nama file GGUF |
+| `ASK_HF_MODE` | `local` | `local` = inference di proses backend · `server` = URL OpenAI-compatible |
+| `ASK_HF_MODEL` | – | Repo id model offline yang aktif, mis. `Qwen/Qwen3-1.7B` |
 | `ASK_HF_API_KEY` | – | Bearer token server/gateway HF lokal |
 | `ASK_THINKING` | `true` | `chat_template_kwargs.enable_thinking` (reasoning model lokal) |
-| `ASK_MODELS_DIR` | `models` | Folder project tempat GGUF diunduh |
+| `ASK_MODELS_DIR` | `models` | Folder project tempat model HuggingFace diunduh |
 | `ASK_HF_ENDPOINT` | `https://huggingface.co` | Mirror HF Hub untuk download |
-| `ASK_LLAMA_SERVER_BIN` | – | Path eksplisit `llama-server` |
+| `ASK_HF_TOKEN` | – | Token Hub untuk repo gated/privat (mis. DeepSeek) |
+| `ASK_HF_DEVICE` / `ASK_HF_DTYPE` | – / `auto` | Paksa device (`cpu`/`cuda`/`mps`) & dtype inference lokal |
+| `ASK_HF_THREADS` / `ASK_HF_TRUST_REMOTE_CODE` | 0 / false | Thread torch · izinkan kode kustom repo |
 | `ASK_LLAMA_EXTRA_ARGS` | – | Argumen tambahan, mis. `--reasoning-format auto` |
-| `ASK_HF_PORT` / `ASK_HF_CTX_SIZE` / `ASK_HF_GPU_LAYERS` | 8081 / 4096 / -1 | Runtime llama.cpp (`-1` = CPU saja) |
+
 | `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | Provider OpenAI / gateway kompatibel |
 | `ASK_TEMPERATURE`, `ASK_MAX_STEPS`, `ASK_LOGPROBS` | 0.7 / 6 / true | Generasi & interpreter |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+ key masing-masing) |
@@ -317,6 +329,7 @@ Semua juga bisa diubah runtime via `POST /api/settings` (dialog Settings).
 | Playwright gagal download Chromium | CDN diblokir jaringan. | Pakai `CHROME_EXE` binary alternatif (docstring script). |
 | Screenshot tanpa teks | Fontconfig tidak menemukan font. | Set `CHROME_FONTS` ke `fonts.conf` dengan `<dir>` font tersedia. |
 | `web_search` error di sandbox offline | Egress diblokir. | Diharapkan (graceful); pakai Serper/Tavily bila punya akses. |
-| Port 8081 bentrok | Emulator/llama-server lain jalan. | Ubah `ASK_HF_BASE_URL` atau matikan proses lama. |
+| Port 8081 bentrok | Server lain sudah memakai port itu (`hf_mode=server`/`--demo`). | Ubah `ASK_HF_BASE_URL` atau matikan proses lama. |
+| `Memori tidak cukup` saat memuat model | Model terlalu besar untuk RAM/VRAM. | Pilih model lebih kecil, atau `ASK_HF_DEVICE=cpu` + `ASK_HF_DTYPE=bfloat16`. |
 | Container (Docker) restart terus | `wait -n` di entrypoint: begitu uvicorn **atau** `next start` mati, seluruh container dimatikan agar orchestrator me-restart bersih. | Cari baris `[ask-anything] proses anak berhenti (exit N)` di log untuk tahu proses mana yang gagal. |
 | `/api/*` 404 di container produksi | Target rewrite Next (`BACKEND_URL`) di-bake saat `next build`. | Jangan ubah `BACKEND_PORT` tanpa rebuild `--build-arg BACKEND_PORT=…`. |

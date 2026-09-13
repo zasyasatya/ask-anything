@@ -13,6 +13,9 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 # Base-URL fields that are canonicalised on write (users paste full endpoints).
 _URL_FIELDS = ("hf_base_url", "openai_base_url")
 
+#: `hf_mode` values: how the `huggingface` provider reaches a model.
+HF_MODES = ("local", "server")
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="ASK_", extra="ignore")
@@ -20,22 +23,26 @@ class Settings(BaseSettings):
     # ---- LLM provider selection: "huggingface" | "openai" | "mock" ----
     provider: str = "huggingface"
 
-    # ---- HuggingFace local (llama.cpp / any OpenAI-compatible local server) ----
-    # Any OpenAI-compatible base URL works: a bare host, "…/v1", or a full
-    # endpoint such as "https://ai.sumopod.com/v1/chat/completions".
-    hf_base_url: str = "http://127.0.0.1:8081/v1"
-    hf_model: str = "Qwen/Qwen3-8B-GGUF"
-    hf_api_key: str = ""
-    thinking: bool = True          # chat_template_kwargs.enable_thinking
+    # ---- HuggingFace: model lokal (in-process transformers) ----
+    # local  = model di folder `models/` dijalankan langsung oleh proses ini
+    # server = URL OpenAI-compatible (vLLM / llama.cpp / LM Studio / gateway)
+    hf_mode: str = "local"
+    #: repo id model offline yang aktif, mis. "Qwen/Qwen3-1.7B"
+    hf_model: str = ""
+    hf_base_url: str = "http://127.0.0.1:8081/v1"   # hanya untuk hf_mode=server
+    hf_api_key: str = ""                            # hanya untuk hf_mode=server
+    thinking: bool = True          # enable_thinking / <think> reasoning
 
-    # ---- offline models: GGUF catalog + local llama.cpp runtime ----
-    models_dir: str = "models"     # project folder that holds downloaded GGUFs
+    # ---- offline models: HuggingFace Hub → folder `models/` di project ----
+    models_dir: str = "models"     # project folder that holds downloaded models
     hf_endpoint: str = "https://huggingface.co"   # mirror: hf-mirror.com etc.
-    llama_server_bin: str = ""     # override `llama-server` discovery
-    llama_extra_args: str = ""     # e.g. "--reasoning-format auto"
-    hf_port: int = 8081
-    hf_ctx_size: int = 4096
-    hf_gpu_layers: int = -1        # -1 = CPU only, 99 = offload everything
+    hf_token: str = ""             # token Hub utk repo privat/gated (hf_…)
+
+    # ---- local inference tuning ----
+    hf_device: str = ""            # "" = auto (cuda → mps → cpu)
+    hf_dtype: str = "auto"         # auto | float16 | bfloat16 | float32
+    hf_threads: int = 0            # 0 = biar torch yang memilih
+    hf_trust_remote_code: bool = False  # repo dengan kode kustom (DeepSeek dsb.)
 
     # ---- OpenAI (or any OpenAI-compatible remote API) ----
     openai_base_url: str = "https://api.openai.com/v1"
@@ -67,10 +74,12 @@ class Settings(BaseSettings):
             return self.openai_model
         if self.provider == "mock":
             return "mock-agent (offline demo)"
-        return self.hf_model
+        if self.hf_mode == "server":
+            return f"{self.hf_model or self.hf_base_url} (server)"
+        return self.hf_model or "(belum ada model offline)"
 
     def resolved_models_dir(self) -> Path:
-        """Absolute path of the folder that stores downloaded GGUF models."""
+        """Absolute path of the folder that stores downloaded models."""
         p = Path(self.models_dir).expanduser()
         if not p.is_absolute():
             p = PROJECT_ROOT / p
@@ -80,12 +89,14 @@ class Settings(BaseSettings):
         return {
             "provider": self.provider,
             "model": self.active_model_label(),
+            "hf_mode": self.hf_mode,
             "hf_base_url": self.hf_base_url,
             "hf_model": self.hf_model,
             "thinking": self.thinking,
             "models_dir": str(self.resolved_models_dir()),
-            "hf_port": self.hf_port,
-            "hf_ctx_size": self.hf_ctx_size,
+            "hf_endpoint": self.hf_endpoint,
+            "hf_device": self.hf_device,
+            "hf_dtype": self.hf_dtype,
             "openai_base_url": self.openai_base_url,
             "openai_model": self.openai_model,
             "temperature": self.temperature,
@@ -94,8 +105,10 @@ class Settings(BaseSettings):
             "search_backend": self.search_backend,
             "has_openai_key": bool(self.openai_api_key),
             "has_hf_key": bool(self.hf_api_key),
+            "has_hf_token": bool(self.hf_token),
             # masked so the UI can show "tersimpan" without exposing the key
             "hf_api_key_masked": _mask(self.hf_api_key),
+            "hf_token_masked": _mask(self.hf_token),
             "openai_api_key_masked": _mask(self.openai_api_key),
         }
 
@@ -136,6 +149,9 @@ def update_settings(**overrides: str | float | int | bool) -> dict:
         # are ignored, so a wrong/expired key can actually be removed.
         setattr(settings, key, value)
         applied[key] = value
+    if applied.get("hf_mode") not in (None, *HF_MODES):
+        settings.hf_mode = "local"
+        applied["hf_mode"] = settings.hf_mode
     if any(field in applied for field in _URL_FIELDS):
         _normalize_urls(applied)
     return settings.as_public_dict()

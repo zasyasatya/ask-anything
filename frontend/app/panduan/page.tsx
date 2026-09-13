@@ -56,11 +56,14 @@ python3 run.py            # atau: ./run.sh
 # Windows
 run.bat
 
-# Mode demo tanpa GPU / tanpa download model
-python3 run.py --demo
+# Cari model di HuggingFace
+python3 run.py --search qwen3
 
-# Model GGUF asli dari HuggingFace (butuh llama.cpp)
-python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf`}</Code>
+# Unduh model ke ./models + pasang torch/transformers + jadikan aktif
+python3 run.py --model Qwen/Qwen3-1.7B
+
+# Mode demo tanpa download model (server OpenAI-compatible tiruan)
+python3 run.py --demo`}</Code>
         <UL
           items={[
             <>UI terbuka di <C>http://localhost:3000</C>, dokumentasi API di <C>http://localhost:8000/docs</C>.</>,
@@ -91,7 +94,7 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf`}</Code>
             </>,
             <>
               <b>Header</b> — judul percakapan aktif, chip provider+model yang sedang dipakai
-              (mis. <C>huggingface · Qwen/Qwen3-8B-GGUF</C>), tautan <C>Docs &amp; Slides</C>, dan
+              (mis. <C>huggingface · Qwen/Qwen3-1.7B</C>), tautan <C>Docs &amp; Slides</C>, dan
               tombol <C>Mechanistic Interpreter →</C>.
             </>,
             <>
@@ -208,7 +211,7 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf`}</Code>
         <Shot
           src="/docs-images/07-interpreter-tokens.png"
           alt="Tab Tokens"
-          caption="Tab Tokens: logprobs per token dengan bar probabilitas dan alternatif (tersedia bila provider mendukung, mis. llama.cpp)."
+          caption="Tab Tokens: logprobs per token dengan bar probabilitas dan alternatif (tersedia pada mode openai/server yang mendukung; inference lokal tidak mengirim logprobs)."
         />
         <Shot
           src="/docs-images/08-interpreter-metrics.png"
@@ -235,9 +238,12 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf`}</Code>
         <H2 id="settings">8. Settings provider</H2>
         <P>
           Tombol <C>Settings provider</C> (bawah sidebar) membuka dialog pemilihan LLM: provider{" "}
-          <C>huggingface</C> (server lokal OpenAI-compatible, mis. llama.cpp), <C>openai</C> (API
-          key), atau <C>mock</C> (demo offline deterministik). Base URL, model, dan temperature
-          bisa diubah runtime tanpa restart.
+          <C>huggingface</C> (model offline dari folder <C>models/</C>, inference lokal dengan
+          transformers — atau server OpenAI-compatible bila <C>hf_mode=server</C>), <C>openai</C>{" "}
+          (API/gateway OpenAI-compatible), atau <C>mock</C> (demo offline deterministik). Base URL,
+          model, dan temperature bisa diubah runtime tanpa restart. Tombol <C>Test koneksi</C>{" "}
+          menjalankan request sungguhan ke endpoint lalu menampilkan status + pesan server apa
+          adanya — cara tercepat mengetahui kenapa sebuah API error.
         </P>
         <Shot
           src="/docs-images/11-settings-provider.png"
@@ -247,7 +253,7 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf`}</Code>
         <Shot
           src="/docs-images/12-banner-llm-offline.png"
           alt="Banner LLM offline"
-          caption="Bila provider huggingface dipilih tetapi server lokal tidak terjangkau, banner kuning muncul dengan tombol sekali-klik 'Pakai mode mock'."
+          caption="Bila model lokal belum dimuat atau endpoint tidak terjangkau, banner kuning muncul dengan tombol 'Buka Settings' dan sekali-klik 'Pakai mode mock'."
         />
       </section>
 
@@ -303,10 +309,12 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf`}</Code>
         <Table
           head={["Gejala", "Penyebab umum", "Solusi"]}
           rows={[
-            ["Banner kuning 'LLM lokal tidak terjangkau'", "Server llama.cpp belum jalan di port 8081.", "Jalankan llama-server / run.py --demo, atau klik 'Pakai mode mock'."],
+            ["Banner kuning 'Belum ada model offline yang dimuat'", "Provider huggingface mode lokal belum punya model.", "Settings → Model offline (HuggingFace) → cari → Download → Pakai & muat."],
             ["Indikator sidebar merah 'LLM server offline'", "Base URL provider tidak reachable.", "Periksa Settings provider → base URL; atau ganti provider."],
             ["Tool web_search berstatus error", "Tidak ada akses internet / backend diblokir jaringan.", "Normal di lingkungan offline; agent tetap menjawab dengan menyebut error. Konfigurasi Serper/Tavily bila punya key."],
-            ["Tab Tokens kosong", "Provider tidak mengirim logprobs (mis. OpenAI API default).", "Pakai llama.cpp lokal atau mode mock untuk melihat logprobs."],
+            ["Tab Tokens kosong", "Provider tidak mengirim logprobs (inference lokal & sebagian API).", "Pakai mode openai/server yang mendukung logprobs, atau mode mock."],
+            ["API error tanpa penjelasan", "Key salah / nama model tidak ada / payload ditolak gateway.", "Settings → Test koneksi: tiga request nyata dijalankan, status + pesan server ditampilkan."],
+            ["Download model gagal 'repo privat/gated'", "Repo HuggingFace butuh persetujuan (mis. DeepSeek).", "Isi Token HuggingFace di tab Model offline, atau set ASK_HF_TOKEN."],
             ["Diagram tidak muncul", "Model tidak emit Mermaid valid.", "Ulangi dengan prompt eksplisit 'diagram alir'; validasi server-side menolak Mermaid rusak dan memberikannya kembali ke model."],
           ]}
         />

@@ -46,7 +46,8 @@ log "database : ${ASK_DB_PATH}"
 log "provider : ${ASK_PROVIDER:-huggingface (default app)}"
 
 # ---- 1. probe LLM server (sekadar peringatan, tidak memblokir start) ------
-# Default app = provider "huggingface" yang menunjuk llama-server lokal :8081.
+# Default app = provider "huggingface" mode local (butuh model di models/ +
+# torch/transformers, yang tidak ada di image) — di VPS set ASK_PROVIDER=openai.
 # Di VPS biasanya tidak ada, jadi beri petunjuk konfigurasi yang benar.
 if [ "${ASK_PROVIDER:-huggingface}" = "huggingface" ]; then
     HF_URL="${ASK_HF_BASE_URL:-http://127.0.0.1:8081/v1}"

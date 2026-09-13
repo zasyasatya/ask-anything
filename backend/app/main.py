@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import __version__, db
 from .api.routes import router
 from .config import settings
-from .local_llm import runtime as llm_runtime
+from .local_inference import engine as llm_engine
 
 
 @asynccontextmanager
@@ -21,8 +21,8 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
-        # Never orphan a llama-server we started for an offline model.
-        await llm_runtime.stop()
+        # Lepas model lokal (bebaskan RAM/VRAM) saat aplikasi berhenti.
+        await llm_engine.unload()
 
 
 app = FastAPI(

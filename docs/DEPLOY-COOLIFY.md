@@ -71,7 +71,8 @@ Python (3.11 Debian) di stage builder identik dengan runtime, dan venv hasil
 4. **Domains**: isi domain Anda atau pakai *Generate Domain* untuk uji cepat.
 5. **Environment Variables**: minimal `ASK_PROVIDER` + kredensial LLM
    (lihat [§4](#4-environment-variables)). Default aplikasi adalah
-   `huggingface` → llama-server lokal `:8081`, yang **tidak ada** di VPS biasa.
+   `huggingface` (mode `local`) butuh model di `models/` + torch/transformers,
+   yang **tidak ada** di image — jadi di VPS set `ASK_PROVIDER=openai`.
 6. **Persistent Storage / Volume**: mount ke `/app/data`
    (lihat [§5](#5-volume--persistence-sqlite)) agar riwayat chat & trace tidak
    hilang saat redeploy.
@@ -96,9 +97,10 @@ dipakai `docker/entrypoint.sh`.
 | `ASK_PROVIDER` | `huggingface` | `openai` \| `huggingface` \| `mock`. Di Coolify biasanya `openai`. |
 | `ASK_OPENAI_API_KEY` | – | Wajib bila provider `openai`. Simpan sebagai *secret* (Build: off, Runtime: on). |
 | `ASK_OPENAI_MODEL` | `gpt-4o-mini` | Model yang dipakai. |
-| `ASK_OPENAI_BASE_URL` | `https://api.openai.com/v1` | Bisa diarahkan ke API OpenAI-compatible lain (OpenRouter, vLLM, llama-server remote, dsb). |
-| `ASK_HF_BASE_URL` | `http://127.0.0.1:8081/v1` | Hanya berguna bila ada llama-server yang terjangkau dari container (mis. `http://172.17.0.1:8081/v1` ke host, atau service lain di network Coolify). |
-| `ASK_HF_MODEL`, `ASK_HF_API_KEY` | `Qwen/Qwen3-8B-GGUF`, – | Label & key untuk server lokal. |
+| `ASK_OPENAI_BASE_URL` | `https://api.openai.com/v1` | Bisa diarahkan ke API OpenAI-compatible lain (gateway LiteLLM, OpenRouter, vLLM, dsb). Boleh ditulis lengkap `…/v1/chat/completions` — otomatis dinormalkan. |
+| `ASK_HF_MODE` | `local` | `local` = inference di proses backend (butuh torch + model di `models/`) · `server` = URL OpenAI-compatible. Di Coolify umumnya tidak dipakai. |
+| `ASK_HF_BASE_URL` | `http://127.0.0.1:8081/v1` | Hanya untuk `hf_mode=server`, bila ada server OpenAI-compatible yang terjangkau container (mis. `http://172.17.0.1:8081/v1` ke host, atau service lain di network Coolify). |
+| `ASK_HF_MODEL`, `ASK_HF_API_KEY` | –, – | Repo id/label & key untuk mode `huggingface`. |
 
 ### Generasi, tools, storage
 
