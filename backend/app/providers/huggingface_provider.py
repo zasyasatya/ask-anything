@@ -1,14 +1,14 @@
-"""HuggingFace local provider.
+"""HuggingFace provider — mode `server`.
 
-Runs against any OpenAI-compatible server hosting a HuggingFace model —
-the recommended setup on a laptop is llama.cpp `llama-server` serving a GGUF
-quant from the HF Hub (see `app/hf_models.py` for the 8 GB-friendly catalog
-that downloads straight into the project's `models/` folder), which gives
-native tool-calling + streaming logprobs for the mechanistic interpreter.
+Dipakai ketika `provider=huggingface` **dan** `hf_mode=server`: model dilayani
+oleh server OpenAI-compatible yang Anda jalankan sendiri (vLLM, llama.cpp
+`llama-server`, LM Studio, TGI, atau gateway seperti ai.sumopod.com). Untuk
+inference langsung di proses backend tanpa server apa pun, pakai mode default
+`hf_mode=local` (lihat `app/local_inference.py`).
 
-`settings.thinking` is forwarded as `chat_template_kwargs.enable_thinking`,
-the switch Qwen3-style chat templates honour — so the reasoning stream shown
-in the *Mechanistic Interpreter* panel can be switched per model.
+`settings.thinking` diteruskan sebagai `chat_template_kwargs.enable_thinking`,
+switch yang dipahami chat template ala Qwen3 — dan otomatis dibuang oleh retry
+ladder bila template model tidak mengenalnya (HTTP 400).
 """
 from __future__ import annotations
 
@@ -29,4 +29,4 @@ class HuggingFaceProvider(OpenAIProtocolProvider):
         )
 
     def model_label(self) -> str:
-        return f"{self.model} (local)"
+        return f"{self.model} (server)"

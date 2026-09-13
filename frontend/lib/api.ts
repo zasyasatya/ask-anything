@@ -1,6 +1,8 @@
 import type {
   Conversation,
+  DiagnosticReport,
   HFModelsResponse,
+  HFSearchResponse,
   ProviderModels,
   SettingsInfo,
   TraceEvent,
@@ -56,42 +58,93 @@ export async function listProviderModels(
   });
 }
 
-/** Offline HuggingFace models: catalog + local files + llama.cpp runtime. */
+/**
+ * Uji endpoint sungguhan: GET /models + chat non-streaming (bentuk curl) +
+ * chat streaming (yang dipakai app). Inilah jawaban "kenapa masih error?".
+ */
+export async function testProvider(
+  probe: {
+    provider?: string;
+    base_url?: string;
+    api_key?: string;
+    model?: string;
+  } = {}
+): Promise<DiagnosticReport> {
+  return fetchJson<DiagnosticReport>("/api/models/test", {
+    method: "POST",
+    body: JSON.stringify(probe),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Model offline: HuggingFace Hub → folder models/ → inference lokal
+// ---------------------------------------------------------------------------
+export async function searchHFModels(query: string): Promise<HFSearchResponse> {
+  return fetchJson<HFSearchResponse>(
+    `/api/hf/search?q=${encodeURIComponent(query)}`
+  );
+}
+
 export async function listHFModels(): Promise<HFModelsResponse> {
   return fetchJson<HFModelsResponse>("/api/hf/models");
 }
 
+export async function listHFDownloads(): Promise<{
+  downloads: HFModelsResponse["downloads"];
+  models: HFModelsResponse["models"];
+}> {
+  return fetchJson<{
+    downloads: HFModelsResponse["downloads"];
+    models: HFModelsResponse["models"];
+  }>("/api/hf/downloads");
+}
+
 export async function downloadHFModel(
-  id: string
+  repoId: string
 ): Promise<Record<string, unknown>> {
-  return fetchJson<Record<string, unknown>>(`/api/hf/models/${id}/download`, {
+  return fetchJson<Record<string, unknown>>("/api/hf/models/download", {
     method: "POST",
+    body: JSON.stringify({ repo_id: repoId }),
+  });
+}
+
+export async function cancelHFDownload(
+  repoId: string
+): Promise<Record<string, unknown>> {
+  return fetchJson<Record<string, unknown>>("/api/hf/models/cancel", {
+    method: "POST",
+    body: JSON.stringify({ repo_id: repoId }),
   });
 }
 
 export async function deleteHFModel(
-  id: string
+  repoId: string
 ): Promise<Record<string, unknown>> {
-  return fetchJson<Record<string, unknown>>(`/api/hf/models/${id}/delete`, {
+  return fetchJson<Record<string, unknown>>("/api/hf/models/delete", {
     method: "POST",
+    body: JSON.stringify({ repo_id: repoId }),
   });
 }
 
-/** Select a downloaded GGUF as the active model (and optionally run it). */
+/** Pilih model offline yang aktif (dan muat ke memori secara default). */
 export async function useHFModel(
-  id: string,
-  opts: { thinking?: boolean; run?: boolean; port?: number; ctx?: number } = {}
+  repoId: string,
+  opts: { thinking?: boolean; load?: boolean } = {}
 ): Promise<Record<string, unknown>> {
-  return fetchJson<Record<string, unknown>>(`/api/hf/models/${id}/use`, {
+  return fetchJson<Record<string, unknown>>("/api/hf/models/use", {
     method: "POST",
-    body: JSON.stringify(opts),
+    body: JSON.stringify({ repo_id: repoId, load: true, ...opts }),
   });
 }
 
-export async function stopHFRuntime(): Promise<Record<string, unknown>> {
+export async function stopHFEngine(): Promise<Record<string, unknown>> {
   return fetchJson<Record<string, unknown>>("/api/hf/runtime/stop", {
     method: "POST",
   });
+}
+
+export async function hfEngineStatus(): Promise<HFModelsResponse["engine"]> {
+  return fetchJson<HFModelsResponse["engine"]>("/api/hf/runtime");
 }
 
 /** Streams one agentic turn; every interpreter event is delivered to onEvent. */

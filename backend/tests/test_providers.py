@@ -75,10 +75,26 @@ async def test_openai_protocol_error_status():
 
 
 async def test_hf_provider_wiring():
-    s = Settings(hf_base_url="http://local:8081/v1/", hf_model="Qwen/X-GGUF")
+    """hf_mode=server: URL OpenAI-compatible (vLLM / llama.cpp / gateway)."""
+    s = Settings(hf_base_url="http://local:8081/v1/", hf_model="Qwen/X")
     p = HuggingFaceProvider(s)
     assert p.base_url == "http://local:8081/v1"
-    assert p.model_label() == "Qwen/X-GGUF (local)"
+    assert p.model_label() == "Qwen/X (server)"
+
+
+def test_build_provider_covers_every_mode():
+    from app.providers import HFLocalProvider, build_provider
+
+    assert isinstance(build_provider(Settings(provider="mock")), MockProvider)
+    assert isinstance(
+        build_provider(Settings(provider="openai")), OpenAIProtocolProvider)
+    # huggingface: local = inference di proses, server = URL OpenAI-compatible
+    assert isinstance(
+        build_provider(Settings(provider="huggingface", hf_mode="local")),
+        HFLocalProvider)
+    assert isinstance(
+        build_provider(Settings(provider="huggingface", hf_mode="server")),
+        HuggingFaceProvider)
 
 
 async def test_mock_provider_tool_then_answer():

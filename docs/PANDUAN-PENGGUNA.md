@@ -47,8 +47,9 @@ run.bat
 # Mode demo tanpa GPU / tanpa download model (LLM di-emulasi)
 python3 run.py --demo
 
-# Model GGUF asli dari HuggingFace (butuh llama.cpp ter-install)
-python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf
+# Cari model di HuggingFace, lalu unduh + jadikan model aktif
+python3 run.py --search qwen3
+python3 run.py --model Qwen/Qwen3-1.7B
 ```
 
 - UI: <http://localhost:3000> · Swagger API: <http://localhost:8000/docs>
@@ -70,7 +71,7 @@ python3 run.py --gguf ~/models/qwen3-8b-q4_k_m.gguf
 | Bagian | Fungsi |
 |---|---|
 | **Sidebar kiri** | Tombol `New chat`, riwayat percakapan berkelompok tanggal (`Today`, `Yesterday`, …), indikator status LLM (hijau/merah), tombol `Settings provider`. |
-| **Header** | Judul percakapan aktif, chip provider+model (mis. `huggingface · Qwen/Qwen3-8B-GGUF`), tautan `Panduan`, `Developer`, `Docs & Slides`, dan tombol `Mechanistic Interpreter →`. |
+| **Header** | Judul percakapan aktif, chip provider+model (mis. `huggingface · Qwen/Qwen3-1.7B`), tautan `Panduan`, `Developer`, `Docs & Slides`, dan tombol `Mechanistic Interpreter →`. |
 | **Composer** | Kotak pertanyaan. Kirim dengan `Enter` atau tombol `Ask`; `Shift+Enter` untuk baris baru. Saat agent bekerja tombol menjadi `Thinking…`. |
 | **Badge `4 tools`** | Daftar tool aktif: `web_search`, `fetch_url`, `create_diagram`, `calculator` (hover untuk tooltip). |
 | **Chip contoh & Explore** | Prompt siap pakai per kategori (Browsing / Diagram / Tools); klik untuk mengisi composer. |
@@ -141,7 +142,7 @@ run, dan tersimpan di SQLite sehingga riwayat bisa di-**replay** penuh.
 
 ![Tab Tokens](images/07-interpreter-tokens.png)
 *Tab Tokens: logprobs per token dengan bar probabilitas & alternatif
-(tersedia bila provider mendukung, mis. llama.cpp / mode mock).*
+(tersedia pada mode openai/server yang mendukung dan mode mock; inference lokal tidak mengirim logprobs).*
 
 ![Tab Metrics](images/08-interpreter-metrics.png)
 *Tab Metrics: ringkasan run — provider, model, temperature, steps, latensi, usage.*
@@ -163,7 +164,7 @@ tanpa restart:
 
 | Provider | Kapan dipakai |
 |---|---|
-| `huggingface` | Server lokal OpenAI-compatible (llama.cpp `llama-server` di port 8081 default). Tool-calling + logprobs native. |
+| `huggingface` | Model offline dari folder `models/` yang dijalankan **langsung di backend** (transformers, tanpa llama.cpp). Bila `hf_mode=server`, memakai server OpenAI-compatible yang Anda jalankan sendiri. |
 | `openai` | API OpenAI / Azure / proxy kompatibel (isi API key & base URL). |
 | `mock` | Demo offline deterministik untuk uji UI & dokumen ini. |
 
@@ -189,49 +190,65 @@ Tombol **Muat model** di samping kolom Base URL memanggil
 `GET <base>/models` dan mengisi **dropdown Model** — jadi Anda tidak perlu
 mengingat/mengetik nama model:
 
-- llama.cpp melaporkan model sebagai path GGUF (`/models/x.gguf`); dropdown
-  menampilkan nama pendeknya tetapi tetap mengirim id asli ke API.
+- Sebagian server melaporkan model sebagai path file (`/models/x.gguf`);
+  dropdown menampilkan nama pendeknya tetapi tetap mengirim id asli ke API.
 - Bila endpoint tidak terjangkau atau menolak key, pesannya muncul di bawah
   kolom (mis. `API key ditolak (401)`) — bukan dropdown kosong tanpa sebab.
 - Model yang sedang aktif tetapi tidak ada di daftar tetap dipertahankan, dan
   opsi **✎ Ketik nama model lain…** selalu tersedia untuk gateway yang tidak
   menyediakan `/models`.
 
+### 8.0.1 Test koneksi — mengetahui penyebab error API
+
+Tombol **Test koneksi** menjalankan tiga request sungguhan ke endpoint yang
+sedang diisi: `GET /models`, chat **non-streaming** (bentuk persis contoh
+`curl`), dan chat **streaming** (yang dipakai aplikasi). Hasilnya ditampilkan
+per-request: status HTTP, latensi, cuplikan jawaban atau pesan server apa
+adanya, plus petunjuk. Dengan itu “API error” tidak lagi misterius — key
+ditolak (401), nama model tidak terdaftar, dan payload yang ditolak gateway
+terlihat berbeda.
+
 Langkah penyetelan lengkap tiap mode (lokal / OpenAI+gateway / mock) ada di
 [`PENYESUAIAN-PROVIDER.md`](PENYESUAIAN-PROVIDER.md).
 
-### 8.1 Model offline untuk laptop 8 GB
+### 8.1 Model offline langsung dari HuggingFace
 
-Tab **Model offline (HuggingFace)** berisi katalog GGUF yang sudah disaring
-untuk RAM 8 GB. Alurnya tiga langkah, semuanya di dalam dialog ini:
+Tab **Model offline (HuggingFace)** mencari model **berdasarkan namanya** di
+HuggingFace Hub — tidak ada katalog tetap, jadi model baru apa pun bisa dipakai:
 
-1. **Download** — file diunduh ke folder project `models/` (progress bar +
-   kecepatan; bila koneksi putus, klik lagi untuk melanjutkan dari bagian yang
-   sudah terunduh).
-2. **Pakai** — model itu menjadi model aktif provider `huggingface`.
-3. **Jalankan** — aplikasi menyalakan `llama-server` sendiri dengan GGUF
-   tersebut (tombol aktif bila `llama-server` ter-install; kalau belum, muncul
-   petunjuk install). Tombol **Stop** di bagian bawah mematikan servernya.
+1. **Cari** — ketik repo id lengkap (`deepseek-ai/DeepSeek-V4.1-Flash`) atau
+   kata kunci (`qwen3`, `gemma`). Hasilnya menampilkan jumlah parameter,
+   perkiraan ukuran, dan popularitas.
+2. **Download** — file diunduh ke folder project `models/<organisasi>/<nama>/`
+   dengan progress bar (persen, MiB, kecepatan, file ke-berapa). Boleh
+   mengunduh **beberapa model sekaligus**; bila koneksi putus, klik **Download**
+   lagi untuk melanjutkan (resume per file).
+3. **Pakai & muat** — model menjadi model aktif **dan** dimuat ke memori proses
+   backend. Tidak ada server tambahan yang perlu dijalankan.
 
-Toggle **Thinking (reasoning)** mengirim
-`chat_template_kwargs.enable_thinking` ke model lokal — matikan bila model
-terlalu lambat atau bila Anda hanya butuh jawaban langsung. Model yang
-mendukung thinking ditandai `thinking: ya` di kartunya (mis.
-`qwen3-4b-q4_k_m`, `qwen3-1.7b-q8_0`, `qwen3-8b-q4_k_m`).
+Kartu **Inference lokal (transformers)** di bagian bawah menampilkan status
+engine: model yang termuat, device (cpu/cuda/mps), dtype, dan jumlah parameter,
+plus tombol **Lepas dari memori**. Toggle **Thinking (reasoning)** meneruskan
+`enable_thinking` ke chat template model.
 
-Lewat terminal juga bisa:
+Repo **gated/privat** (mis. DeepSeek) membutuhkan token: buka *Token
+HuggingFace* di tab yang sama dan tempel token dari
+`huggingface.co/settings/tokens`.
+
+Butuh PyTorch + transformers sekali di awal:
 
 ```bash
-python3 run.py --list-offline-models                          # lihat katalog
-python3 run.py --offline-model qwen3-4b-instruct-2507-q4_k_m  # unduh + jalankan
-python3 run.py --offline-model qwen3-4b-q4_k_m --no-thinking  # tanpa reasoning
+python3 run.py --install-local          # pasang torch + transformers
+python3 run.py --search qwen3           # cari model
+python3 run.py --list-models            # yang sudah terunduh
+python3 run.py --model Qwen/Qwen3-1.7B  # unduh + jadikan aktif + jalankan
 ```
 
-Folder `models/` masuk `.gitignore` — GGUF tidak pernah ikut ter-commit.
+Folder `models/` masuk `.gitignore` — bobot model tidak pernah ikut ter-commit.
 
 ![Banner LLM offline](images/12-banner-llm-offline.png)
-*Bila provider `huggingface` dipilih tetapi server lokal tidak terjangkau,
-banner kuning muncul dengan tombol sekali-klik “Pakai mode mock”.*
+*Bila model lokal belum dimuat (atau endpoint tidak terjangkau), banner kuning
+muncul dengan tombol “Buka Settings” dan sekali-klik “Pakai mode mock”.*
 
 ## 9. Tampilan, aksen & mobile
 
@@ -271,10 +288,11 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 
 | Gejala | Penyebab umum | Solusi |
 |---|---|---|
-| Banner kuning “LLM lokal tidak terjangkau” | `llama-server` belum jalan di port 8081. | Jalankan llama-server / `run.py --demo`, atau klik “Pakai mode mock”. |
+| Banner kuning “Belum ada model offline yang dimuat” | Provider `huggingface` mode lokal belum punya model. | Settings → Model offline → cari → **Download** → **Pakai & muat**. |
 | Indikator sidebar merah “LLM server offline” | Base URL provider tidak reachable. | Periksa Settings provider → base URL, atau ganti provider. |
 | Tool `web_search` berstatus error | Tidak ada akses internet dari backend. | Normal di lingkungan offline (graceful). Konfigurasi Serper/Tavily bila punya key. |
-| Tab Tokens kosong | Provider tidak mengirim logprobs. | Pakai llama.cpp lokal atau mode mock. |
+| Tab Tokens kosong | Provider tidak mengirim logprobs. | Pakai mode `openai`/server yang mendukung, atau mode mock. |
+| “API error” tanpa penjelasan | Key salah, nama model tidak ada, atau payload ditolak gateway. | Settings → **Test koneksi**; status + pesan server ditampilkan per-request. |
 | Diagram tidak muncul | Model tidak menghasilkan Mermaid valid. | Ulangi dengan prompt eksplisit “diagram alir”; validasi server-side akan menolak Mermaid rusak dan memberikannya kembali ke model. |
 | UI tampil tapi tidak interaktif | Dev-server Next 16 memblokir resource cross-origin. | Tambahkan host ke `allowedDevOrigins` di `next.config.ts` (sudah disetel untuk 127.0.0.1 & *.e2b.app), lalu restart. |
 

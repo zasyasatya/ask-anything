@@ -35,7 +35,7 @@ if not exist data mkdir data
 set ASK_DB_PATH=%cd%\data\ask_anything.db
 if "%ASK_PROVIDER%"=="" set ASK_PROVIDER=huggingface
 
-rem Optional: emulated local HF server when no llama-server is running
+rem Optional: emulated OpenAI-compatible server (hf_mode=server)
 set BACKEND_URL=http://127.0.0.1:8000
 powershell -Command "try { (Invoke-WebRequest -Uri http://127.0.0.1:8081/v1/models -TimeoutSec 2).StatusCode } catch { exit 1 }" >nul 2>&1
 if errorlevel 1 (

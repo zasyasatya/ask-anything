@@ -185,23 +185,53 @@ export default function Page() {
           </div>
         </header>
 
-        {settings?.provider === "huggingface" && llm === false && (
+        {settings && llm === false && (
           <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
             <span>
-              LLM lokal tidak terjangkau di {settings.hf_base_url}. Jalankan{" "}
-              <code className="rounded bg-amber-100 px-1">llama-server</code> atau{" "}
-              <code className="rounded bg-amber-100 px-1">python run.py --demo</code>.
+              {settings.provider === "huggingface" && settings.hf_mode !== "server" ? (
+                <>
+                  Belum ada model offline yang dimuat
+                  {settings.hf_model ? (
+                    <>
+                      {" "}(<code className="rounded bg-amber-100 px-1">{settings.hf_model}</code>)
+                    </>
+                  ) : null}
+                  . Buka <b>Settings → Model offline (HuggingFace)</b>, unduh model,
+                  lalu klik <b>Pakai &amp; muat</b>.
+                </>
+              ) : settings.provider === "huggingface" ? (
+                <>
+                  Server LLM tidak terjangkau di{" "}
+                  <code className="rounded bg-amber-100 px-1">{settings.hf_base_url}</code>.
+                  Jalankan server OpenAI-compatible-nya, atau pindah ke inference
+                  lokal lewat Settings.
+                </>
+              ) : (
+                <>
+                  Endpoint <code className="rounded bg-amber-100 px-1">{settings.openai_base_url}</code>{" "}
+                  tidak menjawab. Buka <b>Settings → Test koneksi</b> untuk melihat
+                  status &amp; pesan server apa adanya.
+                </>
+              )}
             </span>
-            <button
-              onClick={async () => {
-                const s = await updateSettings({ provider: "mock" });
-                setSettings(s);
-                refresh().catch(() => undefined);
-              }}
-              className="shrink-0 rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100"
-            >
-              Pakai mode mock
-            </button>
+            <span className="flex shrink-0 gap-2">
+              <button
+                onClick={() => setShowSettings(true)}
+                className="rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100"
+              >
+                Buka Settings
+              </button>
+              <button
+                onClick={async () => {
+                  const s = await updateSettings({ provider: "mock" });
+                  setSettings(s);
+                  refresh().catch(() => undefined);
+                }}
+                className="rounded-md border border-amber-300 bg-white px-2.5 py-1 font-medium text-amber-700 hover:bg-amber-100"
+              >
+                Pakai mode mock
+              </button>
+            </span>
           </div>
         )}
 

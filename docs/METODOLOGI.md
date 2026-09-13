@@ -31,7 +31,7 @@ FastAPI monolith
    ├─ tools/             web_search, fetch_url, create_diagram, calculator
    └─ db.py              SQLite: conversations, messages, trace_events
    ▼
-llama-server :8081 (GGUF Qwen3 dari HF Hub)  /  api.openai.com  /  mock
+model HuggingFace lokal (transformers)  /  api.openai.com & gateway  /  mock
 ```
 
 Keputusan kunci:
@@ -105,11 +105,15 @@ persis terjadi di laptop pengguna bersama llama-server sungguhan.
 
 ## 7. Model & hardware (16 GB)
 
-Default `Qwen/Qwen3-8B-GGUF` (Q4_K_M ≈ 6 GB) karena kombinasi langka:
+Model offline diambil langsung dari HuggingFace Hub ke `models/` dan dijalankan
+`transformers` di proses backend — tidak ada server LLM sampingan. Untuk server
+OpenAI-compatible (vLLM/llama.cpp/LM Studio) tersedia `hf_mode=server`.
+
+Dulu defaultnya `Qwen/Qwen3-8B-GGUF` (Q4_K_M ≈ 6 GB) karena kombinasi langka:
 reasoning `<think>`, tool-calling native, dan muat CPU-only. Naik kelas ke
 Qwen3-14B Q4_K_M (≈ 9 GB) bila kualitas lebih penting dari headroom; pengguna
 GPU 16 GB dapat memakai MoE Qwen3.6-35B-A3B IQ2_M yang sangat cepat.
-Semua hanya perubahan konfigurasi (`ASK_HF_MODEL` + file GGUF), bukan kode.
+Semua hanya perubahan konfigurasi (`ASK_HF_MODEL` + folder model), bukan kode.
 
 ## 8. Degradasi & kegagalan
 

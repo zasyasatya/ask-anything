@@ -57,13 +57,14 @@ export default function DeveloperPage() {
                                      │  hf / openai / mock  search │
                                      │        │             fetch  │
                                      │        ▼             diagram│
-                                     │  llama-server(8081)  calc   │
+                                     │  models/<repo>       calc   │
+                                     │  (transformers in-process)  │
                                      └──────────────────────────────┘`}</Code>
         <UL
           items={[
             <>Backend: <C>backend/app/</C> — FastAPI + SQLite (conversations, messages, trace_events).</>,
             <>Frontend: <C>frontend/</C> — Next.js 16 App Router, Tailwind, mermaid untuk render diagram.</>,
-            <>Demo: <C>scripts/fake_llama_server.py</C> mengemulasi llama-server (wire-format SSE lengkap: think block, tool_calls dicicil, logprobs, usage).</>,
+            <>Demo: <C>scripts/fake_llama_server.py</C> mengemulasi server OpenAI-compatible (wire-format SSE lengkap: think block, tool_calls dicicil, logprobs, usage).</>,
           ]}
         />
         <Shot
@@ -87,7 +88,7 @@ backend/
     api/routes.py            # /api/chat (SSE), conversations, settings, health
   tests/                     # pytest: provider SSE parser, agent, tools, API
 scripts/
-  fake_llama_server.py       # emulator llama-server (--demo & testing)
+  fake_llama_server.py       # server OpenAI-compatible tiruan (--demo & testing)
   capture_screenshots.py     # generator screenshot docs (Playwright)
 docs/                        # METODOLOGI.md, slides, PANDUAN-*, images/
 frontend/                    # Next.js 16: sidebar, hero, chat, interpreter, docs`}</Code>
@@ -269,8 +270,11 @@ python3 scripts/capture_screenshots.py pages   # setelah halaman docs ada`}</Cod
           head={["Variabel", "Default", "Keterangan"]}
           rows={[
             ["ASK_PROVIDER", "huggingface", "huggingface | openai | mock"],
-            ["ASK_HF_BASE_URL", "http://127.0.0.1:8081/v1", "Server lokal OpenAI-compatible (llama.cpp)"],
-            ["ASK_HF_MODEL", "Qwen/Qwen3-8B-GGUF", "Label model"],
+            ["ASK_HF_MODE", "local", "local = inference di proses backend · server = URL OpenAI-compatible"],
+            ["ASK_HF_MODEL", "–", "Repo id model offline yang aktif, mis. Qwen/Qwen3-1.7B"],
+            ["ASK_MODELS_DIR", "models", "Folder project tempat model HuggingFace diunduh"],
+            ["ASK_HF_TOKEN", "–", "Token Hub untuk repo gated/privat"],
+            ["ASK_HF_BASE_URL", "http://127.0.0.1:8081/v1", "Hanya untuk hf_mode=server"],
             ["ASK_OPENAI_API_KEY / _BASE_URL / _MODEL", "– / api.openai.com / gpt-4o-mini", "Provider OpenAI"],
             ["ASK_TEMPERATURE / ASK_MAX_STEPS / ASK_LOGPROBS", "0.7 / 6 / true", "Generasi & interpreter"],
             ["ASK_SEARCH_BACKEND", "ddg", "ddg | serper | tavily (+ key masing-masing)"],

@@ -3,7 +3,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
@@ -11,19 +10,22 @@ from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
-from .. import db, hf_models
+from .. import db, hf_hub
 from ..agent.loop import run_agent
-from ..config import settings, update_settings
-from ..local_llm import runtime as llm_runtime
+from ..config import HF_MODES, settings, update_settings
+from ..local_inference import dependencies, engine
 from ..providers import build_provider
+from ..providers.diagnostics import probe_endpoint
 from ..providers.discovery import list_remote_models
 from ..providers.url_utils import models_url
 
 router = APIRouter(prefix="/api")
 
-# Test seam: tests replace this with an httpx.MockTransport so the model
-# discovery endpoint can be exercised without a live LLM server.
+# Test seams: tests replace these with an httpx.MockTransport so discovery,
+# diagnostics and Hub access can be exercised without a live server.
 DISCOVERY_TRANSPORT: httpx.AsyncBaseTransport | None = None
+DIAGNOSTICS_TRANSPORT: httpx.AsyncBaseTransport | None = None
+HUB_TRANSPORT: httpx.AsyncBaseTransport | None = None
 
 
 class ChatRequest(BaseModel):
@@ -42,16 +44,20 @@ class ModelsProbe(BaseModel):
     provider: str | None = None
     base_url: str | None = None
     api_key: str | None = None
+    #: hanya dipakai `/models/test`: model yang baru diketik di UI
+    model: str | None = None
 
 
 class SettingsUpdate(BaseModel):
     provider: str | None = None
+    hf_mode: str | None = None
     hf_base_url: str | None = None
     hf_model: str | None = None
     hf_api_key: str | None = None
+    hf_token: str | None = None
+    hf_device: str | None = None
+    hf_dtype: str | None = None
     thinking: bool | None = None
-    hf_port: int | None = None
-    hf_ctx_size: int | None = None
     openai_base_url: str | None = None
     openai_model: str | None = None
     openai_api_key: str | None = None
@@ -71,12 +77,25 @@ class SettingsUpdate(BaseModel):
                 "provider harus salah satu dari: huggingface, openai, mock")
         return v
 
+    @field_validator("hf_mode")
+    @classmethod
+    def _known_mode(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
+        v = v.strip().lower()
+        if v not in HF_MODES:
+            raise ValueError("hf_mode harus salah satu dari: local, server")
+        return v
 
-class UseModelRequest(BaseModel):
+
+class RepoRequest(BaseModel):
+    """Repo id travels in the body: it contains a `/` (org/name)."""
+
+    repo_id: str
     thinking: bool | None = None
-    run: bool = False          # also (re)start llama-server on this GGUF
-    port: int | None = None
-    ctx: int | None = None
+    load: bool = True          # langsung muat ke memori setelah dipilih
+    device: str | None = None
+    dtype: str | None = None
 
 
 def _sse(obj: dict[str, Any]) -> str:
@@ -212,80 +231,125 @@ async def list_models(probe: ModelsProbe):
             "active_model": active, "count": len(result.get("models") or [])}
 
 
+@router.post("/models/test")
+async def test_models(probe: ModelsProbe):
+    """Replay the real requests against the endpoint and report each one.
+
+    Ini jawaban untuk "kenapa masih error?": status HTTP + pesan server apa
+    adanya untuk `GET /models`, chat non-streaming (bentuk contoh curl) dan
+    chat streaming (yang dipakai app).
+    """
+    provider = (probe.provider or settings.provider or "").strip().lower()
+    if provider == "mock":
+        return {"ok": True, "provider": "mock",
+                "checks": [{"name": "mode mock", "ok": True, "status": None,
+                            "detail": "tidak memakai endpoint jaringan"}],
+                "hint": None}
+
+    if provider == "openai":
+        base = settings.openai_base_url if probe.base_url is None else probe.base_url
+        key = settings.openai_api_key if probe.api_key is None else probe.api_key
+        model = settings.openai_model if probe.model is None else probe.model
+    else:
+        base = settings.hf_base_url if probe.base_url is None else probe.base_url
+        key = settings.hf_api_key if probe.api_key is None else probe.api_key
+        model = settings.hf_model if probe.model is None else probe.model
+
+    report = await probe_endpoint(base, key, model,
+                                  transport=DIAGNOSTICS_TRANSPORT)
+    return {"provider": provider or "huggingface", **report}
+
+
 # ---------------------------------------------------------------------------
-# Offline HuggingFace models (catalog → download → run with llama.cpp)
+# Offline models: HuggingFace Hub → models/ → inference lokal (transformers)
 # ---------------------------------------------------------------------------
+@router.get("/hf/search")
+async def search_hf_models(q: str = "", limit: int = 20):
+    result = await hf_hub.search_models(q, limit=limit, transport=HUB_TRANSPORT)
+    return result
+
+
 @router.get("/hf/models")
 async def list_hf_models():
     return {
-        "models_dir": str(hf_models.models_dir()),
+        "models_dir": str(hf_hub.models_dir()),
         "endpoint": settings.hf_endpoint,
-        "models": hf_models.list_models(),
-        "runtime": llm_runtime.status(),
+        "models": hf_hub.list_local(),
+        "downloads": hf_hub.all_downloads(),
+        "engine": engine.status(),
+        "deps": dependencies(),
         "active": {
             "provider": settings.provider,
+            "hf_mode": settings.hf_mode,
             "hf_model": settings.hf_model,
-            "hf_base_url": settings.hf_base_url,
             "thinking": settings.thinking,
         },
     }
 
 
-@router.post("/hf/models/{model_id}/download")
-async def download_hf_model(model_id: str):
-    if hf_models.get_spec(model_id) is None:
-        return {"error": f"model tidak dikenal: {model_id}"}
+@router.get("/hf/downloads")
+async def hf_downloads():
+    return {"downloads": hf_hub.all_downloads(),
+            "models": hf_hub.list_local()}
+
+
+@router.post("/hf/models/download")
+async def download_hf_model(req: RepoRequest):
     try:
-        state = hf_models.start_download(model_id)
-    except KeyError:
-        return {"error": f"model tidak dikenal: {model_id}"}
-    return {"ok": True, "model_id": model_id, "download": state,
-            "models_dir": str(hf_models.models_dir())}
+        state = hf_hub.start_download(req.repo_id, transport=HUB_TRANSPORT)
+    except ValueError as exc:
+        return {"error": str(exc)}
+    return {"ok": True, "repo_id": req.repo_id, "download": state,
+            "models_dir": str(hf_hub.models_dir())}
 
 
-@router.post("/hf/models/{model_id}/delete")
-async def delete_hf_model(model_id: str):
-    if llm_runtime.alive() and llm_runtime.model_path:
-        if Path(llm_runtime.model_path).name == Path(model_id).name:
-            await llm_runtime.stop()
-    removed = hf_models.delete_model(model_id)
+@router.post("/hf/models/cancel")
+async def cancel_hf_download(req: RepoRequest):
+    return {"ok": hf_hub.cancel_download(req.repo_id),
+            "download": hf_hub.download_state(req.repo_id)}
+
+
+@router.post("/hf/models/delete")
+async def delete_hf_model(req: RepoRequest):
+    if engine.ready() and (engine.repo_id or "") == req.repo_id.strip("/"):
+        await engine.unload()
+    removed = hf_hub.delete_model(req.repo_id)
     if not removed:
-        return {"error": "file model tidak ditemukan"}
-    return {"ok": True, "model_id": model_id}
+        return {"error": "folder model tidak ditemukan"}
+    return {"ok": True, "repo_id": req.repo_id}
 
 
-@router.post("/hf/models/{model_id}/use")
-async def use_hf_model(model_id: str, req: UseModelRequest):
+@router.post("/hf/models/use")
+async def use_hf_model(req: RepoRequest):
+    """Select a downloaded model as the active one (and load it by default)."""
     try:
-        result = hf_models.use_model(model_id, thinking=req.thinking)
+        result = hf_hub.use_model(req.repo_id, thinking=req.thinking)
     except FileNotFoundError as exc:
         return {"error": str(exc)}
 
-    runtime_status = llm_runtime.status()
-    if req.run:
+    status = engine.status()
+    if req.load:
         path = result["local_model_path"]
         try:
-            runtime_status = await llm_runtime.start(
-                path, port=req.port, ctx=req.ctx)
-        except (RuntimeError, FileNotFoundError) as exc:
-            return {"error": str(exc), "settings": result,
-                    "runtime": llm_runtime.status()}
-        result = update_settings(
-            hf_base_url=runtime_status["base_url"], hf_model=Path(path).name)
-        result["local_model_path"] = path
-    return {"ok": True, "model_id": model_id, "settings": result,
-            "runtime": runtime_status}
+            status = engine.start_load(path, device=req.device, dtype=req.dtype)
+        except RuntimeError as exc:      # torch/transformers belum ada
+            return {"error": str(exc), "settings": result, "engine": status}
+        if status["state"] == "error":
+            return {"error": status["error"], "settings": result,
+                    "engine": status}
+    return {"ok": True, "repo_id": req.repo_id, "settings": result,
+            "engine": status}
 
 
 @router.get("/hf/runtime")
 async def hf_runtime_status():
-    return llm_runtime.status()
+    return engine.status()
 
 
 @router.post("/hf/runtime/stop")
 async def hf_runtime_stop():
-    stopped = await llm_runtime.stop()
-    return {"ok": True, "stopped": stopped, "runtime": llm_runtime.status()}
+    stopped = await engine.unload()
+    return {"ok": True, "stopped": stopped, "engine": engine.status()}
 
 
 @router.get("/health")
@@ -293,14 +357,22 @@ async def health():
     llm_reachable = False
     llm_error = None
     llm_status = None
-    if settings.provider in ("huggingface", "openai"):
+
+    if settings.provider == "huggingface" and settings.hf_mode != "server":
+        # Mode lokal: "terjangkau" = model sudah dimuat (atau sedang dimuat).
+        status = engine.status()
+        llm_reachable = status["running"]
+        llm_error = status.get("error") or (
+            None if status["running"] else status.get("hint"))
+        llm_status = None if status["running"] else 0
+    elif settings.provider in ("huggingface", "openai"):
         base = (settings.hf_base_url if settings.provider == "huggingface"
                 else settings.openai_base_url)
         key = (settings.hf_api_key if settings.provider == "huggingface"
                else settings.openai_api_key)
         headers = {"Authorization": f"Bearer {key}"} if key else {}
         try:
-            async with httpx.AsyncClient(timeout=3.0) as client:
+            async with httpx.AsyncClient(timeout=6.0) as client:
                 r = await client.get(models_url(base), headers=headers)
                 llm_status = r.status_code
                 # Any HTTP answer proves the endpoint exists; 401/403 just mean
@@ -308,12 +380,15 @@ async def health():
                 llm_reachable = r.status_code < 500
         except Exception as exc:  # noqa: BLE001
             llm_error = str(exc)
+
     return {
         "status": "ok",
         "provider": settings.provider,
+        "hf_mode": settings.hf_mode,
         "model": settings.active_model_label(),
         "llm_reachable": llm_reachable,
         "llm_status": llm_status,
         "llm_error": llm_error,
-        "local_llm": llm_runtime.status()["running"],
+        "local_llm": engine.ready(),
+        "local_llm_state": engine.status()["state"],
     }
