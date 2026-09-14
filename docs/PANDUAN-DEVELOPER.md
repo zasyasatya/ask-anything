@@ -20,7 +20,14 @@
 9. [Frontend](#9-frontend)
 10. [Pipeline screenshot docs](#10-pipeline-screenshot-docs)
 11. [Referensi env](#11-referensi-env-prefix-ask_)
-12. [Troubleshooting dev](#12-troubleshooting-dev)
+12. [Sitasi & provenance tool](#12-sitasi--provenance-tool)
+13. [Troubleshooting dev](#13-troubleshooting-dev)
+
+> **Butuh detail per paket & cara kerjanya?** Baca
+> [`TEKNIS.md`](TEKNIS.md) — inventaris setiap dependency (versi, alasan
+> dipilih, bagaimana ia bekerja di kode ini), plus uraian algoritma layout graph,
+> parser Mermaid toleran, retry ladder provider, pipeline sitasi, dan batas
+> ukuran/timeout yang berlaku.
 
 ---
 
@@ -75,10 +82,12 @@ backend/
     hf_hub.py                # pencarian HuggingFace Hub + downloader multi-model
     local_inference.py       # engine transformers: load/unload/stream + tool call
     streamtags.py            # parser blok think/tool-call pada token stream
-    tools/                   # web_search, fetch_url, diagrams, calculator
+    tools/                   # base (provenance Tool.source/ToolResult.hits),
+                             # web_search, fetch_url, diagrams, calculator
+    sources.py               # registri sumber + verifikasi/penjaminan sitasi
     agent/                   # loop.py (agent+tracing), prompts.py
     api/routes.py            # /api/chat, conversations, settings, hf/models, health
-  tests/                     # pytest (100): URL, parser SSE, retry ladder +
+  tests/                     # pytest (103): URL, parser SSE, retry ladder +
                              # fallback, diagnostik endpoint, Hub downloader,
                              # inference lokal dengan model nyata
 models/                      # (gitignored) model HuggingFace hasil download
@@ -86,6 +95,10 @@ scripts/
   fake_llama_server.py       # server OpenAI-compatible tiruan (--demo & testing)
   download_model.py          # CLI cari/unduh model (run.py --search/--model)
   capture_screenshots.py     # generator screenshot docs (Playwright)
+  smoke_ui.py                # pemeriksaan UI end-to-end (collapse, kanvas,
+                             # provenance, sitasi, tab interpreter)
+  fake_search_server.py      # gateway pencarian+halaman demo lokal (uji E2E &
+                             # screenshot tanpa internet; data fiktif)
 docs/                        # METODOLOGI.md, slides, PANDUAN-*, DEPLOY-COOLIFY.md, images/
 frontend/                    # Next.js 16: sidebar, hero, chat, interpreter, docs
 ```
@@ -124,6 +137,7 @@ python3 run.py --demo                          # E2E live (emulator LLM)
 | `test_providers.py` | Parser SSE protokol OpenAI: `<think>` terbelah antar chunk, akumulasi `tool_calls.arguments`, logprobs, usage. |
 | `test_api.py` | `/api/chat` end-to-end via TestClient: urutan event SSE + persist trace (`prompt`, `tool_call`, `logprobs`). |
 | `test_tools.py` | Validasi Mermaid, keamanan calculator (AST whitelist), ekstraksi `fetch_url`. |
+| `test_sources_citations.py` | Provenance tool (`browser`/`diagram`/`compute`), `ok`/`hits`, registri sumber (dedup, `read`, penolakan payload diagram), verifikasi `[n]` + nomor invalid, `finalize_answer` (`cited`/`appended`/`no-evidence`), event `llm_request`/`llm_response`/`sources`/`citations`, **live == replay**, endpoint pencarian yang bisa dikonfigurasi. |
 
 Test frontend (`cd frontend && npm test`, vitest + Testing Library di jsdom):
 
@@ -133,6 +147,17 @@ Test frontend (`cd frontend && npm test`, vitest + Testing Library di jsdom):
 | `lib/graph/layout.test.ts` | Layout layered: urutan rank TD/LR, bebas tumpukan, aman siklus, deterministik, bounding box subgraph. |
 | `components/GraphView.test.tsx` | Interaksi: klik node → inspektur relasi, drag node vs pan latar, zoom tombol/wheel, toggle arah, keyboard (Enter/Esc). |
 | `components/DiagramBlock.test.tsx` | Mode render: default Graph, persistensi preferensi localStorage, badge baris dilewati, fallback satu klik saat Mermaid error. |
+| `components/DiagramBlock.canvas.test.tsx` | Ukuran kartu (`min(66vh,620px)`/min 380px), tombol layar penuh: jalur **native**, jalur **ditolak** (iframe) → focus mode + alasan, `Esc` keluar, badge provenance. |
+| `components/Sidebar.test.tsx` | Collapse/expand: 268px ↔ 64px, `aria-expanded`, persist `aa:nav-collapsed`, riwayat tetap bisa dipilih saat rail, `Ctrl+B`, status LLM. |
+| `components/ChatView.test.tsx` | Chip tool berlencana provenance (+ `0 hasil`/`gagal`/durasi), bar Sitasi dengan status dikutip per sumber, kolom lebar 1180px (bukan `max-w-3xl`). |
+| `components/Interpreter.test.tsx` | Tab **Log** jadi default & baris terstruktur, payload mentah per baris, tab LLM membuka request/raw completion/`tool_calls`, tab Tools menampilkan argumen+hasil+durasi+status, tab Sumber (tabel + status verifikasi), Metrik, copy log, lebar panel. |
+| `lib/log.test.ts` | `buildLog`: satu baris per langkah, delta & thinking jadi hitungan, status `empty`/`failed`, durasi, urutan `stream` sebelum `response`, `logToText` berkolom. |
+| `lib/sources.test.ts` | Peta provenance, `outcomeOf`, `splitCitations` (`[1]`, `[2,3]`, link markdown bukan sitasi), label/tone sitasi, `hasSourcesBlock`. |
+| `lib/markdown.test.tsx` | `[n]` → chip tertaut (juga untuk beberapa nomor), nomor tak dikenal ditandai merah tapi tidak dihapus, provenance diteruskan ke DiagramBlock, fence non-mermaid tidak jadi diagram. |
+
+Rangkuman saat ini: **pytest 103 lulus / 15 skip** (skip = butuh torch atau
+jaringan), **vitest 110 lulus**, `tsc --noEmit` bersih, `next build` 4 route.
+Verifikasi UI end-to-end: `python3 scripts/smoke_ui.py` (30 pemeriksaan).
 
 **Deploy produksi** — `Dockerfile` di root repo membangun satu image berisi
 backend + frontend (Next production server sebagai pintu masuk publik, uvicorn
@@ -167,16 +192,23 @@ troubleshooting deploy: [`DEPLOY-COOLIFY.md`](DEPLOY-COOLIFY.md).
 | `type` | Payload penting | Konsumsi UI |
 |---|---|---|
 | `start` | `conversation_id` | page.tsx: set active id |
-| `meta` | provider, model, temperature, max_steps, logprobs | Interpreter → Metrics |
-| `prompt` | `system`, `messages`, `tools` | Interpreter → Prompt |
-| `thinking` | `text` (stream) | kotak 💭 + Timeline |
+| `meta` | provider, model, temperature, max_tokens, max_steps, logprobs, tools | Interpreter → Metrik |
+| `prompt` | `system`, `messages`, `tools` (schema lengkap), `message_count` | Interpreter → LLM |
+| `thinking` | `text` (stream) | kotak 💭 + baris `thinking` (diringkas) |
 | `delta` | `text` (stream) | jawaban markdown |
-| `logprobs` | `items[{token, prob, top[]}]` | Interpreter → Tokens |
-| `tool_call` | `id`, `name`, `arguments` mentah | chip tool + Timeline |
-| `tool_result` | `id`, `name`, `summary`, `data` | chip ✓ + Timeline |
-| `usage` | prompt/completion/total tokens | Metrics |
-| `note` | `message`, `status`, `payload`, `detail` | Timeline (oranye): retry ladder provider, `max_steps` habis |
+| `logprobs` | `items[{token, prob, top[]}]` | chip token di Interpreter → LLM |
+| `llm_request` | `messages` persis, `tools`, `sampling`, `message_count` | Interpreter → LLM (baris `request #n`) |
+| `llm_response` | `text` mentah, `thinking`, `finish_reason`, `tool_calls[]`, `chars`, `duration_ms` | Interpreter → LLM + baris `response #n` |
+| `tool_call` | `id`, `name`, `arguments`, `source`, `args_preview` | chip provenance + Log `tool.exec` |
+| `tool_result` | `id`, `name`, `source`, `label`, `summary`, `ok`, `hits`, `new_sources`, `error`, `duration_ms`, `data` | chip hasil + Log `tool.result` + tab Tools |
+| `sources` | `total`, `items[]`, `block` | Interpreter → Sumber |
+| `citations` | `status`, `total`, `cited[]`, `uncited[]`, `invalid[]`, `detail`, `sources[]` | bar Sitasi + Log `citations` |
+| `usage` | prompt/completion/total tokens | Metrik |
+| `note` | `message`, `status`, `tool` | Log oranye (`note:no-results`, `note:max_steps`), retry ladder provider |
 | `done` | `answer`, `latency_ms`, `steps`, `stopped_reason` | selesai + persist |
+
+Setiap event yang di-*trace* membawa `t_ms` (milidetik relatif ke awal run) dan
+`step` — dipakai Log sebagai gutter waktu tanpa menghitung jam dinding.
 | `error` | `message` | banner inline + Timeline |
 | (frame) | `: keep-alive` tiap 10 dtk saat stream diam | diabaikan klien; menahan proxy menutup koneksi |
 
@@ -264,13 +296,18 @@ FOO = Tool(name="foo", description="...", parameters={...}, run=run_foo)
 
 | File | Tanggung jawab |
 |---|---|
-| `app/page.tsx` | Orkestrasi state: conversations, messages, trace, live-stream, settings, aksen. |
+| `app/page.tsx` | Orkestrasi state: conversations, messages, trace, live-stream (termasuk `source`/`hits`/`duration_ms` tiap tool), settings, aksen. Header memakai `shrink-0`+`truncate` agar tidak menimpa saat Interpreter membuka. |
 | `app/panduan/page.tsx`, `app/developer/page.tsx` | Halaman dokumentasi in-app (komponen di `components/docs/DocShell.tsx`). |
 | `lib/api.ts` | Klien SSE (parser baris `data:`), CRUD conversations, settings, health. |
-| `components/ChatView.tsx` | Render pesan, chip tool, kotak thinking, live answer. |
-| `components/Interpreter.tsx` | 4 tab trace dari event live maupun replay. |
-| `components/DiagramBlock.tsx` | Kartu diagram dua mode (Graph interaktif default / Mermaid), preferensi di localStorage, badge baris dilewati, fallback saat Mermaid error, tombol salin sumber. |
-| `components/GraphView.tsx` | Renderer graph HTML interaktif: node `<button>` (fokus/klik/drag), edge SVG, pan/zoom/fit, toggle arah TD/LR, panel inspektur relasi. |
+| `components/Sidebar.tsx` | Navbar **collapsible**: rail 64px ↔ 268px, persist `aa:nav-collapsed`, `Ctrl/Cmd+B`, riwayat jadi rail titik (tetap tombol, tetap bisa keyboard) saat collapsed. |
+| `components/ChatView.tsx` | Render pesan di kolom **lebar** (`max-w-[1180px]`), chip tool **berlencana provenance** (Browser / Tool diagram / Kalkulator, + status `0 hasil`/`gagal`/durasi), bar Sitasi, kotak thinking, live answer. |
+| `components/Interpreter.tsx` | Panel **log** (tab Log/LLM/Tools/Sumber/Metrik), bisa diseret 380–980px (persist), tombol copy log. |
+| `lib/log.ts` | `buildLog(events)` — pemetaan murni TraceEvent→baris log (delta & thinking diringkas jadi hitungan, status dari field `ok`/`hits`), `logToText()` untuk salin/unduh. |
+| `lib/sources.ts` | Peta provenance tool + kelas hasil (`ok/empty/failed/running`), pemecah marker `[n]`, label & tone sitasi. Cermin dari `app/sources.py`. |
+| `lib/useFullscreen.ts` | Fullscreen API + **fallback focus mode** (`fixed inset-0`) dengan alasan yang dilaporkan, Esc selalu keluar. |
+| `lib/markdown.tsx` | Markdown → blok; fence ```mermaid → `DiagramBlock`; marker `[n]` → chip tertaut; meneruskan `diagramOrigin` ke kartu. |
+| `components/DiagramBlock.tsx` | Kartu diagram dua mode (Graph default / Mermaid), preferensi localStorage, badge baris dilewati, fallback saat Mermaid error, salin sumber, **tombol layar penuh**, **badge provenance** (`dari tool create_diagram` vs `ditulis model di jawaban`), tinggi `min(66vh,620px)`. |
+| `components/GraphView.tsx` | Renderer graph HTML interaktif: node `<button>` (fokus/klik/drag), edge SVG, pan/zoom/fit, toggle arah TD/LR, panel inspektur relasi. `height: number \| "100%"` + `fill` + `fitSignal`, dan `ResizeObserver` → refit saat kontainer berubah (fullscreen, collapse, drag). |
 | `lib/graph/parseMermaid.ts`, `lib/graph/layout.ts` | Parser Mermaid toleran (tidak pernah melempar) → model graph; layout layered deterministik (rank + barycenter + koordinat). |
 | `components/Mermaid.tsx` | `mermaid.render()` (`securityLevel: strict`) untuk fence ```mermaid & hasil tool (mode pembanding). |
 | `next.config.ts` | Rewrite `/api`, `/slides`, `/docs-images` ke backend (same-origin untuk browser & preview) + `allowedDevOrigins`. |
@@ -296,14 +333,28 @@ BASE_URL=http://127.0.0.1:3000 python3 scripts/capture_screenshots.py main
 python3 scripts/capture_screenshots.py pages
 ```
 
-- Stage `main`: hero, Explore, banner offline, chat diagram/search/kalkulasi,
-  4 tab Interpreter, settings, sidebar, slides, aksen, viewport mobile.
+- Stage `main`: hero, Explore, **navbar collapsed → expand**, kanvas diagram
+  (+ **layar penuh** + badge provenance), Interpreter per tab (Log/LLM/Sumber/
+  Metrik/Tools), **browsing bersitasi**, **browsing 0 hasil**, kalkulator,
+  layout lebar + interpreter berdampingan, settings, sidebar, slides, aksen,
+  viewport mobile.
+- Sebelum memotret: jalankan `python3 scripts/smoke_ui.py` — kalau pemeriksaan
+  UI lulus, screenshot yang dihasilkan pasti menunjukkan perilaku yang benar.
 - Stage `pages`: screenshot `/panduan` & `/developer` (viewport-only agar
   tidak multi-MB).
-- Lingkungan tanpa akses CDN browser: set env `CHROME_EXE` (binary Chromium
-  alternatif, mis. dari paket npm `@sparticuz/chromium`), `CHROME_LIBS`
-  (LD_LIBRARY_PATH tambahan), `CHROME_FONTS` (file fontconfig) — lihat
-  docstring `scripts/capture_screenshots.py`.
+- Lingkungan tanpa akses CDN browser: set **`CHROME_EXE`** saja — skrip
+  otomatis menambahkan `lib/` dan `fonts.conf` di samping binary ke
+  `LD_LIBRARY_PATH` / `FONTCONFIG_FILE` (layout hasil ekstrak paket npm
+  `@sparticuz/chromium`). Override manual tetap tersedia: `CHROME_LIBS`,
+  `CHROME_FONTS`.
+- **Tanpa `FONTCONFIG_FILE` yang benar screenshot tetap ter-layout tapi teksnya
+  hilang** (glyph tidak ketemu). Kalau hasil capture “kosong”, cek ini lebih
+  dulu sebelum menyalahkan UI.
+- Alur “browser” difoto lewat gateway demo lokal (`SEARCH_DEMO_URL`, default
+  `http://127.0.0.1:8099/lite/` dari `scripts/fake_search_server.py`) supaya
+  pipeline sitasi bisa terlihat di mesin tanpa internet. Data halaman itu
+  fiktif dan caption dokumen mengatakannya; set `SEARCH_DEMO_URL=` (kosong)
+  untuk memakai internet sungguhan.
 
 ![Halaman panduan in-app](images/17-halaman-panduan.png)
 *Halaman `/panduan` — dokumen ini dalam bentuk interaktif.*
@@ -331,11 +382,70 @@ python3 scripts/capture_screenshots.py pages
 | `ASK_OPENAI_API_KEY` / `ASK_OPENAI_BASE_URL` / `ASK_OPENAI_MODEL` | – / api.openai.com / gpt-4o-mini | Provider OpenAI / gateway kompatibel |
 | `ASK_TEMPERATURE`, `ASK_MAX_STEPS`, `ASK_LOGPROBS` | 0.7 / 6 / true | Generasi & interpreter |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+ key masing-masing) |
+| `ASK_SEARCH_DDG_URL` | `https://lite.duckduckgo.com/lite/` | Endpoint pencarian gaya lite — bisa ke gateway internal/self-host atau `scripts/fake_search_server.py` untuk uji E2E tanpa internet |
 | `ASK_DB_PATH` | `data/ask_anything.db` | Lokasi SQLite |
 
 Semua juga bisa diubah runtime via `POST /api/settings` (dialog Settings).
 
-## 12. Troubleshooting dev
+## 12. Sitasi & provenance tool
+
+Dua kontrak kecil yang membuat jawaban bisa diverifikasi — dan UI jujur saat
+buktinya tidak ada.
+
+**Provenance dideklarasikan, tidak disimpulkan.** `tools/base.py`:
+
+```python
+@dataclass
+class Tool:
+    name: str; description: str; parameters: dict; run: Callable
+    source: str = "compute"     # "browser" | "diagram" | "compute"
+    evidence: bool = False      # payload = bukti eksternal yang wajib disitasi
+
+@dataclass
+class ToolResult:
+    summary: str; data: dict
+    ok: bool = True             # False → kegagalan tertangani (chip merah)
+    hits: int | None = None     # None: bukan pencarian · 0: kosong · >0: ada
+```
+
+Tiga nilai `hits` itu penting dan tidak boleh disatukan: `None` (diagram &
+kalkulator memang tidak punya "jumlah hasil"), `0` (browser hidup tapi tidak
+menemukan apa pun → chip kuning “0 hasil — belum ada data”), `>0` (hijau).
+`tool_source(name)` untuk tool tak dikenal selalu `compute` — tool fiktif tidak
+boleh mengaku sebagai bukti web. Frontend punya cermin yang sama di
+`lib/sources.ts::sourceOf()`.
+
+**Registri sitasi** (`app/sources.py`) dalam empat tahap:
+
+| Tahap | Fungsi | Catatan |
+|---|---|---|
+| kumpul | `register_tool_result()` menyerap `web_search.results[]` (`read=False`) & `fetch_url` (`read=True`) | dedup per URL; nomor **stabil** — halaman yang tadinya cuma hasil lalu dibaca penuh tidak mengubah `[n]` yang sudah ditulis |
+| umpan balik | `prompt_block()` disisipkan sebagai `system` **setelah** payload tool | bila kosong: instruksinya melarang model mengarang nomor |
+| verifikasi | `report()` memindai `\[\d+(?:[,;-]\d+)*\]` → `cited` / `uncited` / `invalid` | nomor di luar daftar **ditandai**, tidak disembunyikan |
+| jaminan | `finalize_answer()` | `cited` · `appended` (blok `## Sumber` disisipkan) · `no-evidence` · `na` |
+
+Payload `create_diagram` / `calculator` **tidak pernah** masuk registri:
+menyitat keluaran sendiri bukan bukti. Karena itu kartu diagram justru
+memajang badge “dari tool create_diagram”.
+
+Hasilnya ikut disimpan di `messages.meta` (`sources`, `citations`,
+`diagram_origin`) supaya replay riwayat menampilkan bar Sitasi yang sama seperti
+saat run berlangsung, dan di-emit sebagai event `sources` + `citations`.
+
+```python
+# uji cepat tanpa jaringan: transport httpx tiruan
+ctx = ToolContext(settings=Settings(search_ddg_url="http://127.0.0.1:9/lite/"),
+                  http=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+res = await get_tool("web_search").run({"query": "q"}, ctx)
+assert res.hits == 1
+```
+
+Lihat `backend/tests/test_sources_citations.py` (17 test) untuk kontrak ini,
+dan `frontend/lib/{sources,log}.test.ts` (23 test) untuk sisi UI-nya.
+
+---
+
+## 13. Troubleshooting dev
 
 | Masalah | Penyebab | Fix |
 |---|---|---|

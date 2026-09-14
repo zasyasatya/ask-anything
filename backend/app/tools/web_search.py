@@ -8,13 +8,14 @@ from bs4 import BeautifulSoup
 
 from .base import Tool, ToolContext, ToolResult
 
+#: Default; nilai aktif dibaca dari Settings.search_ddg_url (ASK_SEARCH_DDG_URL).
 DDG_URL = "https://lite.duckduckgo.com/lite/"
 
 
 async def _ddg_search(client: httpx.AsyncClient, query: str, max_results: int,
                       settings) -> list[dict[str, str]]:
     resp = await client.get(
-        DDG_URL,
+        getattr(settings, "search_ddg_url", "") or DDG_URL,
         params={"q": query},
         headers={"User-Agent": settings.user_agent},
     )
@@ -96,15 +97,19 @@ async def run_web_search(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
         return ToolResult(
             summary=f"web_search gagal (network): {exc}",
             data={"error": str(exc), "results": []},
+            ok=False,
+            hits=0,
         )
     if not results:
         return ToolResult(
             summary=f"web_search: tidak ada hasil untuk '{query}'",
             data={"results": []},
+            hits=0,
         )
     return ToolResult(
         summary=f"web_search '{query}': {len(results)} hasil",
         data={"query": query, "results": results},
+        hits=len(results),
     )
 
 
@@ -115,6 +120,8 @@ WEB_SEARCH = Tool(
         "documentation). Returns titles, URLs and snippets. Use whenever the "
         "answer needs up-to-date or external facts."
     ),
+    source="browser",
+    evidence=True,
     parameters={
         "type": "object",
         "properties": {

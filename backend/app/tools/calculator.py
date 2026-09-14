@@ -52,6 +52,7 @@ async def run_calculator(args: dict[str, Any], ctx: ToolContext) -> ToolResult:
 CALCULATOR = Tool(
     name="calculator",
     description="Evaluate an arithmetic expression (+ - * / // % **).",
+    source="compute",
     parameters={
         "type": "object",
         "properties": {"expression": {"type": "string"}},

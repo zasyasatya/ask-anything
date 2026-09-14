@@ -58,6 +58,11 @@ class Settings(BaseSettings):
 
     # ---- browsing tools ----
     search_backend: str = "ddg"    # ddg | serper | tavily
+    #: Endpoint pencarian gaya DuckDuckGo-lite. Bisa diarahkan ke gateway
+    #: pencarian internal/self-host (atau server demo offline untuk pengujian
+    #: end-to-end UI) tanpa mengubah kode tool — parameter & respons harus
+    #: sama dengan /lite/ (link <a href="http…"> + sel snippet di sebelahnya).
+    search_ddg_url: str = "https://lite.duckduckgo.com/lite/"
     serper_api_key: str = ""
     tavily_api_key: str = ""
     fetch_timeout: float = 15.0
@@ -103,6 +108,7 @@ class Settings(BaseSettings):
             "max_steps": self.max_steps,
             "logprobs": self.logprobs,
             "search_backend": self.search_backend,
+            "search_ddg_url": self.search_ddg_url,
             "has_openai_key": bool(self.openai_api_key),
             "has_hf_key": bool(self.hf_api_key),
             "has_hf_token": bool(self.hf_token),

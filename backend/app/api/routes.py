@@ -64,6 +64,8 @@ class SettingsUpdate(BaseModel):
     temperature: float | None = None
     max_steps: int | None = None
     logprobs: bool | None = None
+    #: ke mana web_search mengarah (gateway pencarian internal / server demo)
+    search_ddg_url: str | None = None
 
     @field_validator("provider")
     @classmethod
@@ -358,7 +360,12 @@ async def health():
     llm_error = None
     llm_status = None
 
-    if settings.provider == "huggingface" and settings.hf_mode != "server":
+    if settings.provider == "mock":
+        # Mode demo offline tidak menyentuh jaringan apa pun: selalu sehat.
+        # Tanpa cabang ini UI menampilkan banner "endpoint tidak menjawab" yang
+        # menyesatkan justru saat orang mencoba mode offline.
+        llm_reachable = True
+    elif settings.provider == "huggingface" and settings.hf_mode != "server":
         # Mode lokal: "terjangkau" = model sudah dimuat (atau sedang dimuat).
         status = engine.status()
         llm_reachable = status["running"]

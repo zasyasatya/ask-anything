@@ -22,8 +22,9 @@ export const metadata: Metadata = {
 const TOC: Array<[string, string]> = [
   ["mulai", "Mulai dalam 1 menit"],
   ["layar", "Mengenal layar utama"],
+  ["tata-letak", "Navbar collapsible & ruang lega"],
   ["chat", "Chat pertama Anda"],
-  ["jawaban", "Membaca jawaban agent"],
+  ["jawaban", "Provenance & sitasi"],
   ["browsing", "Browsing & penanganan error"],
   ["interpreter", "Mechanistic Interpreter"],
   ["riwayat", "Riwayat percakapan"],
@@ -88,14 +89,19 @@ python3 run.py --demo`}</Code>
         <UL
           items={[
             <>
-              <b>Sidebar kiri</b> — tombol <C>New chat</C>, daftar riwayat percakapan dikelompokkan
-              per tanggal (<C>Today</C>, <C>Yesterday</C>, …), indikator status LLM, dan tombol{" "}
-              <C>Settings provider</C>.
+              <b>Navbar kiri</b> — bisa <b>di-collapse</b> jadi rail ikon (64px) atau
+              <b>di-expand</b> (268px) lewat tombol <C>‹</C> atau <C>Ctrl/Cmd+B</C>; berisi{' '}
+              <C>New chat</C>, riwayat per tanggal (<C>Today</C>, <C>Yesterday</C>, …),
+              indikator status LLM, dan <C>Settings provider</C>. Pilihan Anda tersimpan.
             </>,
             <>
               <b>Header</b> — judul percakapan aktif, chip provider+model yang sedang dipakai
               (mis. <C>huggingface · Qwen/Qwen3-1.7B</C>), tautan <C>Docs &amp; Slides</C>, dan
               tombol <C>Mechanistic Interpreter →</C>.
+            </>,
+            <>
+              <b>Ruang chat</b> — kolom percakapan <b>lebar</b> (maks 1180px + padding longgar)
+              yang otomatis memanfaatkan ruang saat navbar di-collapse.
             </>,
             <>
               <b>Composer</b> — kotak tempat Anda menulis pertanyaan; kirim dengan tombol <C>Ask</C>{" "}
@@ -115,7 +121,62 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="chat">3. Chat pertama Anda</H2>
+        <H2 id="tata-letak">3. Navbar collapsible &amp; ruang chat lega</H2>
+        <P>
+          Navbar kiri bisa diperkecil jadi <b>rail ikon 64px</b> atau dibuka penuh{' '}
+          <b>268px</b> — lewat tombol <C>‹</C> di kepalanya atau pintasan{' '}
+          <C>Ctrl+B</C> (<C>Cmd+B</C> di macOS). Ruang yang dilepaskan langsung dipakai
+          ulang oleh ruang chat dan kanvas diagram. Keadaannya disimpan di
+          <C>localStorage</C>, jadi bertahan setelah refresh.
+        </P>
+        <Shot
+          src="/docs-images/19-sidebar-collapsed.png"
+          alt="Navbar dalam keadaan collapsed"
+          caption="Navbar collapsed: merek, New chat, riwayat sebagai rail titik (judul muncul sebagai tooltip dan tetap bisa dipilih dengan keyboard), status LLM, dan Settings sebagai ikon."
+        />
+        <Table
+          head={["Layout", "Kapan enak dipakai"]}
+          rows={[
+            ["Navbar expand + chat + Interpreter", "Membaca log per langkah; tiga panel muat di layar ≥1600px."],
+            ["Navbar collapse + chat + Interpreter", "Laptop: diagram dan log tetap lebar."],
+            ["Navbar collapse saja", "Fokus pada jawaban / kanvas visual."],
+          ]}
+        />
+        <H3>Kanvas visualisasi: lebar &amp; layar penuh</H3>
+        <P>
+          Kartu diagram memakai tinggi fleksibel <C>min(66vh, 620px)</C> (minimum 380px) dan
+          punya tombol <b>Layar penuh</b>. Bila browser menolak Fullscreen API (mis. aplikasi
+          dibuka di iframe tanpa izin), kartu otomatis pindah ke <b>focus mode</b> — overlay
+          <C>fixed inset-0</C> yang hasilnya sama, dan strip kecil di kartu <i>menyebutkan
+          alasannya</i>, tidak diam-diam. Kanvas juga men-<i>refit</i> sendiri saat kontainernya
+          berubah ukuran (navbar di-collapse, panel di-drag, layar diputar).
+        </P>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Shot
+            src="/docs-images/20-canvas-diagram.png"
+            alt="Kartu diagram dengan badge provenance"
+            caption="Kartu diagram: mode Graph/Mermaid, ringkasan node & edge, badge asal konten, dan tombol Layar penuh."
+          />
+          <Shot
+            src="/docs-images/21-canvas-fullscreen.png"
+            alt="Kanvas diagram dalam layar penuh"
+            caption="Layar penuh: satu kartu menjadi seluruh layar; Esc atau tombol Keluar untuk kembali."
+          />
+        </div>
+        <Shot
+          src="/docs-images/28-wide-room-plus-interpreter.png"
+          alt="Ruang chat lebar berdampingan dengan Interpreter"
+          caption="Ruang chat (maks 1180px) dan Interpreter berdampingan; kartu diagram mengisi seluruh kolom teks."
+        />
+        <Shot
+          src="/docs-images/29-wide-room-navbar-collapsed.png"
+          alt="Ruang chat setelah navbar di-collapse"
+          caption="Setelah Ctrl+B: kolom chat dan kanvas melebar sekitar 200px."
+        />
+      </section>
+
+      <section className="space-y-4">
+        <H2 id="chat">4. Chat pertama Anda</H2>
         <OL
           items={[
             <>Klik chip contoh (mis. <C>Diagram alir →</C>) atau ketik pertanyaan sendiri di composer.</>,
@@ -137,7 +198,7 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="jawaban">4. Membaca jawaban agent</H2>
+        <H2 id="jawaban">5. Membaca jawaban agent: provenance &amp; sitasi</H2>
         <P>Satu balasan agent bisa memuat beberapa lapisan informasi:</P>
         <Table
           head={["Elemen UI", "Artinya"]}
@@ -147,8 +208,12 @@ python3 run.py --demo`}</Code>
               "Reasoning mentah model sebelum memutuskan langkah (muncul saat streaming).",
             ],
             [
-              <>Chip tool, mis. <C>create_diagram ✓</C></>,
-              "Agent memanggil tool tersebut; ✓ berarti selesai. Arahkan kursor untuk melihat ringkasan hasilnya.",
+              <>Chip tool + lencana asal, mis. <C>🔀 create_diagram · Tool diagram</C></>,
+              "Agent memanggil tool itu. Lencana menyatakan asalnya: 🌐 Browser (bukti web, wajib disitasi), 🔀 Tool diagram (konten dibuat alat, bukan sumber), 🧮 Kalkulator. Arahkan kursor untuk ringkasan; status 0 hasil / gagal / durasi ikut tampil.",
+            ],
+            [
+              <>Marker sitasi <C>[1]</C> + bar <C>Sitasi</C></>,
+              "Setiap klaim dari browser menaut ke sumber bernomor; bar di bawah jawaban mendaftar URL, tool asal, dan status dikutip — nomor yang tak ada di daftar ditandai tidak valid.",
             ],
             [
               <>Kartu <C>graph interaktif</C></>,
@@ -161,14 +226,26 @@ python3 run.py --demo`}</Code>
           ]}
         />
         <Shot
-          src="/docs-images/10-chat-calculator.png"
-          alt="Percakapan kalkulator"
-          caption="Contoh tool calculator: argumen ekspresi dikirim ke tool, hasilnya (132) dikutip agent di jawaban final."
+          src="/docs-images/24-chat-browsing-cited.png"
+          alt="Jawaban browsing dengan sitasi"
+          caption="Satu run browsing: chip `web_search · Browser`, marker [1] yang bisa diklik, daftar `## Sumber`, bar Sitasi “1/3 klaim bersitasi”, dan panel kanan yang mencatat `sumber 3` + `citations → cited`."
         />
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Shot
+            src="/docs-images/25-citation-bar.png"
+            alt="Detail bar sitasi"
+            caption="Bar Sitasi: nomor, judul tertaut URL, tool asal, lencana browser, status dikutip per sumber."
+          />
+          <Shot
+            src="/docs-images/10-chat-calculator.png"
+            alt="Percakapan kalkulator"
+            caption="Tool calculator: argumen ekspresi dikirim ke tool, hasilnya dikutip agent di jawaban final (lencana 🧮 Kalkulator, bukan bukti web)."
+          />
+        </div>
       </section>
 
       <section className="space-y-4">
-        <H2 id="browsing">5. Browsing &amp; penanganan error</H2>
+        <H2 id="browsing">6. Browsing &amp; penanganan error</H2>
         <P>
           Untuk informasi terkini agent memanggil <C>web_search</C> (DuckDuckGo lite tanpa API key;
           Serper/Tavily opsional) dan bisa melanjutkan dengan <C>fetch_url</C> untuk membaca satu
@@ -183,7 +260,7 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="interpreter">6. Mechanistic Interpreter</H2>
+        <H2 id="interpreter">7. Mechanistic Interpreter</H2>
         <P>
           Panel kanan (tombol <C>Mechanistic Interpreter →</C>) adalah pembeda utama aplikasi ini:
           semua yang dilakukan LLM &amp; agent terekam per-event dan bisa direplay dari riwayat.
@@ -192,40 +269,72 @@ python3 run.py --demo`}</Code>
         <Table
           head={["Tab", "Isi", "Kapan dipakai"]}
           rows={[
-            ["Timeline", "Urutan event meta → thinking → tool_call → tool_result → … → done; tiap baris bisa dibentangkan menjadi JSON mentah.", "Memeriksa langkah agent & argumen tool."],
-            ["Prompt", "Prompt assembly persis seperti dikirim ke LLM: system prompt, messages, daftar tools.", "Debug kenapa model berperilaku tertentu."],
-            ["Tokens", "Logprobs streaming per token: token terpilih, bar probabilitas, dan alternatif teratas.", "Melihat keyakinan model per token."],
-            ["Metrics", "Provider/model, temperature, jumlah steps, latensi, token usage, jumlah event & error.", "Mengukur performa satu run."],
+            [
+              "Log",
+              "Satu baris per langkah: t+ relatif, actor, aksi, status (ok / 0 hasil / gagal), lencana provenance, detail teknis, durasi. Delta & thinking diringkas jadi hitungan (mis. 89 delta · 625 B); tiap baris bisa dibuka jadi JSON mentah. Ada tombol copy log.",
+              "Melihat urutan eksekusi & mencari langkah yang lambat atau gagal.",
+            ],
+            [
+              "LLM",
+              "Blackbox per langkah: messages persis yang dikirim, schema tools, raw completion, chain-of-thought, tool_calls yang diminta model, finish_reason — plus chip logprob per token bila provider mengirimnya.",
+              "Debug perilaku model; melihat apa yang sebenarnya keluar.",
+            ],
+            [
+              "Tools",
+              "Tiap pemanggilan: argumen JSON dari model, payload hasil mentah, ok/error/0 hasil, durasi, provenance, jumlah sumber terdaftar, dan catatan provider.",
+              "Mengecek tool benar-benar menjalankan itu, bukan sekadar menyebutnya.",
+            ],
+            [
+              "Sumber",
+              "Tabel sitasi bernomor: asal (browser + tool), judul/URL, status dikutip, hasil verifikasi (cited / appended / no-evidence), dan penanda nomor tak valid.",
+              "Memastikan klaim punya dasar yang bisa diklik.",
+            ],
+            [
+              "Metrik",
+              "Provider/model, temperature, max_tokens, steps terpakai, stopped_reason, latensi, token usage, jumlah tool/browser/sumber/error/notes.",
+              "Mengukur biaya & performa.",
+            ],
           ]}
         />
         <Shot
+          src="/docs-images/22-interpreter-log.png"
+          alt="Tab Log dengan baris eksekusi"
+          caption="Tab Log: setiap langkah satu baris — timestamp relatif, actor, aksi, status, provenance, durasi."
+        />
+        <Shot
           src="/docs-images/05-interpreter-timeline-expanded.png"
-          alt="Tab Timeline dengan event dibentangkan"
-          caption="Tab Timeline: baris event dibentangkan menampilkan JSON mentah (argumen tool_call, isi tool_result, dll)."
+          alt="Satu baris log dibentangkan"
+          caption="Satu baris dibuka: payload JSON mentah event itu, apa adanya."
         />
         <Shot
           src="/docs-images/06-interpreter-prompt.png"
-          alt="Tab Prompt"
-          caption="Tab Prompt: system prompt + messages + schema tools persis seperti yang diterima LLM."
+          alt="Tab LLM"
+          caption="Tab LLM: system prompt, messages persis yang diterima model, raw completion, dan tool_calls yang diminta."
         />
         <Shot
           src="/docs-images/07-interpreter-tokens.png"
-          alt="Tab Tokens"
-          caption="Tab Tokens: logprobs per token dengan bar probabilitas dan alternatif (tersedia pada mode openai/server yang mendukung; inference lokal tidak mengirim logprobs)."
+          alt="Tab Tools"
+          caption="Tab Tools: argumen dari model, payload hasil mentah, status, dan durasi tiap eksekusi (logprob kini tampil sebagai chip di tab LLM)."
         />
         <Shot
           src="/docs-images/08-interpreter-metrics.png"
-          alt="Tab Metrics"
-          caption="Tab Metrics: ringkasan run — provider, model, temperature, steps, latensi, dan usage token."
+          alt="Tab Metrik"
+          caption="Tab Metrik: angka mentah run — provider, model, temperature, steps, latensi, usage."
+        />
+        <Shot
+          src="/docs-images/23-interpreter-sources.png"
+          alt="Tab Sumber"
+          caption="Tab Sumber: registri sitasi bernomor + status verifikasi. Bila browser belum menghasilkan apa pun, tab ini mengatakannya — bukan menampilkan tabel kosong."
         />
       </section>
 
       <section className="space-y-4">
-        <H2 id="riwayat">7. Riwayat percakapan</H2>
+        <H2 id="riwayat">8. Riwayat percakapan</H2>
         <P>
           Setiap percakapan tersimpan otomatis di SQLite lokal beserta seluruh trace event-nya.
           Klik judul di sidebar untuk membuka kembali pesan <b>dan</b> replay Interpreter-nya
-          (Timeline, Prompt, Tokens, Metrics tetap lengkap).
+          (Log, LLM, Tools, Sumber, Metrik tetap lengkap — trace menyimpan event yang sama
+          seperti saat run berlangsung).
         </P>
         <Shot
           src="/docs-images/13-sidebar-history.png"
@@ -235,7 +344,7 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="settings">8. Settings provider</H2>
+        <H2 id="settings">9. Settings provider</H2>
         <P>
           Tombol <C>Settings provider</C> (bawah sidebar) membuka dialog pemilihan LLM: provider{" "}
           <C>huggingface</C> (model offline dari folder <C>models/</C>, inference lokal dengan
@@ -258,7 +367,7 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="tampilan">9. Tampilan, aksen &amp; mobile</H2>
+        <H2 id="tampilan">10. Tampilan, aksen &amp; mobile</H2>
         <P>
           Empat aksen warna (indigo, violet, orange, zinc) tersedia di composer — klik titik warna
           untuk mengganti seluruh aksen UI secara instan. Layout responsif hingga layar ponsel.
@@ -276,7 +385,7 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="materi">10. Materi belajar lanjutan</H2>
+        <H2 id="materi">11. Materi belajar lanjutan</H2>
         <P>
           Ingin memahami cara kerja agent secara mendalam? Buka slide interaktif{" "}
           <C>Docs &amp; Slides →</C> di header (atau <C>/slides/slides-cara-kerja.html</C>,
@@ -292,7 +401,7 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="tips">11. Tips prompt yang efektif</H2>
+        <H2 id="tips">12. Tips prompt yang efektif</H2>
         <UL
           items={[
             <>Sebutkan kata kunci kemampuan: <C>cari/berita</C> memicu browsing, <C>diagram/alur/graph/mindmap</C> memicu pembuatan diagram, <C>hitung</C> memicu calculator.</>,
@@ -305,14 +414,15 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="troubleshoot">12. Troubleshooting</H2>
+        <H2 id="troubleshoot">13. Troubleshooting</H2>
         <Table
           head={["Gejala", "Penyebab umum", "Solusi"]}
           rows={[
             ["Banner kuning 'Belum ada model offline yang dimuat'", "Provider huggingface mode lokal belum punya model.", "Settings → Model offline (HuggingFace) → cari → Download → Pakai & muat."],
             ["Indikator sidebar merah 'LLM server offline'", "Base URL provider tidak reachable.", "Periksa Settings provider → base URL; atau ganti provider."],
             ["Tool web_search berstatus error", "Tidak ada akses internet / backend diblokir jaringan.", "Normal di lingkungan offline; agent tetap menjawab dengan menyebut error. Konfigurasi Serper/Tavily bila punya key."],
-            ["Tab Tokens kosong", "Provider tidak mengirim logprobs (inference lokal & sebagian API).", "Pakai mode openai/server yang mendukung logprobs, atau mode mock."],
+            ["Chip token di tab LLM kosong", "Provider tidak mengirim logprobs (inference lokal & sebagian API).", "Pakai mode openai/server yang mendukung logprobs, atau mode mock."],
+            ["Tidak ada yang bisa disitasi", "Tool browser dipanggil tapi menghasilkan 0 (jaringan/endpoint mati, atau query tak ketemu).", "Periksa <C>ASK_SEARCH_DDG_URL</C> / <C>ASK_SEARCH_BACKEND</C> + key; agent sengaja tidak mengarang sumber."],
             ["API error tanpa penjelasan", "Key salah / nama model tidak ada / payload ditolak gateway.", "Settings → Test koneksi: tiga request nyata dijalankan, status + pesan server ditampilkan."],
             ["Download model gagal 'repo privat/gated'", "Repo HuggingFace butuh persetujuan (mis. DeepSeek).", "Isi Token HuggingFace di tab Model offline, atau set ASK_HF_TOKEN."],
             ["Diagram tidak muncul", "Model tidak emit Mermaid valid.", "Ulangi dengan prompt eksplisit 'diagram alir'; mode Graph tetap merender bagian yang terbaca, dan toggle Mermaid menawarkan fallback sebaliknya."],
@@ -321,7 +431,7 @@ python3 run.py --demo`}</Code>
       </section>
 
       <section className="space-y-4">
-        <H2 id="privasi">13. Data &amp; privasi</H2>
+        <H2 id="privasi">14. Data &amp; privasi</H2>
         <UL
           items={[
             <>Semua percakapan & trace tersimpan lokal di SQLite (<C>data/ask_anything.db</C>, bisa diubah via <C>ASK_DB_PATH</C>).</>,

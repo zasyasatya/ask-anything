@@ -28,6 +28,8 @@ const TOC: Array<[string, string]> = [
   ["loop", "Agent loop & tracing"],
   ["providers", "Providers"],
   ["tools", "Tools registry"],
+  ["sitasi", "Sitasi & provenance"],
+  ["packages", "Paket & cara kerjanya"],
   ["frontend", "Frontend"],
   ["screenshots", "Pipeline screenshot docs"],
   ["env", "Referensi env"],
@@ -236,9 +238,14 @@ FOO = Tool(name="foo", description="...", parameters={...}, run=run_foo)
           rows={[
             ["app/page.tsx", "Orkestrasi state: conversations, messages, trace, live-stream, settings, aksen."],
             ["lib/api.ts", "Klien SSE (parser baris data:), CRUD conversations, settings, health."],
-            ["components/ChatView.tsx", "Render pesan, chip tool, kotak thinking, live answer."],
-            ["components/Interpreter.tsx", "4 tab trace (Timeline/Prompt/Tokens/Metrics) dari event live maupun replay."],
-            ["components/DiagramBlock.tsx + GraphView.tsx", "Mode diagram: parser Mermaid toleran → layout layered → graph HTML interaktif (pan/zoom/drag/klik); Mermaid SVG sebagai mode pembanding & fallback."],
+            ["components/Sidebar.tsx", "Navbar collapsible: rail 64px ↔ 268px, persist aa:nav-collapsed, Ctrl/Cmd+B; riwayat jadi rail titik yang tetap berupa <button> (bisa keyboard)."],
+            ["components/ChatView.tsx", "Kolom chat lebar (max-w-[1180px]), chip tool **berlencana provenance** + status 0 hasil/gagal/durasi, bar Sitasi, kotak thinking, live answer."],
+            ["components/Interpreter.tsx", "Panel log: tab Log / LLM / Tools / Sumber / Metrik, drag-lebar 380–980px (persist), copy log. Bekerja untuk event live maupun replay."],
+            ["lib/log.ts", "buildLog(events): TraceEvent[] → LogLine[] (delta & thinking diringkas, status dari field ok/hits); logToText() untuk salin/unduh."],
+            ["lib/sources.ts", "Cermin frontend dari app/sources.py: peta provenance, kelas hasil (ok/empty/failed), pemecah marker [n], label & tone sitasi."],
+            ["lib/useFullscreen.ts", "Fullscreen API + fallback focus mode (fixed inset-0) yang melaporkan alasannya; Esc selalu keluar."],
+            ["lib/markdown.tsx", "Markdown → blok; fence mermaid → DiagramBlock; marker [n] → chip tertaut sumber; meneruskan diagramOrigin sebagai provenance."],
+            ["components/DiagramBlock.tsx + GraphView.tsx", "Mode diagram: parser Mermaid toleran → layout layered → graph HTML interaktif (pan/zoom/drag/klik); Mermaid SVG sebagai mode pembanding & fallback. Kartu setinggi min(66vh,620px), tombol layar penuh, badge provenance; GraphView men-refit via ResizeObserver + fitSignal."],
             ["components/Mermaid.tsx", "mermaid.render() aman (securityLevel strict) untuk fence ```mermaid & hasil tool."],
             ["next.config.ts", "Rewrite /api, /slides, /docs-images ke backend (same-origin utk browser & preview)."],
           ]}
@@ -259,9 +266,11 @@ BASE_URL=http://127.0.0.1:3000 python3 scripts/capture_screenshots.py main
 python3 scripts/capture_screenshots.py pages   # setelah halaman docs ada`}</Code>
         <UL
           items={[
-            <>Script men-drive UI: kirim prompt diagram/search/kalkulasi, buka tab Interpreter, settings, banner offline, viewport mobile.</>,
+            <>Script men-drive UI: collapse/expand navbar, prompt diagram (+ layar penuh), tab Interpreter per tab, browsing bersitasi via gateway demo, browsing 0 hasil, settings, banner offline, viewport mobile.</>,
+            <>Sebelum memotret, jalankan <C>python3 scripts/smoke_ui.py</C> — kalau 30 pemeriksaan UI lulus, yang difoto pasti perilaku yang benar.</>,
             <>Backend menyajikan gambar via mount <C>/docs-images</C>; Next me-rewrite path yang sama sehingga halaman docs tetap same-origin.</>,
-            <>Di lingkungan tanpa CDN browser, set <C>CHROME_EXE</C>/<C>CHROME_LIBS</C>/<C>CHROME_FONTS</C> (mis. binary dari paket npm @sparticuz/chromium).</>,
+            <>Cukup set <C>CHROME_EXE</C>: <C>lib/</C> dan <C>fonts.conf</C> di samping binary otomatis masuk <C>LD_LIBRARY_PATH</C>/<C>FONTCONFIG_FILE</C> (layout paket npm @sparticuz/chromium). Override: <C>CHROME_LIBS</C>, <C>CHROME_FONTS</C>.</>,
+            <>Alur browsing difoto lewat gateway demo <C>SEARCH_DEMO_URL</C> (default <C>scripts/fake_search_server.py</C>) supaya pipeline sitasi terlihat tanpa internet; datanya fiktif dan caption mengatakannya.</>,
           ]}
         />
       </section>
@@ -280,13 +289,130 @@ python3 scripts/capture_screenshots.py pages   # setelah halaman docs ada`}</Cod
             ["ASK_OPENAI_API_KEY / _BASE_URL / _MODEL", "– / api.openai.com / gpt-4o-mini", "Provider OpenAI"],
             ["ASK_TEMPERATURE / ASK_MAX_STEPS / ASK_LOGPROBS", "0.7 / 6 / true", "Generasi & interpreter"],
             ["ASK_SEARCH_BACKEND", "ddg", "ddg | serper | tavily (+ key masing-masing)"],
+            ["ASK_SEARCH_DDG_URL", "https://lite.duckduckgo.com/lite/", "Endpoint pencarian gaya lite — gateway internal/self-host atau server demo untuk uji E2E"],
             ["ASK_DB_PATH", "data/ask_anything.db", "Lokasi SQLite"],
           ]}
         />
       </section>
 
       <section className="space-y-4">
-        <H2 id="troubleshoot">12. Troubleshooting dev</H2>
+        <H2 id="sitasi">12. Sitasi &amp; provenance tool</H2>
+        <P>
+          Dua kontrak kecil yang membuat jawaban bisa diverifikasi — dan UI tetap jujur saat
+          buktinya tidak ada. Provenance <b>dideklarasikan di alatnya</b>, tidak disimpulkan
+          oleh UI:
+        </P>
+        <Code>{`# backend/app/tools/base.py
+@dataclass
+class Tool:
+    name: str; description: str; parameters: dict; run: Callable
+    source: str = "compute"      # "browser" | "diagram" | "compute"
+    evidence: bool = False       # payload = bukti eksternal yang wajib disitasi
+
+@dataclass
+class ToolResult:
+    summary: str; data: dict
+    ok: bool = True              # False → kegagalan tertangani (chip merah)
+    hits: int | None = None      # None: bukan pencarian · 0: kosong · >0: ada`}</Code>
+        <P>
+          Tiga nilai <C>hits</C> tidak boleh disatukan: <C>None</C> (diagram &amp; kalkulator
+          memang tidak punya “jumlah hasil”), <C>0</C> (browser hidup tapi tidak menemukan apa
+          pun → chip kuning “0 hasil — belum ada data”), dan <C>&gt;0</C> (hijau).
+          {' '}<C>tool_source()</C> untuk tool tak dikenal selalu mengembalikan <C>compute</C> —
+          tool fiktif tidak boleh mengaku sebagai bukti web. Cerminnya ada di{' '}
+          <C>lib/sources.ts::sourceOf()</C>.
+        </P>
+        <Table
+          head={["Tahap", "Fungsi (app/sources.py)", "Catatan desain"]}
+          rows={[
+            ["kumpul", "register_tool_result() menyerap web_search.results[] (read=False) & fetch_url (read=True)", "dedup per URL; nomor stabil — halaman yang tadinya cuma hasil lalu dibaca penuh tidak menggeser [n] yang sudah ditulis"],
+            ["umpan balik", "prompt_block() disisipkan sebagai system SETELAH payload tool", "bila kosong, instruksinya melarang model mengarang nomor"],
+            ["verifikasi", "report() memindai \\[\\d+(?:[,;-]\\d+)*\\] → cited / uncited / invalid", "nomor di luar daftar ditandai, tidak disembunyikan"],
+            ["jaminan", "finalize_answer()", "status: cited · appended (blok ## Sumber disisipkan) · no-evidence · na"],
+          ]}
+        />
+        <Note>
+          Payload <C>create_diagram</C> dan <C>calculator</C> <b>tidak pernah</b> masuk registri:
+          konten yang dibangkitkan bukan bukti eksternal, dan memperbolehkannya disitasi berarti
+          mengizinkan agent mengutip dirinya sendiri. Karena itu kartu diagram justru memajang
+          badge “dari tool create_diagram”.
+        </Note>
+        <div className="grid gap-3 lg:grid-cols-2">
+          <Shot
+            src="/docs-images/24-chat-browsing-cited.png"
+            alt="Jawaban bersitasi"
+            caption="Hasil akhir pipeline: chip `web_search · Browser`, marker [1] tertaut, daftar ## Sumber, bar Sitasi 1/3, dan log `citations → cited`."
+          />
+          <Shot
+            src="/docs-images/27-tool-empty-state.png"
+            alt="Keadaan browser 0 hasil"
+            caption="Browser tanpa hasil ditampilkan sebagai status eksplisit — bukan bubble kosong, bukan pula sitasi karangan."
+          />
+        </div>
+      </section>
+
+      <section className="space-y-4">
+        <H2 id="packages">13. Paket &amp; cara kerjanya</H2>
+        <P>
+          Versi di bawah adalah yang terpasang dari lockfile/venv repo ini. Uraian panjang per
+          paket (termasuk yang <b>sengaja tidak</b> dipakai dan alasannya) ada di{' '}
+          <C>docs/TEKNIS.md</C>.
+        </P>
+        <H3>Frontend — runtime</H3>
+        <Table
+          head={["Paket", "Versi", "Cara kerja di repo ini"]}
+          rows={[
+            ["next", "16.3.5", "App Router; rewrites /api, /slides, /docs-images ke backend (same-origin), allowedDevOrigins untuk host preview, experimental.proxyTimeout 300 dtk agar SSE tidak diputus proxy."],
+            ["react / react-dom", "19.3.0", "useMemo untuk layout graph (deterministik terhadap model), useRef untuk state drag supaya tidak render per frame, useEffect untuk sinkron localStorage."],
+            ["mermaid", "11.17.2", "Dimuat statis di Mermaid.tsx; initialize({startOnLoad:false, theme:neutral, securityLevel:strict}) sekali per modul, lalu render(id, src). securityLevel strict penting karena sumber datang dari LLM. Kegagalan dilaporkan via onError → DiagramBlock menawarkan fallback."],
+          ]}
+        />
+        <H3>Frontend — toolchain</H3>
+        <Table
+          head={["Paket", "Versi", "Cara kerja"]}
+          rows={[
+            ["typescript", "5.9.3", "strict + alias @/* ; npm run typecheck = tsc --noEmit; tsconfig.tsbuildinfo untuk incremental."],
+            ["tailwindcss", "3.4.19", "Konten dipindai dari app/** dan components/**; warna accent = CSS var sehingga pemilih aksen bekerja tanpa kelas dinamis."],
+            ["postcss + autoprefixer", "8.5.28 / 10.5.6", "Rantai minimum: Tailwind sebagai plugin PostCSS; tidak ada plugin lain."],
+            ["vitest", "3.2.7", "environment jsdom, include {lib,components,app}/**/*.test.*, restoreMocks, alias @ sama dengan tsconfig."],
+            ["jsdom", "30.0.1", "Tidak punya ResizeObserver/requestFullscreen/scrollIntoView — karena itu komponen ditulis defensif dan test tidak bergantung geometri nyata."],
+            ["@testing-library/react + /dom", "16.3.3 / 10.4.1", "Render + query by role/label/testid; fireEvent (bukan userEvent) agar deterministik di jsdom."],
+          ]}
+        />
+        <H3>Backend — runtime</H3>
+        <Table
+          head={["Paket", "Versi", "Cara kerja"]}
+          rows={[
+            ["fastapi", "0.141.1", "APIRouter(prefix=/api); body divalidasi Pydantic sehingga 422 otomatis dan field_validator menolak provider/hf_mode tak dikenal sebelum menyentuh state global; StreamingResponse (Starlette) dipakai langsung untuk SSE."],
+            ["uvicorn[standard]", "0.52.4", "ASGI server; [standard] menambah httptools/watchfiles."],
+            ["httpx", "0.28.1", "Satu client untuk stream provider, tool browsing, dan diagnostik/Hub. httpx.MockTransport dipakai test → parsing & retry ladder teruji tanpa jaringan."],
+            ["pydantic / pydantic-settings", "2.13.5 / 2.15.0", "BaseSettings(env_prefix=ASK_, extra=ignore); singleton settings dimutasi runtime oleh update_settings() sehingga ganti provider tidak perlu restart; URL dinormalisasi saat tulis."],
+            ["beautifulsoup4 (+soupsieve)", "4.15.0 (2.9.2)", "html.parser tanpa lxml. fetch_url: decompose script/style/nav/footer… lalu get_text + rapikan whitespace, potong max_chars. web_search: struktur tabel lite — <a href> + sel snippet tetangga."],
+          ]}
+        />
+        <H3>Opsional — inference lokal</H3>
+        <P>
+          <C>backend/requirements-local.txt</C> tidak dipasang otomatis: torch ≥2.2,
+          transformers ≥4.46, accelerate ≥1.0, safetensors ≥0.45, sentencepiece ≥0.2,
+          huggingface_hub ≥0.25. Tanpa paket ini backend tetap jalan —{' '}
+          <C>dependencies()</C> melaporkan <C>available:false</C> + <C>install_hint</C>, dan
+          provider openai/mock tidak terpengaruh. Muat/lepas model dan{' '}
+          <C>TextIteratorStreamer</C> berjalan di thread agar event loop tidak tersendat; tag
+          yang terpotong antar-token dipoles oleh <C>app/streamtags.py</C>.
+        </P>
+        <H3>Testing &amp; capture</H3>
+        <Table
+          head={["Paket", "Versi", "Cara kerja"]}
+          rows={[
+            ["pytest / pytest-asyncio", "9.1.1 / 1.4.0", "pytest.ini: asyncio_mode=auto. conftest memaksa ASK_PROVIDER=mock + DB sementara sebelum import app, dan reset memory payload provider antar test."],
+            ["playwright", "1.62.0", "Dipakai capture_screenshots.py dan smoke_ui.py: mengemudi UI asli, klaim visual = perilaku nyata. Binary bisa disuplai dari paket npm @sparticuz/chromium bila CDN tertutup."],
+            ["brotli", "1.2.0", "Hanya untuk mengekstrak chromium.br dari paket di atas; bukan dependensi aplikasi."],
+          ]}
+        />
+      </section>
+
+      <section className="space-y-4">
+        <H2 id="troubleshoot">14. Troubleshooting dev</H2>
         <Table
           head={["Masalah", "Penyebab", "Fix"]}
           rows={[
@@ -294,7 +420,9 @@ python3 scripts/capture_screenshots.py pages   # setelah halaman docs ada`}</Cod
             ["Interpreter replay kosong", "Event replay tidak flat (payload nested).", "Pastikan db.list_trace() meratakan payload (kontrak replay)."],
             ["Playwright gagal download Chromium", "Jaringan memblokir CDN.", "Pakai CHROME_EXE (binary alternatif) — lihat docstring capture_screenshots.py."],
             ["Screenshot tanpa teks", "Fontconfig tidak menemukan font.", "Set CHROME_FONTS ke fonts.conf dengan <dir> font tersedia."],
-            ["web_search error di sandbox offline", "Egress diblokir.", "Diharapkan: agent menangani error graceful; gunakan Serper/Tavily bila punya akses."],
+            ["web_search error di sandbox offline", "Egress diblokir.", "Diharapkan: agent menangani error graceful; gunakan Serper/Tavily bila punya akses, atau ASK_SEARCH_DDG_URL ke gateway yang terjangkau."],
+            ["Semua jawaban berlabel “belum ada hasil browser”", "Tool browser memang mengembalikan 0 (bukan bug sitasi).", "Cek chip tool: 0 hasil = kosong, gagal = error. Registry sengaja tidak mengarang nomor."],
+            ["Diagram tidak membesar saat navbar di-collapse", "Refit tidak terjadwal (ResizeObserver tidak ada).", "GraphView memasang observer + fitSignal; pastikan height disusul '100%' saat fill."],
           ]}
         />
       </section>

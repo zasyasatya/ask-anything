@@ -78,13 +78,14 @@ async def run_create_diagram(args: dict[str, Any], ctx: ToolContext) -> ToolResu
     )
     if not mermaid:
         return ToolResult(summary=f"create_diagram gagal: {problems}",
-                          data={"error": problems})
+                          data={"error": problems}, ok=False)
     return ToolResult(
         summary=f"create_diagram {kind} '{title}' OK "
                 f"({len(args.get('nodes') or [])} node, "
                 f"{len(args.get('edges') or [])} edge)",
         data={"kind": kind, "title": title, "mermaid": mermaid,
               "warnings": problems},
+        hits=None,
     )
 
 
@@ -96,6 +97,7 @@ CREATE_DIAGRAM = Tool(
         "relation/network graph (left-right), kind='mindmap' for mind maps. "
         "The result is rendered automatically in the UI."
     ),
+    source="diagram",
     parameters={
         "type": "object",
         "properties": {
