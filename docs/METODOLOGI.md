@@ -84,10 +84,16 @@ Dua kekasaran dunia nyata ditangani eksplisit di `openai_provider.py`:
 Setiap tool = `(nama, deskripsi, JSON-Schema, fungsi async)`. Schema langsung
 menjadi `tools[]` permintaan LLM — tidak ada drift dokumentasi.
 `create_diagram` menambahkan lapisan deterministik di atas kreativitas model:
-id dinormalisasi, label di-escape, edge ke node tak dikenal dilaporkan sebagai
-`warnings`, dan output Mermaid dijamin sintaks dasarnya sebelum dirender
-`mermaid.render()` di frontend. Jalur kedua tetap terbuka: model boleh menulis
-fence ```mermaid sendiri dan markdown renderer mendeteksinya.
+id dinormalisasi, label di-escape, endpoint edge yang belum dideklarasikan
+**dibuat otomatis** (edge tidak pernah hilang diam-diam; catatannya masuk
+`warnings`), argumen `nodes`/`edges` diterima dalam banyak bentuk (JSON string,
+dict `{id: label}`, edge string `"A -> B: label"`, alias `source`/`target`), dan
+output Mermaid dijamin sintaks dasarnya sebelum dirender `mermaid.render()` di
+frontend. Jalur kedua tetap terbuka: model boleh menulis fence ```mermaid
+sendiri (atau mengirim sumber Mermaid lewat argumen `mermaid`) dan markdown
+renderer mendeteksinya. Payload tool juga disimpan sebagai artefak
+(`meta.diagrams`) sehingga kartu diagram di UI tidak bergantung pada model
+menyalin sumbernya ke jawaban.
 
 ## 6. Metodologi testing
 

@@ -80,6 +80,107 @@ def test_delete_conversation(client):
     assert client.get(f"/api/conversations/{cid}").json()["error"] == "not found"
 
 
+def test_chat_diagram_run_persists_renderable_diagram_artifact(client):
+    """Diagram dari create_diagram harus bisa dirender tanpa disalin model.
+
+    UI merender kartu diagram dari payload tool (`meta.diagrams` / event
+    `agent_done`), jadi diagram tetap ada walau jawaban tidak memuat fence.
+    """
+    evs = _events(client, "buatkan diagram alur proses pemesanan")
+    done = next(e for e in evs if e["type"] == "agent_done")
+    assert done["diagrams"], "agent_done tidak membawa artefak diagram"
+    art = done["diagrams"][0]
+    assert art["tool"] == "create_diagram"
+    assert art["title"] and "flowchart" in art["mermaid"]
+
+    cid = next(e for e in evs if e["type"] == "start")["conversation_id"]
+    conv = client.get(f"/api/conversations/{cid}").json()
+    assistant = [m for m in conv["messages"] if m["role"] == "assistant"][-1]
+    saved = assistant["meta"]["diagrams"]
+    assert saved and saved[0]["mermaid"] == art["mermaid"]
+    assert assistant["meta"]["diagram_origin"]["tool"] == "create_diagram"
+
+
+class _NoFenceProvider:
+    """Model sungguhan sering berhenti di "sudah saya buatkan" tanpa menyalin
+    sumber Mermaid ke jawabannya. Diagram di UI tidak boleh bergantung pada itu.
+    """
+
+    name = "stub"
+
+    def model_label(self) -> str:
+        return "stub-model"
+
+    async def stream(self, messages, tools, temperature=0.7, max_tokens=2048,
+                     logprobs=False, top_logprobs=4):
+        from app.providers.base import StreamEvent
+
+        if not any(m.get("role") == "tool" for m in messages):
+            yield StreamEvent("tool_calls", {"calls": [{
+                "id": "c1", "name": "create_diagram",
+                "arguments": {
+                    "kind": "flowchart", "title": "Alur Pemesanan",
+                    "nodes": [{"id": "a", "label": "Pesan"},
+                              {"id": "b", "label": "Bayar"}],
+                    "edges": [{"from": "a", "to": "b", "label": "lanjut"}],
+                },
+            }]})
+            yield StreamEvent("done", {"finish_reason": "tool_calls"})
+            return
+        yield StreamEvent("delta", {"text": "Diagramnya sudah saya buatkan."})
+        yield StreamEvent("done", {"finish_reason": "stop"})
+
+
+def test_diagram_survives_model_that_never_copies_the_mermaid(client, monkeypatch):
+    from app.api import routes
+
+    monkeypatch.setattr(routes, "build_provider", lambda settings: _NoFenceProvider())
+    evs = _events(client, "buatkan diagram alur proses pemesanan")
+    done = next(e for e in evs if e["type"] == "agent_done")
+    assert "```mermaid" not in done["answer"]          # model tidak menyalin
+    assert done["diagrams"], "artefak diagram hilang"
+    assert 'a["Pesan"]' in done["diagrams"][0]["mermaid"]
+    assert "a -->|lanjut| b" in done["diagrams"][0]["mermaid"]
+    assert done["diagrams"][0]["warnings"] == []
+
+    cid = next(e for e in evs if e["type"] == "start")["conversation_id"]
+    conv = client.get(f"/api/conversations/{cid}").json()
+    assistant = [m for m in conv["messages"] if m["role"] == "assistant"][-1]
+    assert assistant["meta"]["diagrams"][0]["title"] == "Alur Pemesanan"
+
+
+def test_chat_search_run_exposes_citable_sources(client, monkeypatch):
+    """Sumber bernomor + laporan sitasi tersedia live dan di riwayat."""
+    from app.tools import get_tool
+
+    async def fake_run(args, ctx):
+        from app.tools.base import ToolResult
+
+        return ToolResult(
+            summary="web_search stub: 1 hasil",
+            data={"results": [{"title": "Stub Sumber", "url": "https://x.test/a",
+                               "snippet": "isi"}]},
+            hits=1,
+        )
+
+    monkeypatch.setattr(get_tool("web_search"), "run", fake_run)
+    evs = _events(client, "cari berita AI terbaru hari ini")
+    sources_ev = next(e for e in evs if e["type"] == "sources")
+    assert sources_ev["items"][0]["url"] == "https://x.test/a"
+    assert sources_ev["items"][0]["index"] == 1
+
+    done = next(e for e in evs if e["type"] == "agent_done")
+    assert done["sources"][0]["url"] == "https://x.test/a"
+    assert done["citations"]["total"] == 1
+    assert done["citations"]["status"] in ("cited", "appended")
+
+    cid = next(e for e in evs if e["type"] == "start")["conversation_id"]
+    conv = client.get(f"/api/conversations/{cid}").json()
+    assistant = [m for m in conv["messages"] if m["role"] == "assistant"][-1]
+    assert assistant["meta"]["sources"][0]["index"] == 1
+    assert assistant["meta"]["citations"]["total"] == 1
+
+
 def test_chat_diagram_answer_embeds_mermaid_fence(client):
     """Jawaban final mock memuat fence ```mermaid supaya UI (DiagramBlock)
     punya sumber untuk mode Graph interaktif / Mermaid."""

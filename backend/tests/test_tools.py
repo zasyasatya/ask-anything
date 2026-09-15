@@ -39,13 +39,20 @@ async def test_diagram_flowchart():
     assert "[" not in mermaid.split('b["')[1].split('"]')[0]
 
 
-async def test_diagram_unknown_edge_reported():
+async def test_diagram_unknown_endpoint_is_created_not_dropped():
+    """Endpoint yang lupa dideklarasikan tidak boleh menghapus edge.
+
+    Diagram yang kehilangan edge terlihat "bolong" (dan karenanya sering
+    dianggap tidak jalan); node-nya dibuat otomatis dan catatannya dilaporkan.
+    """
     mermaid, problems = build_mermaid(
         "graph", "t", [{"id": "a", "label": "A"}],
         [{"from": "a", "to": "zzz_missing", "label": ""}],
     )
-    assert any("tidak dikenal" in p for p in problems)
+    assert any("dibuat otomatis" in p for p in problems)
     assert "a[" in mermaid
+    assert "zzz_missing[" in mermaid
+    assert "a --> zzz_missing" in mermaid
 
 
 async def test_create_diagram_tool_end_to_end():

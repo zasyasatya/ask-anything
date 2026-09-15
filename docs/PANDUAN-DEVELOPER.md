@@ -137,6 +137,8 @@ python3 run.py --demo                          # E2E live (emulator LLM)
 | `test_providers.py` | Parser SSE protokol OpenAI: `<think>` terbelah antar chunk, akumulasi `tool_calls.arguments`, logprobs, usage. |
 | `test_api.py` | `/api/chat` end-to-end via TestClient: urutan event SSE + persist trace (`prompt`, `tool_call`, `logprobs`). |
 | `test_tools.py` | Validasi Mermaid, keamanan calculator (AST whitelist), ekstraksi `fetch_url`. |
+| `test_tools.py` | Kalkulator, `create_diagram` (edge endpoint tak dikenal → dibuat otomatis), parsing hasil `web_search` (DDG dukung tabel lite), ekstraksi teks `fetch_url`. |
+| `test_tool_args.py` | Perbaikan argumen tool: JSON dalam string/fence, kutip tunggal, trailing comma, literal Python, JSON bersarang sebagai string, argumen tak terbaca → `_raw` (bukan senyap kosong); create_diagram dengan nodes string/alias/edge string/sumber Mermaid jadi; jalur fallback & deteksi blokir `web_search`; pembukaan tautan `uddg=`. |
 | `test_sources_citations.py` | Provenance tool (`browser`/`diagram`/`compute`), `ok`/`hits`, registri sumber (dedup, `read`, penolakan payload diagram), verifikasi `[n]` + nomor invalid, `finalize_answer` (`cited`/`appended`/`no-evidence`), event `llm_request`/`llm_response`/`sources`/`citations`, **live == replay**, endpoint pencarian yang bisa dikonfigurasi. |
 
 Test frontend (`cd frontend && npm test`, vitest + Testing Library di jsdom):
@@ -145,18 +147,20 @@ Test frontend (`cd frontend && npm test`, vitest + Testing Library di jsdom):
 |---|---|
 | `lib/graph/parseMermaid.test.ts` | Terjemahan Mermaid → model graph: bentuk node, label pipe/teks, rantai & `&`, subgraph, mindmap, serta toleransi (baris prosa, kurung tak seimbang, edge menggantung) — parser tidak boleh melempar exception. |
 | `lib/graph/layout.test.ts` | Layout layered: urutan rank TD/LR, bebas tumpukan, aman siklus, deterministik, bounding box subgraph. |
-| `components/GraphView.test.tsx` | Interaksi: klik node → inspektur relasi, drag node vs pan latar, zoom tombol/wheel, toggle arah, keyboard (Enter/Esc). |
+| `components/GraphView.test.tsx` | Interaksi: klik node → inspektur relasi, drag node vs pan latar, zoom tombol/wheel, toggle arah, keyboard (Enter/Esc). Proporsi: rantai panjang di kanvas lebar diputar otomatis ke LR, arah sumber dipertahankan bila kanvasnya tinggi, tombol TD/LR mengunci arah, lantai skala baca + badge penjelasannya. |
 | `components/DiagramBlock.test.tsx` | Mode render: default Graph, persistensi preferensi localStorage, badge baris dilewati, fallback satu klik saat Mermaid error. |
-| `components/DiagramBlock.canvas.test.tsx` | Ukuran kartu (`min(66vh,620px)`/min 380px), tombol layar penuh: jalur **native**, jalur **ditolak** (iframe) → focus mode + alasan, `Esc` keluar, badge provenance. |
+| `components/DiagramBlock.canvas.test.tsx` | Ukuran kartu (`clamp(420px,68vh,760px)`/min 380px), susunan `flex-col` dengan kanvas `flex-1` (kanvas tidak terjepit di samping toolbar), tombol layar penuh: jalur **native**, jalur **ditolak** (iframe) → focus mode + alasan, `Esc` keluar, badge provenance. |
 | `components/Sidebar.test.tsx` | Collapse/expand: 268px ↔ 64px, `aria-expanded`, persist `aa:nav-collapsed`, riwayat tetap bisa dipilih saat rail, `Ctrl+B`, status LLM. |
-| `components/ChatView.test.tsx` | Chip tool berlencana provenance (+ `0 hasil`/`gagal`/durasi), bar Sitasi dengan status dikutip per sumber, kolom lebar 1180px (bukan `max-w-3xl`). |
+| `components/ChatView.test.tsx` | Chip tool berlencana provenance (+ `0 hasil`/`gagal`/durasi), bar Sitasi dengan status dikutip per sumber, kolom lebar 1180px (bukan `max-w-3xl`), **kartu diagram dari `meta.diagrams`** (tetap muncul walau jawaban tanpa fence), dedupe fence, dan **sumber diteruskan ke markdown saat streaming**. |
+| `lib/live.test.ts` | Reducer streaming dengan fixture event `/api/chat` asli: sumber tersedia sebelum jawaban selesai, laporan sitasi final, diagram dari `tool_result` tanpa fence di jawaban, dedupe `tool_result`+`agent_done`, event tak dikenal diabaikan. |
+| `lib/diagrams.test.ts` | Normalisasi & dedupe sumber Mermaid, deteksi fence, pembacaan artefak dari payload tool dan `meta.diagrams` (defensif terhadap data rusak). |
 | `components/Interpreter.test.tsx` | Tab **Log** jadi default & baris terstruktur, payload mentah per baris, tab LLM membuka request/raw completion/`tool_calls`, tab Tools menampilkan argumen+hasil+durasi+status, tab Sumber (tabel + status verifikasi), Metrik, copy log, lebar panel. |
 | `lib/log.test.ts` | `buildLog`: satu baris per langkah, delta & thinking jadi hitungan, status `empty`/`failed`, durasi, urutan `stream` sebelum `response`, `logToText` berkolom. |
 | `lib/sources.test.ts` | Peta provenance, `outcomeOf`, `splitCitations` (`[1]`, `[2,3]`, link markdown bukan sitasi), label/tone sitasi, `hasSourcesBlock`. |
 | `lib/markdown.test.tsx` | `[n]` → chip tertaut (juga untuk beberapa nomor), nomor tak dikenal ditandai merah tapi tidak dihapus, provenance diteruskan ke DiagramBlock, fence non-mermaid tidak jadi diagram. |
 
-Rangkuman saat ini: **pytest 103 lulus / 15 skip** (skip = butuh torch atau
-jaringan), **vitest 110 lulus**, `tsc --noEmit` bersih, `next build` 4 route.
+Rangkuman saat ini: **pytest 128 lulus / 15 skip** (skip = butuh torch atau
+jaringan), **vitest 141 lulus**, `tsc --noEmit` bersih, `next build` 4 route.
 Verifikasi UI end-to-end: `python3 scripts/smoke_ui.py` (30 pemeriksaan).
 
 **Deploy produksi** — `Dockerfile` di root repo membangun satu image berisi
@@ -275,7 +279,7 @@ Menambah provider baru:
 |---|---|---|
 | `web_search` | DuckDuckGo lite (default) / Serper / Tavily; parse BS4 judul+URL+snippet. | Timeout & cap payload; error → `tool_result`. |
 | `fetch_url` | Ekstrak teks halaman (readability ringan) ≤ 12k char. | Hanya teks, tanpa eksekusi konten. |
-| `create_diagram` | Mermaid `flowchart` / `graph` / `mindmap` dari nodes+edges. | Validasi server-side: id dinormalisasi, label di-escape, edge diverifikasi. |
+| `create_diagram` | Mermaid `flowchart` / `graph` / `mindmap` dari nodes+edges. | Validasi server-side: id dinormalisasi, label di-escape, endpoint edge yang belum dideklarasikan **dibuat otomatis** (bukan dibuang), argumen hampir-JSON diperbaiki (`tools/args.py`), sumber `mermaid` jadi diterima apa adanya. |
 | `calculator` | Aritmetika via AST whitelist (`+ - * / // % **`). | Tidak ada `eval()`; node di luar whitelist = error. |
 
 Menambah tool baru:
@@ -304,10 +308,12 @@ FOO = Tool(name="foo", description="...", parameters={...}, run=run_foo)
 | `components/Interpreter.tsx` | Panel **log** (tab Log/LLM/Tools/Sumber/Metrik), bisa diseret 380–980px (persist), tombol copy log. |
 | `lib/log.ts` | `buildLog(events)` — pemetaan murni TraceEvent→baris log (delta & thinking diringkas jadi hitungan, status dari field `ok`/`hits`), `logToText()` untuk salin/unduh. |
 | `lib/sources.ts` | Peta provenance tool + kelas hasil (`ok/empty/failed/running`), pemecah marker `[n]`, label & tone sitasi. Cermin dari `app/sources.py`. |
+| `lib/live.ts` | Reducer murni status live (`LiveState`) dari event SSE: thinking/delta, chip tool, **sumber bernomor** (`sources`/`citations`), dan **artefak diagram** (`tool_result`/`agent_done`). Dipisah dari `app/page.tsx` supaya jalur streaming bisa diuji tanpa DOM. |
+| `lib/diagrams.ts` | Artefak diagram: normalisasi sumber Mermaid, dedupe (diagram yang sudah jadi fence di jawaban tidak dirender dua kali), pembacaan `meta.diagrams`/payload tool. |
 | `lib/useFullscreen.ts` | Fullscreen API + **fallback focus mode** (`fixed inset-0`) dengan alasan yang dilaporkan, Esc selalu keluar. |
 | `lib/markdown.tsx` | Markdown → blok; fence ```mermaid → `DiagramBlock`; marker `[n]` → chip tertaut; meneruskan `diagramOrigin` ke kartu. |
-| `components/DiagramBlock.tsx` | Kartu diagram dua mode (Graph default / Mermaid), preferensi localStorage, badge baris dilewati, fallback saat Mermaid error, salin sumber, **tombol layar penuh**, **badge provenance** (`dari tool create_diagram` vs `ditulis model di jawaban`), tinggi `min(66vh,620px)`. |
-| `components/GraphView.tsx` | Renderer graph HTML interaktif: node `<button>` (fokus/klik/drag), edge SVG, pan/zoom/fit, toggle arah TD/LR, panel inspektur relasi. `height: number \| "100%"` + `fill` + `fitSignal`, dan `ResizeObserver` → refit saat kontainer berubah (fullscreen, collapse, drag). |
+| `components/DiagramBlock.tsx` | Kartu diagram dua mode (Graph default / Mermaid), preferensi localStorage, badge baris dilewati, fallback saat Mermaid error, salin sumber, **tombol layar penuh**, **badge provenance** (`dari tool create_diagram` vs `ditulis model di jawaban`). Kartu `flex-col` setinggi `clamp(420px,68vh,760px)` dengan kanvas `flex-1` — toolbar di atas, kanvas memakai seluruh sisa ruang (bukan berdampingan sehingga terjepit). |
+| `components/GraphView.tsx` | Renderer graph HTML interaktif: node `<button>` (fokus/klik/drag), edge SVG, pan/zoom/fit, arah **auto** (pilih TD/LR yang paling mengisi kanvas; bisa dikunci TD/LR), panel inspektur relasi. `height: number \| "100%"` + `fill` + `fitSignal`, `ResizeObserver` → refit saat kontainer berubah (fullscreen, collapse, drag), plus **lantai skala baca** (`0.5`, ditandai badge “diperbesar agar terbaca · geser”) supaya diagram besar tidak tampil sekecil perangko. |
 | `lib/graph/parseMermaid.ts`, `lib/graph/layout.ts` | Parser Mermaid toleran (tidak pernah melempar) → model graph; layout layered deterministik (rank + barycenter + koordinat). |
 | `components/Mermaid.tsx` | `mermaid.render()` (`securityLevel: strict`) untuk fence ```mermaid & hasil tool (mode pembanding). |
 | `next.config.ts` | Rewrite `/api`, `/slides`, `/docs-images` ke backend (same-origin untuk browser & preview) + `allowedDevOrigins`. |

@@ -5,7 +5,12 @@
    rusak), komponen ini menerjemahkan GraphModel menjadi elemen HTML asli:
    node = <button> (fokus keyboard, klik, drag), edge = path SVG. Interaksi:
    pan (drag latar), zoom (wheel/tombol), fit, drag node, klik node untuk
-   menyorot relasi + panel inspektur, toggle arah layout TD/LR. */
+   menyorot relasi + panel inspektur, toggle arah layout auto/TD/LR.
+
+   Proporsi: mode "auto" (default) memilih TD atau LR berdasarkan bentuk kanvas
+   — rantai panjang di kanvas lebar diputar ke LR alih-alih mengecil jadi garis
+   tipis di tengah. Saat fit menghasilkan skala di bawah ambang baca, kanvas
+   dipakai lebih penuh (bisa di-pan) supaya label tetap terbaca. */
 import {
   useCallback,
   useEffect,
@@ -19,11 +24,32 @@ import type { GraphModel } from "@/lib/graph/types";
 
 const MIN_K = 0.25;
 const MAX_K = 2.5;
+/** Skala maksimum saat fit: diagram kecil tidak "meledak" memenuhi kanvas. */
+const MAX_FIT_K = 1.6;
+/** Saat fit menghasilkan skala lebih kecil dari ini, teks tidak terbaca:
+    kanvas dilebihkan sedikit (bisa digeser/di-zoom) daripada menampilkan
+    diagram sekecil perangko di tengah kanvas. */
+const FIT_FLOOR = 0.5;
+/** Auto-arah hanya menang bila jelas lebih besar dari arah yang diminta
+    sumber Mermaid (menghindari diagram "berputar" tanpa alasan). */
+const AUTO_DIR_GAIN = 1.12;
 
 interface Transform {
   x: number;
   y: number;
   k: number;
+}
+
+type DirChoice = "auto" | "TD" | "LR";
+
+/** Skala fit untuk satu layout di dalam kotak (cw × ch). */
+function fitScale(
+  layout: { width: number; height: number },
+  cw: number,
+  ch: number,
+): number {
+  if (!layout.width || !layout.height || cw <= 0 || ch <= 0) return 0;
+  return Math.min(cw / layout.width, ch / layout.height) * 0.96;
 }
 
 function clamp(v: number, a: number, b: number): number {
@@ -61,10 +87,12 @@ export default function GraphView({
   fitSignal?: number;
   onNodeCount?: (n: number) => void;
 }) {
-  const [dirOverride, setDirOverride] = useState<"TD" | "LR" | null>(null);
+  const [dirChoice, setDirChoice] = useState<DirChoice>("auto");
   const [offsets, setOffsets] = useState<Record<string, { dx: number; dy: number }>>({});
   const [tf, setTf] = useState<Transform>({ x: 24, y: 16, k: 1 });
   const [selected, setSelected] = useState<string | null>(null);
+  const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  const [floored, setFloored] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<
     | { mode: "pan"; startX: number; startY: number; ox: number; oy: number; moved: boolean }
@@ -75,11 +103,39 @@ export default function GraphView({
   /** Angka fallback untuk perhitungan yang butuh px (prop `height` boleh CSS string). */
   const heightPx = typeof height === "number" ? height : 460;
 
-  const directed = useMemo<GraphModel>(
-    () => ({ ...model, direction: dirOverride ?? model.direction }),
-    [model, dirOverride],
+  // Dua layout dihitung: arah dari sumber Mermaid dan arah alternatif. Mode
+  // "auto" memilih yang mengisi kanvas lebih besar — diagram rantai panjang
+  // yang semula mengecil jadi garis tipis di kanvas lebar akan diputar ke LR
+  // sehingga benar-benar memakai ruang yang ada.
+  const layoutTD: LayoutResult = useMemo(
+    () => layoutGraph({ ...model, direction: "TD" }),
+    [model],
   );
-  const layout: LayoutResult = useMemo(() => layoutGraph(directed), [directed]);
+  const layoutLR: LayoutResult = useMemo(
+    () => layoutGraph({ ...model, direction: "LR" }),
+    [model],
+  );
+  const autoDir = useMemo<"TD" | "LR">(() => {
+    if (!box.w || !box.h) return model.direction;
+    const sTD = fitScale(layoutTD, box.w, box.h);
+    const sLR = fitScale(layoutLR, box.w, box.h);
+    const declared = model.direction === "TD" ? sTD : sLR;
+    const other = model.direction === "TD" ? sLR : sTD;
+    if (!other) return model.direction;
+    return other > declared * AUTO_DIR_GAIN
+      ? (model.direction === "TD" ? "LR" : "TD")
+      : model.direction;
+  }, [box.w, box.h, layoutTD, layoutLR, model.direction]);
+
+  const direction = dirChoice === "auto" ? autoDir : dirChoice;
+  const directed = useMemo<GraphModel>(
+    () => ({ ...model, direction }),
+    [model, direction],
+  );
+  const layout: LayoutResult = useMemo(
+    () => (direction === "TD" ? layoutTD : layoutLR),
+    [direction, layoutTD, layoutLR],
+  );
 
   useEffect(() => {
     onNodeCount?.(layout.nodes.length);
@@ -106,29 +162,42 @@ export default function GraphView({
     const cw = el?.clientWidth || 800;
     const ch = el?.clientHeight || heightPx;
     if (!layout.width || !layout.height) return;
-    const k = clamp(Math.min(cw / layout.width, ch / layout.height) * 0.96, MIN_K, 1.4);
+    const ideal = fitScale(layout, cw, ch);
+    const k = clamp(ideal, MIN_K, MAX_FIT_K);
+    // Saat skala fit di bawah lantai baca, kanvas dipakai lebih penuh supaya
+    // label tetap terbaca; sisanya bisa digeser (pan) atau di-zoom.
+    const readable = ideal >= FIT_FLOOR ? k : clamp(FIT_FLOOR, k, MAX_FIT_K);
+    setFloored(readable > k + 0.001);
     setTf({
-      k,
-      x: (cw - layout.width * k) / 2,
-      y: (ch - layout.height * k) / 2,
+      k: readable,
+      x: (cw - layout.width * readable) / 2,
+      y: (ch - layout.height * readable) / 2,
     });
   }, [layout, heightPx]);
 
-  const didInit = useRef(false);
   useEffect(() => {
     fit();
-    didInit.current = true;
   }, [fit]);
 
   // Refit saat ukuran container berubah (panel di-resize, navbar di-collapse,
   // masuk/keluar fullscreen) — tanpa ini kanvas tetap sekecil ukuran awal.
+  // Ukurannya juga disimpan: mode arah "auto" butuh tahu bentuk kanvas.
   useEffect(() => {
     const el = containerRef.current;
     if (!el || typeof ResizeObserver === "undefined") return;
     let raf = 0;
+    const measure = () => {
+      const w = el.clientWidth;
+      const h = el.clientHeight;
+      setBox((b) => (b.w === w && b.h === h ? b : { w, h }));
+    };
+    measure();
     const ro = new ResizeObserver(() => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() => fit());
+      raf = requestAnimationFrame(() => {
+        measure();
+        fit();
+      });
     });
     ro.observe(el);
     return () => {
@@ -407,6 +476,15 @@ export default function GraphView({
 
       {/* toolbar zoom */}
       <div className="absolute bottom-2 right-2 flex items-center gap-1 rounded-lg border border-zinc-200 bg-white/95 p-1 shadow-sm">
+        {floored && (
+          <span
+            data-testid="graph-floored"
+            title="Diagram terlalu besar untuk ditampilkan utuh dengan teks yang terbaca. Geser (drag) atau zoom untuk menjelajah."
+            className="rounded-md bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-700"
+          >
+            diperbesar agar terbaca · geser
+          </span>
+        )}
         <button type="button" aria-label="Perkecil" title="Perkecil"
           onClick={() => zoomBy(1 / 1.25)}
           className="grid h-7 w-7 place-items-center rounded-md text-zinc-600 hover:bg-zinc-100">
@@ -429,16 +507,31 @@ export default function GraphView({
         </button>
       </div>
 
-      {/* toggle arah layout */}
+      {/* toggle arah layout: Auto memilih arah yang paling mengisi kanvas */}
       <div className="absolute right-2 top-2 flex overflow-hidden rounded-lg border border-zinc-200 bg-white/95 shadow-sm">
+        <button
+          type="button"
+          data-testid="dir-auto"
+          aria-pressed={dirChoice === "auto"}
+          title={`Otomatis — pilih arah yang paling mengisi kanvas (sekarang ${direction})`}
+          onClick={() => setDirChoice("auto")}
+          className={`px-2.5 py-1 font-mono text-[11px] ${
+            dirChoice === "auto"
+              ? "bg-zinc-800 text-white"
+              : "text-zinc-500 hover:bg-zinc-100"
+          }`}
+        >
+          auto {direction === "TD" ? "↓" : "→"}
+        </button>
         {(["TD", "LR"] as const).map((d) => (
           <button
             key={d}
             type="button"
+            aria-pressed={dirChoice === d}
             title={d === "TD" ? "Atas → bawah" : "Kiri → kanan"}
-            onClick={() => setDirOverride(d)}
+            onClick={() => setDirChoice(d)}
             className={`px-2.5 py-1 font-mono text-[11px] ${
-              (dirOverride ?? model.direction) === d
+              dirChoice === d
                 ? "bg-zinc-800 text-white"
                 : "text-zinc-500 hover:bg-zinc-100"
             }`}

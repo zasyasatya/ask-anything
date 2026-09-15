@@ -141,6 +141,11 @@ async def run_agent(
     final_events: list[dict[str, Any]] = []
     collected_calls: list[dict[str, Any]] | None = None
     diagram_titles: list[str] = []
+    #: Artefak diagram dari tool create_diagram. Disimpan di meta pesan
+    #: assistant supaya riwayat bisa merender kartu diagram yang sama seperti
+    #: saat run berlangsung — tanpa bergantung pada model menyalin sumber
+    #: Mermaid ke dalam teks jawabannya.
+    diagrams: list[dict[str, Any]] = []
 
     async with httpx.AsyncClient() as http:
         tool_ctx.http = http
@@ -338,7 +343,16 @@ async def run_agent(
                     )
                 if tool.name == "create_diagram" and isinstance(
                         payload, dict) and payload.get("mermaid"):
-                    diagram_titles.append(str(payload.get("title") or "Diagram"))
+                    title = str(payload.get("title") or "Diagram")
+                    diagram_titles.append(title)
+                    diagrams.append({
+                        "tool": tool.name,
+                        "source": payload.get("source") or "structured",
+                        "kind": payload.get("kind") or "flowchart",
+                        "title": title,
+                        "mermaid": str(payload["mermaid"]),
+                        "warnings": payload.get("warnings") or [],
+                    })
 
                 content = json.dumps(data, default=str)
                 db.add_message(
@@ -425,11 +439,16 @@ async def run_agent(
                 {"tool": "create_diagram", "titles": diagram_titles}
                 if diagram_titles else None
             ),
+            #: Payload diagram siap render (kartu diagram di UI). Ini yang
+            #: membuat diagram tetap ada walau model tidak menulis fence
+            #: ```mermaid di jawabannya.
+            "diagrams": diagrams,
         },
     )
     return {"answer": answer, "steps": steps, "usage": usage,
             "run_id": run_id, "citations": citations,
-            "sources": sources.to_dicts(), "error": None}
+            "sources": sources.to_dicts(), "diagrams": diagrams,
+            "error": None}
 
 
 def _cap(data: dict[str, Any], limit: int = 12000) -> dict[str, Any]:

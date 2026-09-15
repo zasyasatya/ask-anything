@@ -168,13 +168,30 @@ ditulis model langsung di dalam jawaban (bukan lewat tool), lencana berubah
 menjadi “ditulis model di jawaban” — keduanya jujur menyebut bahwa itu bukan
 bukti eksternal.*
 
+Diagram dari tool muncul **dari payload tool**, bukan dari teks jawaban: kartu
+tetap tampil walaupun model hanya menulis “sudah saya buatkan”. Kalau model
+memang menyalin sumber Mermaid ke jawabannya, kartunya tidak dirender dua kali.
+
+Kanvas diagram dibuat proporsional: kartunya setinggi `clamp(420px, 68vh,
+760px)` dan kanvas memakai seluruh ruang yang tersisa — bukan lagi kanvas
+sempit yang berbagi baris dengan tombol-tombol. Arah layoutnya **auto**
+(memilih atas→bawah atau kiri→kanan sesuai bentuk kanvas, bisa dikunci lewat
+tombol `↓ TD` / `→ LR`); bila diagram terlalu besar untuk ditampilkan utuh
+dengan teks yang terbaca, kanvas diperbesar sampai batas baca dan menampilkan
+penanda “diperbesar agar terbaca · geser” (geser/zoom tetap bisa dipakai).
+
+*Klik **Layar penuh** pada kartu diagram untuk kanvas seluas layar — berguna
+untuk diagram besar.*
+
 ### 5.1 Sitasi: wajib, dan bisa diklik
 
 Setelah tool browser mengembalikan hasil, backend menyusun daftar sumber
 bernomor dan mengumpankannya ke model; model menulis `[n]` tepat setelah
 kalimat yang dibuktikannya. Angka itu lalu **diverifikasi**:
 
-- `[1]` di jawaban jadi chip superscript yang tertaut ke URL sumbernya;
+- `[1]` di jawaban jadi chip superscript yang tertaut ke URL sumbernya — sudah
+  tertaut **selama jawaban mengalir**, begitu tool browser mendaftarkan
+  sumbernya (dulu baru tertaut setelah run selesai);
 - sebuah bar **Sitasi** di bawah jawaban mendaftar tiap sumber + status
   (`✓ dikutip` / `belum dikutip`) + dari tool mana ia datang;
 - nomor yang tidak ada di daftar ditandai **merah** (“tidak valid”), bukan
@@ -223,13 +240,19 @@ Untuk informasi terkini agent memanggil `web_search` (DuckDuckGo lite tanpa
 API key; Serper/Tavily opsional via env), dan dapat melanjutkan dengan
 `fetch_url` untuk membaca satu halaman penuh (teks diekstrak, ≤ 12k karakter).
 
-Ada **tiga** hasil yang mungkin, dan keduanya ditampilkan apa adanya:
+`web_search` tidak berhenti pada satu endpoint: bila endpoint utama kosong atau
+menjawab dengan halaman anti-bot, ia mencoba endpoint DuckDuckGo berikutnya, dan
+tautan hasil lewat `duckduckgo.com/l/?uddg=…` dibuka menjadi URL halaman asli
+supaya sitasi tidak menunjuk tautan pelacak.
+
+Ada **empat** hasil yang mungkin, dan semuanya ditampilkan apa adanya:
 
 | Hasil | Ditampilkan sebagai | Sitasi |
 |---|---|---|
 | Hasil ditemukan | `Browser · N hasil` (hijau) | URL terdaftar sebagai sumber bernomor; jawaban diharapkan menulis `[n]`. |
 | Kosong (query tidak ketemu) | `Browser · 0 hasil — belum ada data` (kuning) | Tidak ada yang bisa disitasi; bar Sitasi mengatakannya. |
 | Gagal (jaringan/endpoint mati) | chip merah `gagal` + catatan `note:no-results`/error di log | Agent menjawab hanya dari yang terverifikasi, tanpa mengarang sumber. |
+| Diblokir (anti-bot/rate limit) | chip merah `gagal` + ringkasan menyebut endpointnya, `blocked: true` di payload | Tidak ada sumber; agent menyebut browsing tidak menghasilkan data. |
 
 ![Browser 0 hasil](images/27-tool-empty-state.png)
 *Status “0 hasil — belum ada data” pada chip tool: bukan bubble kosong, bukan

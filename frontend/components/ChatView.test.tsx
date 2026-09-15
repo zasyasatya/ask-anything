@@ -3,7 +3,29 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import ChatView, { type LiveState } from "./ChatView";
 
 vi.mock("@/lib/markdown", () => ({
-  default: ({ text }: { text: string }) => <div data-testid="md">{text}</div>,
+  default: ({ text, sources }: { text: string; sources?: Array<{ index: number }> }) => (
+    <div data-testid="md" data-sources={(sources || []).map((s) => s.index).join(",")}>
+      {text}
+    </div>
+  ),
+}));
+
+/* DiagramBlock berat (mermaid + ResizeObserver); untuk test alur ini cukup
+   dipastikan kartunya dirender dengan sumber & provenance yang benar. */
+vi.mock("./DiagramBlock", () => ({
+  default: ({
+    source,
+    title,
+    provenance,
+  }: {
+    source: string;
+    title?: string;
+    provenance?: { tool: string } | null;
+  }) => (
+    <div data-testid="diagram-card-stub" data-provenance={provenance?.tool || ""}>
+      {title}:{source}
+    </div>
+  ),
 }));
 
 const EMPTY: LiveState = { answer: "", thinking: "", tools: [] };
@@ -181,5 +203,102 @@ describe("ChatView — kanvas selebar mungkin", () => {
     const wrap = view.container.querySelector("div[class*='max-w-\\[1180px\\]']");
     expect(wrap).toBeTruthy();
     expect(view.container.innerHTML).not.toContain("max-w-3xl");
+  });
+});
+
+describe("ChatView — diagram dari tool create_diagram", () => {
+  const DIAGRAM = 'flowchart TD\n  a["Mulai"]\n  b["Selesai"]\n  a --> b';
+
+  it("riwayat merender kartu diagram dari meta.diagrams (tanpa fence di jawaban)", () => {
+    renderChat({
+      messages: [
+        {
+          role: "assistant",
+          content: "Diagramnya sudah saya buat.",
+          meta: {
+            diagrams: [
+              { tool: "create_diagram", kind: "flowchart", title: "Alur", mermaid: DIAGRAM },
+            ],
+          },
+        },
+      ],
+    });
+    const card = screen.getByTestId("diagram-card-stub");
+    expect(card.textContent).toContain("Alur");
+    expect(card.getAttribute("data-provenance")).toBe("create_diagram");
+    expect(screen.getByText("Diagramnya sudah saya buat.")).toBeTruthy();
+  });
+
+  it("jawaban yang sudah memuat fence tidak dirender dua kali", () => {
+    renderChat({
+      messages: [
+        {
+          role: "assistant",
+          content: `Ini diagramnya:\n\n\`\`\`mermaid\n${DIAGRAM}\n\`\`\`\n`,
+          meta: {
+            diagrams: [{ tool: "create_diagram", title: "Alur", mermaid: DIAGRAM }],
+          },
+        },
+      ],
+    });
+    expect(screen.queryByTestId("diagram-card-stub")).toBeNull();
+  });
+
+  it("run berjalan: diagram dari tool_result muncul sebelum jawaban selesai", () => {
+    renderChat({
+      streaming: true,
+      live: {
+        ...EMPTY,
+        answer: "Menyusun…",
+        tools: [{ name: "create_diagram", status: "done", source: "diagram", ok: true }],
+        diagrams: [
+          {
+            tool: "create_diagram",
+            source: "structured",
+            kind: "flowchart",
+            title: "Alur",
+            mermaid: DIAGRAM,
+            warnings: [],
+          },
+        ],
+      },
+    });
+    expect(screen.getByTestId("diagram-card-stub").textContent).toContain('a["Mulai"]');
+  });
+});
+
+describe("ChatView — sitasi saat streaming", () => {
+  const LIVE_SRC = [
+    { index: 1, url: "https://satu.test/a", title: "Sumber Satu", tool: "web_search", origin: "browser", snippet: "", read: false, cited: true },
+  ];
+
+  it("marker [n] ditautkan ke sumber yang sudah terdaftar (bukan ditandai liar)", () => {
+    renderChat({
+      streaming: true,
+      live: { ...EMPTY, answer: "Fakta terbaru [1].", sources: LIVE_SRC },
+    });
+    // Markdown menerima daftar sumber selama streaming — inilah yang membuat
+    // chip [1] tidak tampil merah sebagai "nomor di luar daftar".
+    expect(screen.getByTestId("md").getAttribute("data-sources")).toBe("1");
+  });
+
+  it("bar sitasi live muncul begitu browser mendaftarkan sumber", () => {
+    renderChat({
+      streaming: true,
+      live: {
+        ...EMPTY,
+        answer: "Fakta terbaru [1].",
+        sources: LIVE_SRC,
+        citations: { status: "cited", total: 1, cited: [1], uncited: [], invalid: [], detail: "" },
+      },
+    });
+    const bar = screen.getByTestId("citation-bar");
+    expect(bar.textContent).toContain("1/1 klaim bersitasi");
+    expect(bar.textContent).toContain("Sumber Satu");
+  });
+
+  it("tanpa sumber: bar tidak muncul (belum ada yang bisa disitasi)", () => {
+    renderChat({ streaming: true, live: { ...EMPTY, answer: "Halo" } });
+    expect(screen.queryByTestId("citation-bar")).toBeNull();
   });
 });

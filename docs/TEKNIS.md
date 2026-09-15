@@ -271,6 +271,9 @@ Registri sitasi (`app/sources.py`) bekerja dalam empat tahap:
    `na` (run tidak menyentuh browser).
 
 Yang **tidak** dianggap sumber: keluaran `create_diagram` dan `calculator`.
+Diagram tetap bisa dilihat: payload `create_diagram` disimpan sebagai artefak
+(`meta.diagrams` + event `tool_result`/`agent_done`) dan dirender UI sebagai
+kartu graph interaktif, terpisah dari mekanisme sitasi.
 Alasannya eksplisit di kode — konten yang dibangkitkan bukan bukti eksternal,
 dan memperbolehkannya disitasi berarti mengizinkan agent mengutip dirinya
 sendiri. Frontend melakukan pengecekan yang sama (`sourceOf()` memetakan tool

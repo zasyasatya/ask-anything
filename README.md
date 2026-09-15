@@ -23,7 +23,9 @@ sitasi karangan.
 - **Frontend**: Next.js 16 (latest) + Tailwind, design system light/indigo.
   Navbar kiri **bisa di-collapse/expand** (`Ctrl+B`, tersimpan) sehingga ruang
   chat & kanvas ikut meluas; kolom chat lega (maks 1180px), kartu diagram
-  `min(66vh,620px)` + layar penuh, panel Interpreter bisa diseret 380–980px.
+  `clamp(420px,68vh,760px)` yang **kanvasnya mengisi seluruh sisa kartu**
+  (toolbar di atas, bukan di samping kanvas) + layar penuh, panel Interpreter
+  bisa diseret 380–980px.
 - **Tiga mode LLM**: `huggingface` (**inference lokal** — model HuggingFace
   dijalankan `transformers` langsung di proses backend, tanpa llama.cpp),
   `openai` (OpenAI API **atau gateway OpenAI-compatible** apa pun), dan `mock`
@@ -289,6 +291,17 @@ Event yang sama juga dirender inline di chat: chip tool **berlencana asal**
 dua mode (**Graph interaktif** default / **Mermaid**) dengan badge provenance,
 marker sitasi `[1]` yang tertaut ke URL, dan bar Sitasi di bawah jawaban.
 
+Diagram muncul **langsung dari payload tool** `create_diagram`
+(`meta.diagrams` + event `tool_result`), jadi tidak bergantung pada model
+menyalin sumber Mermaid ke teks jawabannya; bila model memang menulis fence
+` ```mermaid `, kartunya tidak dirender dua kali. Kanvas diagram proporsional:
+arah layout **auto** (memilih TD/LR yang paling mengisi kanvas), skala fit punya
+lantai baca, dan kartunya bisa layar penuh.
+
+Sitasi sudah tertaut **selama** jawaban mengalir: event `sources` dari browser
+langsung dipakai UI, sehingga `[1]` tidak pernah tampil sebagai "nomor di luar
+daftar" hanya karena run belum selesai.
+
 ## Tools agent
 
 Tiap tool mendeklarasikan **asal hasilnya** (`Tool.source`), dan itulah yang
@@ -296,9 +309,9 @@ dipakai UI untuk melabeli:
 
 | Tool | Asal | Fungsi |
 |---|---|---|
-| `web_search` | 🌐 browser | Cari web — DuckDuckGo lite default (tanpa API key); Serper/Tavily opsional via env. Hasilnya menjadi **sumber bernomor** yang wajib disitasi |
+| `web_search` | 🌐 browser | Cari web — DuckDuckGo lite default (tanpa API key), otomatis mencoba endpoint `/html/` bila `/lite/` kosong/diblokir; tautan pelacak `duckduckgo.com/l/?uddg=` dibuka jadi URL asli; Serper/Tavily opsional via env. Hasilnya menjadi **sumber bernomor** yang wajib disitasi |
 | `fetch_url` | 🌐 browser | Ambil & ekstrak teks sebuah halaman (readability ringan); sumber ditandai `read=True` |
-| `create_diagram` | 🔀 tool diagram | Generate Mermaid: `flowchart`, `graph`, `mindmap` — tervalidasi server-side; UI merender sebagai graph interaktif. **Bukan** bukti web, jadi tidak pernah masuk registri sitasi |
+| `create_diagram` | 🔀 tool diagram | Generate Mermaid: `flowchart`, `graph`, `mindmap` dari `nodes`/`edges` (menerima JSON string, dict `{id: label}`, alias `source`/`target`, edge string `"A -> B: label"`, atau sumber `mermaid` jadi); endpoint yang belum dideklarasikan dibuat otomatis supaya tidak ada edge yang hilang. UI merender payload-nya sebagai kartu graph interaktif. **Bukan** bukti web, jadi tidak pernah masuk registri sitasi |
 | `calculator` | 🧮 compute | Aritmetika aman (AST), dapat diverifikasi ulang tanpa sitasi |
 
 ## Konfigurasi (env, prefix `ASK_`)
@@ -388,7 +401,9 @@ Mekanisme inti (semua bisa dilihat di panel **Mechanistic Interpreter**):
   dan hasilnya disimpan di `messages.meta` + event `sources`/`citations`. Tidak
   ada hasil = tidak ada sitasi: UI menampilkan status itu, bukan angka karangan.
 - **Diagram**: `create_diagram(kind=flowchart|graph|mindmap, nodes, edges)`
-  menormalisasi id, escape label, memvalidasi edge, dan memproduksi Mermaid.
+  menormalisasi id, escape label, memvalidasi edge (endpoint tak dikenal dibuat
+  otomatis, bukan dibuang), menerima argumen nyaris-JSON dari model, dan
+  memproduksi Mermaid.
   Model juga boleh emit fence ` ```mermaid ` langsung — markdown renderer
   mendeteksinya otomatis dan meneruskannya ke **DiagramBlock**: parser Mermaid
   toleran (`lib/graph/parseMermaid.ts`, tidak pernah melempar exception)
