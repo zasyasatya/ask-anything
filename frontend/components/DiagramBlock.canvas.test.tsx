@@ -16,9 +16,22 @@ describe("DiagramBlock — kanvas lebar & layar penuh", () => {
     const { container } = render(<DiagramBlock source={SRC} />);
     const card = container.querySelector("[data-testid='diagram-card']") as HTMLElement;
     expect(card).toBeTruthy();
-    expect(card.style.height).toContain("min(66vh, 620px)");
+    expect(card.style.height).toContain("clamp(420px, 68vh, 760px)");
     expect(card.style.minHeight).toBe("380px");
     await screen.findByTestId("graph-canvas");
+  });
+
+  it("toolbar & kanvas tersusun vertikal — kanvas tidak terjepit di samping tombol", async () => {
+    const { container } = render(<DiagramBlock source={SRC} />);
+    await screen.findByTestId("graph-canvas");
+    const card = container.querySelector("[data-testid='diagram-card']") as HTMLElement;
+    // kartu tanpa `flex-col` menempatkan header + kanvas berdampingan (flex row),
+    // dan kanvas menyusut jadi kolom sempit.
+    expect(card.className).toContain("flex-col");
+    const wrap = screen.getByTestId("diagram-canvas");
+    expect(wrap.className).toContain("flex-1");
+    expect(wrap.className).toContain("min-h-0");
+    expect(wrap.contains(screen.getByTestId("graph-canvas"))).toBe(true);
   });
 
   it("ada tombol layar penuh dengan aria-pressed", async () => {

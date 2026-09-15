@@ -243,9 +243,11 @@ FOO = Tool(name="foo", description="...", parameters={...}, run=run_foo)
             ["components/Interpreter.tsx", "Panel log: tab Log / LLM / Tools / Sumber / Metrik, drag-lebar 380–980px (persist), copy log. Bekerja untuk event live maupun replay."],
             ["lib/log.ts", "buildLog(events): TraceEvent[] → LogLine[] (delta & thinking diringkas, status dari field ok/hits); logToText() untuk salin/unduh."],
             ["lib/sources.ts", "Cermin frontend dari app/sources.py: peta provenance, kelas hasil (ok/empty/failed), pemecah marker [n], label & tone sitasi."],
+            ["lib/live.ts", "Reducer murni status live dari event SSE: delta/thinking, chip tool, sumber bernomor (sources/citations), dan artefak diagram (tool_result/agent_done). Dipisah dari app/page.tsx supaya jalur streaming teruji tanpa DOM."],
+            ["lib/diagrams.ts", "Artefak diagram: normalisasi & dedupe sumber Mermaid, pembacaan meta.diagrams/payload tool — diagram dari create_diagram tidak bergantung pada model menyalin fence ke jawabannya."],
             ["lib/useFullscreen.ts", "Fullscreen API + fallback focus mode (fixed inset-0) yang melaporkan alasannya; Esc selalu keluar."],
             ["lib/markdown.tsx", "Markdown → blok; fence mermaid → DiagramBlock; marker [n] → chip tertaut sumber; meneruskan diagramOrigin sebagai provenance."],
-            ["components/DiagramBlock.tsx + GraphView.tsx", "Mode diagram: parser Mermaid toleran → layout layered → graph HTML interaktif (pan/zoom/drag/klik); Mermaid SVG sebagai mode pembanding & fallback. Kartu setinggi min(66vh,620px), tombol layar penuh, badge provenance; GraphView men-refit via ResizeObserver + fitSignal."],
+            ["components/DiagramBlock.tsx + GraphView.tsx", "Mode diagram: parser Mermaid toleran → layout layered → graph HTML interaktif (pan/zoom/drag/klik); Mermaid SVG sebagai mode pembanding & fallback. Kartu flex-col setinggi clamp(420px,68vh,760px) dengan kanvas flex-1 (toolbar di atas, bukan di samping), tombol layar penuh, badge provenance; GraphView memilih arah auto (TD/LR paling mengisi kanvas), punya lantai skala baca, dan men-refit via ResizeObserver + fitSignal."],
             ["components/Mermaid.tsx", "mermaid.render() aman (securityLevel strict) untuk fence ```mermaid & hasil tool."],
             ["next.config.ts", "Rewrite /api, /slides, /docs-images ke backend (same-origin utk browser & preview)."],
           ]}

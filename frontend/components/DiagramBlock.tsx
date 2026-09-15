@@ -64,15 +64,24 @@ function ProvenanceBadge({ origin }: { origin: DiagramOrigin | null }) {
   );
 }
 
+/** Tinggi kartu: proporsional terhadap viewport, dengan lantai & plafon.
+    Kanvas mengisi seluruh sisa kartu (flex-1), jadi diagram tidak lagi
+    terkurung di kanvas 440px di dalam kartu 620px. */
+export const CARD_HEIGHT = "clamp(420px, 68vh, 760px)";
+export const CARD_MIN_HEIGHT = 380;
+
 export default function DiagramBlock({
   source,
   title,
   provenance = null,
+  compact = false,
 }: {
   source: string;
   title?: string;
   /** Asal diagram: output tool create_diagram vs teks model. */
   provenance?: DiagramOrigin | null;
+  /** Kartu lebih pendek (dipakai saat beberapa diagram muncul berurutan). */
+  compact?: boolean;
 }) {
   const [mode, setMode] = useState<DiagramMode>("graph");
   const [hydrated, setHydrated] = useState(false);
@@ -126,12 +135,17 @@ export default function DiagramBlock({
       className={
         immersive
           ? "fixed inset-0 z-50 flex flex-col overflow-hidden bg-white"
-          : "my-3 flex overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-card"
+          // `flex-col` WAJIB: tanpa itu toolbar & kanvas berbagi satu baris dan
+          // kanvas terjepit jadi kolom sempit di samping tombol.
+          : "my-3 flex w-full flex-col overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-card"
       }
       style={
         immersive
           ? undefined
-          : { minHeight: 380, height: "min(66vh, 620px)" }
+          : {
+              minHeight: CARD_MIN_HEIGHT,
+              height: compact ? "clamp(340px, 52vh, 560px)" : CARD_HEIGHT,
+            }
       }
     >
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 bg-zinc-50/70 px-3 py-2">
@@ -237,7 +251,11 @@ export default function DiagramBlock({
           memuat diagram…
         </div>
       ) : mode === "graph" && graphOk ? (
-        <GraphView model={model} fill={immersive} fitSignal={fitSignal} height={immersive ? "100%" : 440} />
+        // Kanvas selalu mengisi ruang tersisa kartu (bukan tinggi mati), supaya
+        // diagram memakai lebar & tinggi penuh yang tersedia.
+        <div data-testid="diagram-canvas" className="relative min-h-0 flex-1">
+          <GraphView model={model} fill fitSignal={fitSignal} height="100%" />
+        </div>
       ) : mode === "graph" && !graphOk ? (
         <div className="flex-1 overflow-auto p-4">
           <p className="mb-2 text-sm text-zinc-500">

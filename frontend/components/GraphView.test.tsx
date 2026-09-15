@@ -132,3 +132,84 @@ describe("GraphView", () => {
     expect(spy).toHaveBeenCalledWith(0);
   });
 });
+
+/* ---------------------------------------------------------------------------
+   Proporsi kanvas: mode auto memilih arah yang paling mengisi kanvas, dan
+   skala fit punya lantai baca. jsdom tidak punya layout, jadi ukuran container
+   di-stub seperti kanvas nyata (lebar besar, tinggi sedang).
+   --------------------------------------------------------------------------- */
+function stubCanvas(width: number, height: number) {
+  class FakeRO {
+    constructor(private cb: () => void) {}
+    observe() {
+      this.cb();
+    }
+    unobserve() {}
+    disconnect() {}
+  }
+  (globalThis as unknown as Record<string, unknown>).ResizeObserver = FakeRO;
+  Object.defineProperty(HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get: () => width,
+  });
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    get: () => height,
+  });
+}
+
+function clearCanvasStub() {
+  delete (globalThis as unknown as Record<string, unknown>).ResizeObserver;
+  delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientWidth;
+  delete (HTMLElement.prototype as unknown as Record<string, unknown>).clientHeight;
+}
+
+const LONG_CHAIN = parseMermaid(
+  ["flowchart TD", ...Array.from({ length: 9 }, (_, i) => `N${i}[langkah ${i}] --> N${i + 1}[langkah ${i + 1}]`)].join(
+    "\n",
+  ),
+);
+
+const left = (id: string) => Number(screen.getByTestId(`graph-node-${id}`).style.left.replace("px", ""));
+const top = (id: string) => Number(screen.getByTestId(`graph-node-${id}`).style.top.replace("px", ""));
+
+describe("GraphView — proporsi kanvas", () => {
+  afterEach(clearCanvasStub);
+
+  it("rantai panjang di kanvas lebar diputar otomatis ke LR (tidak jadi garis tipis)", () => {
+    stubCanvas(1200, 420);
+    render(<GraphView model={LONG_CHAIN} />);
+    // arah LR: node terakhir bergeser ke kanan, bukan ke bawah
+    expect(left("N9")).toBeGreaterThan(left("N0"));
+    expect(top("N9")).toBeCloseTo(top("N0"), 0);
+    expect(screen.getByTestId("dir-auto").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("dir-auto").textContent).toContain("auto →");
+  });
+
+  it("arah dari sumber Mermaid tetap dipakai bila kanvasnya tinggi", () => {
+    stubCanvas(520, 1200);
+    render(<GraphView model={LONG_CHAIN} />);
+    expect(top("N9")).toBeGreaterThan(top("N0"));
+    expect(screen.getByTestId("dir-auto").textContent).toContain("auto ↓");
+  });
+
+  it("tombol TD/LR mengunci arah (auto dilepas)", () => {
+    stubCanvas(1200, 420);
+    render(<GraphView model={LONG_CHAIN} />);
+    fireEvent.click(screen.getByTitle("Atas → bawah"));
+    expect(top("N9")).toBeGreaterThan(top("N0"));
+    expect(
+      screen.getByTitle("Atas → bawah").getAttribute("aria-pressed"),
+    ).toBe("true");
+  });
+
+  it("skala fit punya lantai baca dan statusnya dijelaskan", () => {
+    stubCanvas(300, 240); // diagram 10 rank: fit ideal jauh di bawah 0.5
+    render(<GraphView model={LONG_CHAIN} />);
+    const k = Number(
+      /scale\(([-\d.]+)\)/.exec(screen.getByTestId("graph-world").style.transform)?.[1],
+    );
+    expect(k).toBeGreaterThanOrEqual(0.5);
+    expect(screen.getByTestId("graph-floored").textContent).toContain("terbaca");
+  });
+});

@@ -15,9 +15,8 @@ import {
   streamChat,
   updateSettings,
 } from "@/lib/api";
+import { EMPTY_LIVE, reduceLive } from "@/lib/live";
 import type { Conversation, SettingsInfo, TraceEvent } from "@/lib/types";
-
-const EMPTY_LIVE: LiveState = { answer: "", thinking: "", tools: [] };
 
 /**
  * Riwayat → tampilan.
@@ -112,65 +111,46 @@ export default function Page() {
     setTrace([]);
     let cid: string | null = activeId;
 
+    const collected: TraceEvent[] = [];
     try {
       await streamChat(text, cid, (ev) => {
+        collected.push(ev);
         setTrace((t) => [...t, ev]);
         if (ev.type === "start") {
           cid = ev.conversation_id as string;
           setActiveId(cid);
-        } else if (ev.type === "thinking") {
-          setLive((l) => ({ ...l, thinking: l.thinking + (ev.text as string) }));
-        } else if (ev.type === "delta") {
-          setLive((l) => ({ ...l, answer: l.answer + (ev.text as string) }));
-        } else if (ev.type === "tool_call") {
-          setLive((l) => ({
-            ...l,
-            tools: [
-              ...l.tools,
-              {
-                name: ev.name as string,
-                status: "running",
-                callId: ev.id as string | undefined,
-                source: ev.source as string | undefined,
-              },
-            ],
-          }));
-        } else if (ev.type === "tool_result") {
-          setLive((l) => ({
-            ...l,
-            tools: l.tools.map((t, i) => {
-              // cocokkan by id bila ada; fallback: pemanggilan terakhir yang
-              // belum selesai (beberapa tool bisa jalan berurutan dalam 1 step)
-              const match =
-                (ev.id != null && t.callId === ev.id && t.status === "running") ||
-                (i === l.tools.length - 1 && t.status === "running");
-              return match
-                ? {
-                    ...t,
-                    status: ev.ok === false ? "failed" : "done",
-                    summary: ev.summary as string,
-                    source: ev.source as string | undefined,
-                    ok: ev.ok as boolean | undefined,
-                    hits: ev.hits as number | null | undefined,
-                    duration_ms: ev.duration_ms as number | undefined,
-                    new_sources: ev.new_sources as number | undefined,
-                  }
-                : t;
-            }),
-          }));
-        } else if (ev.type === "error") {
-          setLive((l) => ({ ...l, answer: l.answer + `\n\n> ⚠️ ${ev.message}` }));
+        } else {
+          // Satu reducer murni (lib/live.ts) untuk seluruh event streaming —
+          // termasuk sumber bernomor dan artefak diagram dari tool.
+          setLive((l) => reduceLive(l, ev));
         }
       });
     } catch (e) {
-      setLive((l) => ({ ...l, answer: l.answer + `\n\n> ⚠️ ${String(e)}` }));
+      const failure = { type: "error", message: String(e) };
+      collected.push(failure);
+      setLive((l) => reduceLive(l, failure));
     }
+
+    // Status live yang sama, direkonstruksi dari event yang sudah diterima:
+    // dipakai bila run gagal di tengah jalan (tidak ada pesan assistant yang
+    // tersimpan) supaya jawaban/kesalahan tidak hilang begitu saja.
+    const finalLive = collected.reduce(
+      (acc, ev) => reduceLive(acc, ev),
+      EMPTY_LIVE
+    );
 
     setStreaming(false);
     await refresh().catch(() => undefined);
     if (cid) {
       const d = await loadConversation(cid);
-      setMessages(mapMessages(d.messages));
+      const shown = mapMessages(d.messages);
+      const persisted = shown.some(
+        (m) => m.role === "assistant" && m.content.trim() !== ""
+      );
+      if (!persisted && finalLive.answer.trim() !== "") {
+        shown.push({ role: "assistant", content: finalLive.answer });
+      }
+      setMessages(shown);
       setTrace(d.trace);
     }
     setLive(EMPTY_LIVE);

@@ -27,6 +27,7 @@ from typing import Any, AsyncIterator
 
 from .providers.base import StreamEvent, ToolCall
 from .streamtags import TEXT, THINK_TAGS, TOOL_CALL_TAGS, TagStreamParser
+from .tools.args import repair_arguments
 
 THINK = THINK_TAGS
 TOOL_CALL = TOOL_CALL_TAGS
@@ -124,10 +125,10 @@ def extract_tool_calls(text: str) -> tuple[list[ToolCall], str]:
     def add(obj: Any) -> bool:
         args = obj.get("arguments")
         if isinstance(args, str):
-            try:
-                args = json.loads(args)
-            except ValueError:
-                args = {"_raw": args}
+            # Model lokal sering menulis argumen hampir-JSON; perbaiki di satu
+            # tempat (backend/app/tools/args.py) alih-alih menyerahkan
+            # {"_raw": ...} ke tool.
+            args = repair_arguments(args)
         if not isinstance(args, dict):
             args = {"value": args}
         calls.append(ToolCall(id=f"call_{len(calls) + 1}",

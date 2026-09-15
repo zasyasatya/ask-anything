@@ -22,6 +22,7 @@ from typing import Any, AsyncIterator
 import httpx
 
 from ..streamtags import THINK_TAGS, TOOL_CALL_TAGS, TagStreamParser
+from ..tools.args import repair_arguments
 from .base import BaseProvider, StreamEvent, ToolCall
 from .url_utils import chat_completions_url, normalize_openai_base_url
 
@@ -414,10 +415,10 @@ class OpenAIProtocolProvider(BaseProvider):
         """Structured tool call, or a tagged JSON blob a local model emitted."""
         raw = slot.get("arguments") or ""
         if slot.get("name"):
-            try:
-                args = json.loads(raw or "{}")
-            except json.JSONDecodeError:
-                args = {"_raw": raw}
+            # Argumen dari model nyata sering hampir-JSON (fence, kutip tunggal,
+            # trailing comma, JSON di dalam string). Diperbaiki di satu tempat
+            # supaya tool menerima struktur, bukan {"_raw": ...} kosong.
+            args = repair_arguments(raw)
             return [ToolCall(id=slot["id"] or f"call_{idx}",
                              name=slot["name"], arguments=args)]
         from ..local_inference import extract_tool_calls
@@ -480,10 +481,7 @@ class OpenAIProtocolProvider(BaseProvider):
             calls = []
             for i, tc in enumerate(raw_calls):
                 fn = tc.get("function") or {}
-                try:
-                    args = json.loads(fn.get("arguments") or "{}")
-                except json.JSONDecodeError:
-                    args = {"_raw": fn.get("arguments")}
+                args = repair_arguments(fn.get("arguments"))
                 calls.append(ToolCall(id=tc.get("id") or f"call_{i}",
                                       name=fn.get("name", ""),
                                       arguments=args).to_dict())

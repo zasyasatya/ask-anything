@@ -10,6 +10,9 @@ import { useEffect, useRef } from "react";
 import Markdown from "@/lib/markdown";
 import Logo from "./Logo";
 import Composer from "./Composer";
+import DiagramBlock from "./DiagramBlock";
+import { answerHasDiagram, diagramArtifacts, type DiagramArtifact } from "@/lib/diagrams";
+import type { LiveState, LiveTool } from "@/lib/live";
 import {
   OUTCOME_LABEL,
   SOURCE_META,
@@ -28,23 +31,40 @@ export interface DispMsg {
   meta?: Record<string, unknown>;
 }
 
-export interface LiveTool {
-  name: string;
-  status: string;
-  summary?: string;
-  source?: string;
-  ok?: boolean;
-  hits?: number | null;
-  duration_ms?: number;
-  new_sources?: number;
-  /** id panggilan tool — dipakai untuk mencocokkan hasil dengan pemanggilnya. */
-  callId?: string;
-}
+// Status live dimiliki lib/live.ts (reducer murni, teruji tanpa DOM) dan
+// diekspor ulang di sini supaya pemakaian lama tetap jalan.
+export type { LiveState, LiveTool } from "@/lib/live";
 
-export interface LiveState {
-  answer: string;
-  thinking: string;
-  tools: LiveTool[];
+/**
+ * Kartu diagram untuk artefak tool.
+ *
+ * Diagram hasil `create_diagram` dirender dari payload tool, bukan dari teks
+ * jawaban: model tidak perlu (dan sering tidak) menyalin sumber Mermaid ke
+ * jawabannya, dan diagram tetap muncul. Yang sudah ada sebagai fence di
+ * jawaban dilewati supaya tidak dobel.
+ */
+function DiagramCards({
+  diagrams,
+  answer = "",
+}: {
+  diagrams: DiagramArtifact[];
+  answer?: string;
+}) {
+  const cards = diagrams.filter((d) => !answerHasDiagram(answer, d.mermaid));
+  if (!cards.length) return null;
+  return (
+    <div className="my-2 space-y-1">
+      {cards.map((d, i) => (
+        <DiagramBlock
+          key={`${d.title}-${i}`}
+          source={d.mermaid}
+          title={d.title}
+          compact={cards.length > 1}
+          provenance={{ tool: d.tool, titles: [d.title] }}
+        />
+      ))}
+    </div>
+  );
 }
 
 /** Badge kecil satu tool: provenance + hasil + durasi. */
@@ -274,6 +294,12 @@ export default function ChatView({
                       (m.meta?.diagram_origin as { tool: string; titles: string[] }) || null
                     }
                   />
+                  {/* Diagram hasil tool dirender dari payload tool: tetap ada
+                      walau model tidak menulis fence ```mermaid. */}
+                  <DiagramCards
+                    diagrams={diagramArtifacts(m.meta?.diagrams)}
+                    answer={m.content}
+                  />
                   <CitationBar
                     sources={(m.meta?.sources as SourceRef[]) || []}
                     report={(m.meta?.citations as CitationReport) || null}
@@ -295,13 +321,26 @@ export default function ChatView({
                 <ToolChips tools={live.tools} />
                 {live.answer ? (
                   <>
-                    <Markdown text={live.answer} />
+                    {/* Sumber yang sudah terdaftar diteruskan ke markdown saat
+                        streaming: tanpa ini marker [n] tampil sebagai "nomor
+                        tidak ada di daftar sumber" padahal sumbernya ada. */}
+                    <Markdown text={live.answer} sources={live.sources || []} />
                     <span className="ml-0.5 inline-block h-4 w-[7px] animate-pulse rounded-sm bg-accent align-middle" />
                   </>
                 ) : (
                   !live.tools.length && (
                     <span className="inline-block h-4 w-[7px] animate-pulse rounded-sm bg-accent" />
                   )
+                )}
+                <DiagramCards
+                  diagrams={live.diagrams || []}
+                  answer={live.answer}
+                />
+                {live.sources && live.sources.length > 0 && (
+                  <CitationBar
+                    sources={live.sources}
+                    report={live.citations || undefined}
+                  />
                 )}
               </div>
             </div>

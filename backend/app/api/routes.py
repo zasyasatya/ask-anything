@@ -136,8 +136,13 @@ async def chat(req: ChatRequest):
                 settings=settings,
                 emit=emit,
             )
+            # Snapshot akhir (bukan hanya teks): UI memakai ini untuk menyegarkan
+            # kartu diagram + bar sitasi tanpa harus menunggu reload riwayat.
             await queue.put({"type": "agent_done", "conversation_id": cid,
                              "answer": result.get("answer", ""),
+                             "sources": result.get("sources") or [],
+                             "citations": result.get("citations") or {},
+                             "diagrams": result.get("diagrams") or [],
                              "error": result.get("error")})
             db.touch_conversation(cid)
         except Exception as exc:  # noqa: BLE001
