@@ -399,6 +399,24 @@ HuggingFace Hub — tidak ada katalog tetap, jadi model baru apa pun bisa dipaka
 3. **Pakai & muat** — model menjadi model aktif **dan** dimuat ke memori proses
    backend. Tidak ada server tambahan yang perlu dijalankan.
 
+**Model ter-load otomatis setiap (re)start.** Setelah model pernah dipakai,
+backend memilihkan dan memuatnya sendiri saat dimulai ulang — tanpa perlu
+klik lagi. Urutannya: (1) model aktif bila foldernya ada di `models/`,
+(2) model terakhir yang dipakai — termasuk model yang di-load dari folder di
+**luar** `models/` (disimpan di `models/.active.json`), (3) model terunduh
+paling baru yang lengkap di `models/`.
+
+Selama model dimuat ke memori, layar menampilkan **loading screen** yang
+sesuai: banner biru “Model offline … sedang dimuat ke memori” di halaman
+utama, kartu berdetik di tab Model offline, dan **chat yang dikirim saat itu
+otomatis menunggu** sampai model siap — tidak gagal, tidak perlu diulang.
+
+**Muat model dari folder mana pun.** Model sudah Anda download manual ke
+lokasi lain (`huggingface-cli download … --local-dir ~/…`, git, zip)? Di tab
+yang sama ada kolom **Muat model dari folder**: tempel jalan foldernya
+(harus memuat `config.json`) → klik **Muat**. Model langsung terdaftar,
+jadi aktif, dan ikut di-load otomatis pada restart berikutnya.
+
 Kartu **Inference lokal (transformers)** di bagian bawah menampilkan status
 engine: model yang termuat, device (cpu/cuda/mps), dtype, dan jumlah parameter,
 plus tombol **Lepas dari memori**. Toggle **Thinking (reasoning)** meneruskan
@@ -461,6 +479,7 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 
 | Gejala | Penyebab umum | Solusi |
 |---|---|---|
+| Model sudah di-download tetapi “tidak bisa digunakan” | (a) PyTorch/transformers belum ter-install, (b) foldernya berada di luar `models/` (mis. hasil `huggingface-cli` ke cache), atau (c) unduhan belum lengkap (tidak ada `config.json`). | (a) `python3 run.py --install-local`. (b) Settings → Model offline → **Muat model dari folder** → tempel jalan foldernya (harus ada `config.json`). (c) Unduh ulang; periksa status **Inference lokal** di tab Model offline — pesan error-nya apa adanya. |
 | Banner kuning “Belum ada model offline yang dimuat” | Provider `huggingface` mode lokal belum punya model. | Settings → Model offline → cari → **Download** → **Pakai & muat**. |
 | Indikator sidebar merah “LLM server offline” | Base URL provider tidak reachable. | Periksa Settings provider → base URL, atau ganti provider. |
 | Tool `web_search` berstatus error | Tidak ada akses internet dari backend. | Normal di lingkungan offline (graceful). Konfigurasi Serper/Tavily bila punya key. |

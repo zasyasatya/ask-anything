@@ -10,6 +10,7 @@ import { useEffect, useRef } from "react";
 import Markdown from "@/lib/markdown";
 import Logo from "./Logo";
 import Composer from "./Composer";
+import { ThinkingIndicator } from "./LoadingScreen";
 import DiagramBlock from "./DiagramBlock";
 import { answerHasDiagram, diagramArtifacts, type DiagramArtifact } from "@/lib/diagrams";
 import type { LiveState, LiveTool } from "@/lib/live";
@@ -327,11 +328,14 @@ export default function ChatView({
                     <Markdown text={live.answer} sources={live.sources || []} />
                     <span className="ml-0.5 inline-block h-4 w-[7px] animate-pulse rounded-sm bg-accent align-middle" />
                   </>
-                ) : (
-                  !live.tools.length && (
-                    <span className="inline-block h-4 w-[7px] animate-pulse rounded-sm bg-accent" />
-                  )
-                )}
+                ) : !live.tools.length ? (
+                  /* Loading screen pre-token: streaming otomatis aktif, tapi
+                     token pertama bisa butuh beberapa detik (prompt panjang /
+                     CPU-only). Jangan biarkan user menatap gelembung kosong. */
+                  <div className="py-0.5" data-testid="thinking-indicator">
+                    <ThinkingIndicator label="Model sedang berpikir" />
+                  </div>
+                ) : null}
                 <DiagramCards
                   diagrams={live.diagrams || []}
                   answer={live.answer}

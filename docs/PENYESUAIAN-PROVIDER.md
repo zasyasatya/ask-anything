@@ -107,6 +107,35 @@ python3 run.py --search qwen3             # cari model
 python3 run.py --model Qwen/Qwen3-1.7B    # unduh + jadikan aktif + jalankan
 ```
 
+**Auto-load saat startup** (`app/main.py` lifespan, sebelum `yield`):
+urutan pemilihan target load — (1) `ASK_HF_MODEL` bila `models/<repo>` ada
+`config.json`, (2) `models/.active.json` (model terakhir yang dipakai —
+mencakup folder di luar `models/`), (3) model paling baru yang `complete`
+di `models/`. Load berjalan **di background** (`engine.start_load`):
+`/api/health` langsung menjawab dengan `local_llm_state: "loading"`, UI
+menampilkan loading screen (banner + kartu berdetik), dan chat yang masuk
+selama load **menunggu** sampai engine `ready` (bukan error).
+
+**Muat model dari folder mana pun** — `POST /api/hf/models/load`:
+
+```bash
+curl -X POST :8000/api/hf/models/load \
+  -d '{"path": "/home/user/models/Qwen/Qwen2.5-0.5B-Instruct"}'
+```
+
+Mendaftarkan folder (menulis manifest bila belum ada), menyalakan
+`provider=huggingface` + `hf_mode=local` + `hf_model`, menyimpan
+`models/.active.json`, lalu mulai load. Path boleh absolut, `~/…`, atau
+relatif ke root project.
+
+**Robustnes load ("apapun modelnya")**: engine mencoba `dtype` →
+`torch_dtype` → tanpa dtype (mencakup semua generasi transformers); di CPU
+default dtype `auto` memakai **bfloat16** (bobot asli model Qwen2/3 — RAM
+±50% lebih hemat dari fp32); prompt di-truncate ke
+`max_position_embeddings` model bila riwayat terlalu panjang; pesan error
+load diterjemahkan menjadi petunjuk yang bisa langsung dikerjakan (OOM →
+model lebih kecil / `ASK_HF_DTYPE`, dll).
+
 Lewat env:
 
 ```bash

@@ -161,6 +161,8 @@ export interface EngineStatus {
   device: string | null;
   dtype: string | null;
   params: number | null;
+  /** batas konteks model (token) — 0 = tak diketahui */
+  max_position?: number | null;
   loaded_at: number | null;
   generating: boolean;
   error: string | null;

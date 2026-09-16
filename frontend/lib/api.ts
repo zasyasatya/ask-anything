@@ -137,6 +137,21 @@ export async function useHFModel(
   });
 }
 
+/** Muat model dari SEMANGKAH folder di disk (termasuk luar `models/`). */
+export async function loadHFModelFromPath(
+  path: string,
+  opts: { repoId?: string; thinking?: boolean } = {}
+): Promise<Record<string, unknown>> {
+  return fetchJson<Record<string, unknown>>("/api/hf/models/load", {
+    method: "POST",
+    body: JSON.stringify({
+      path,
+      repo_id: opts.repoId || null,
+      thinking: opts.thinking ?? null,
+    }),
+  });
+}
+
 export async function stopHFEngine(): Promise<Record<string, unknown>> {
   return fetchJson<Record<string, unknown>>("/api/hf/runtime/stop", {
     method: "POST",
