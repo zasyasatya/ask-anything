@@ -97,6 +97,8 @@ python3 run.py --search qwen3
 python3 run.py --model Qwen/Qwen3-1.7B
 
 # Pasang stack inference lokal saja (torch + transformers, ±1–2 GB)
+# Memverifikasi torch benar-benar bisa dijalankan; bila instalasi rusak
+# (mis. Windows: OSError WinError 1114 pada c10.dll), pasang ulang otomatis.
 python3 run.py --install-local
 
 # Tanpa download model: server OpenAI-compatible tiruan (hf_mode=server)
