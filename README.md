@@ -34,6 +34,20 @@ sitasi karangan.
   (`deepseek-ai/DeepSeek-V4.1-Flash`, `qwen3`, …) → **Download** dengan progress
   ke folder project `models/` → **Pakai & muat**. Boleh menyimpan banyak model
   dan berganti kapan saja.
+- **Model offline “pasti jalan”**: model di-load **otomatis setiap (re)start**
+  (model aktif → model terakhir dipakai → model terunduh terbaru), model boleh
+  berasal dari **folder mana pun** di disk (*Muat model dari folder* — hasil
+  `huggingface-cli`, zip, git, di luar `models/` pun bisa), engine robust
+  terhadap banyak arsitektur & generasi transformers, dan **chat yang dikirim
+  sambil model masih di-load otomatis menunggu** sampai siap.
+- **Loading screen di seluruh proses**: splash saat startup (backend mati →
+  layar error + *Coba lagi*), banner “model sedang dimuat” + kartu berdetik di
+  tab Model offline, “Model sedang berpikir…” sebelum token pertama, overlay
+  saat membuka riwayat.
+- **Streaming otomatis**: semua mode (lokal/openai/mock) selalu memakai
+  streaming token-per-token tanpa perlu disetel apa pun — fallback
+  non-streaming hanya bila endpoint benar-benar menolak semua bentuk
+  streaming.
 - **Diagnostik endpoint**: tombol **Test koneksi** menjalankan request sungguhan
   (`GET /models`, chat non-streaming seperti contoh `curl`, chat streaming) dan
   menampilkan status + pesan server apa adanya — 401, model tidak ada, dan
@@ -180,6 +194,16 @@ Tab **Model offline (HuggingFace)** di *Settings*:
    langsung melayani chat. Tidak ada `llama-server`, tidak ada port tambahan.
    Status engine (device, dtype, jumlah parameter) terlihat di kartu
    *Inference lokal*; tombol **Lepas dari memori** mengosongkan RAM/VRAM.
+   Selagi dimuat, UI menampilkan loading screen (banner + kartu berdetik);
+   chat yang dikirim saat itu **otomatis menunggu** sampai model siap.
+5. **Auto-load setiap (re)start** — backend memuat sendiri model yang
+   seharusnya aktif: model aktif (`hf_model`) → model terakhir yang dipakai
+   (`models/.active.json`) → model terunduh paling baru. Tidak perlu klik apa
+   pun setelah restart.
+6. **Muat dari folder mana pun** — model hasil `huggingface-cli` / git / zip
+   yang berada di luar `models/`? Kolom *Muat model dari folder* di tab yang
+   sama menerima path-nya (absolut, `~/…`, atau relatif project; harus ada
+   `config.json`) — terdaftar, jadi aktif, dan ikut auto-load berikutnya.
 
 Repo **gated/privat** (mis. DeepSeek) butuh token: isi di *Token HuggingFace*
 pada tab yang sama, atau set `ASK_HF_TOKEN`.

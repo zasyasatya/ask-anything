@@ -44,6 +44,29 @@ class HFLocalProvider(BaseProvider):
         top_logprobs: int = 4,
     ) -> AsyncIterator[StreamEvent]:
         engine = _engine()
+        if not engine.ready() and engine.state == "loading":
+            # User mengirim chat sambil model masih di-load: jangan
+            # jawab error — tunggu sampai siap (dengan batasan waktu) dan
+            # beri tahu UI-nya lewat event note.
+            yield StreamEvent("note", {
+                "message": ("model masih dimuat ke memori — menunggu sampai "
+                            "siap sebelum mulai menjawab"),
+                "status": "loading",
+            })
+            try:
+                await engine.wait_load(timeout=900)
+            except Exception:  # noqa: BLE001 - timeout/kegagalan ditangani di bawah
+                pass
+            if not engine.ready():
+                status = engine.status()
+                yield StreamEvent("error", {
+                    "message": (status.get("error")
+                                or status.get("hint")
+                                or "model lokal belum bisa dimuat"),
+                    "status": None,
+                    "hint": status.get("hint"),
+                })
+                return
         if not engine.ready():
             yield StreamEvent("error", {
                 "message": (engine.status().get("error")

@@ -6,6 +6,7 @@ import Hero from "@/components/Hero";
 import ChatView, { type DispMsg, type LiveState } from "@/components/ChatView";
 import Interpreter from "@/components/Interpreter";
 import SettingsModal from "@/components/SettingsModal";
+import { AppSplash, BusyOverlay, Spinner } from "@/components/LoadingScreen";
 import { ACCENTS } from "@/components/Composer";
 import {
   getSettings,
@@ -72,25 +73,64 @@ export default function Page() {
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState<SettingsInfo | null>(null);
   const [llm, setLlm] = useState<boolean | null>(null);
+  const [localState, setLocalState] = useState<string | null>(null);
   const [accent, setAccent] = useState("indigo");
+  // ---- loading screen: aplikasi tidak pernah tampil setengah-hidup ----
+  const [booting, setBooting] = useState(true);
+  const [bootError, setBootError] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     const [cs, st, h] = await Promise.all([listConversations(), getSettings(), health()]);
     setConversations(cs);
     setSettings(st);
     setLlm(Boolean(h.llm_reachable));
+    setLocalState(String(h.local_llm_state || "idle"));
   }, []);
 
   useEffect(() => {
-    refresh().catch(console.error);
+    // Layar splash tetap tampil sampai data pertama benar-benar selesai
+    // dimuat; bila backend mati, splash berubah jadi layar error + retry.
+    let cancelled = false;
+    (async () => {
+      try {
+        await refresh();
+        if (!cancelled) {
+          setBootError(null);
+          setBooting(false);
+        }
+      } catch (e) {
+        if (!cancelled) setBootError(String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [refresh]);
+
+  // Loading screen model offline: selama engine memuat model, banner &
+  // status diperbarui otomatis sampai state-nya berubah (ready/error).
+  useEffect(() => {
+    if (localState !== "loading") return;
+    const t = window.setInterval(() => {
+      refresh().catch(() => undefined);
+    }, 3000);
+    return () => window.clearInterval(t);
+  }, [localState, refresh]);
 
   async function openConversation(id: string) {
     setActiveId(id);
-    const d = await loadConversation(id);
-    setMessages(mapMessages(d.messages));
-    setTrace(d.trace);
-    setLive(EMPTY_LIVE);
+    setOpeningId(id);
+    try {
+      const d = await loadConversation(id);
+      setMessages(mapMessages(d.messages));
+      setTrace(d.trace);
+      setLive(EMPTY_LIVE);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setOpeningId(null);
+    }
   }
 
   function newChat() {
@@ -164,6 +204,23 @@ export default function Page() {
 
   const inChat = activeId !== null || messages.length > 0 || streaming;
 
+  // Loading screen penuh sampai startup selesai (atau error + retry).
+  if (booting) {
+    return (
+      <div style={accentVars}>
+        <AppSplash
+          error={bootError}
+          onRetry={bootError ? () => {
+            setBootError(null); // splash kembali ke mode spinner
+            refresh()
+              .then(() => setBooting(false))
+              .catch((e) => setBootError(String(e)));
+          } : undefined}
+        />
+      </div>
+    );
+  }
+
   return (
     <div style={accentVars} className="flex h-screen overflow-hidden text-zinc-900">
       <Sidebar
@@ -175,7 +232,8 @@ export default function Page() {
         llmReachable={llm}
       />
 
-      <main className="flex min-w-0 flex-1 flex-col bg-[#f7f7f8]">
+      <main className="relative flex min-w-0 flex-1 flex-col bg-[#f7f7f8]">
+        {openingId && <BusyOverlay label="Membuka percakapan…" />}
         <header className="flex h-12 shrink-0 items-center justify-between gap-3 border-b border-zinc-200/70 bg-white/60 px-4 backdrop-blur">
           <p className="min-w-0 flex-1 truncate text-sm text-zinc-500">
             {conversations.find((c) => c.id === activeId)?.title || "New chat"}
@@ -224,7 +282,33 @@ export default function Page() {
           </div>
         </header>
 
-        {settings && llm === false && (
+        {settings &&
+          settings.provider === "huggingface" &&
+          settings.hf_mode !== "server" &&
+          localState === "loading" && (
+          <div className="flex items-center justify-between gap-3 border-b border-sky-200 bg-sky-50 px-4 py-2 text-xs text-sky-800">
+            <span className="flex items-center gap-2">
+              <Spinner size={13} className="shrink-0 text-sky-600" />
+              Model offline
+              {settings.hf_model ? (
+                <>
+                  {" "}
+                  <code className="rounded bg-sky-100 px-1">{settings.hf_model}</code>
+                </>
+              ) : null}{" "}
+              sedang dimuat ke memori — jawaban akan dimulai otomatis begitu
+              model siap. Kamu sudah bisa menulis pertanyaan sekarang.
+            </span>
+          </div>
+        )}
+
+        {settings &&
+          llm === false &&
+          !(
+            settings.provider === "huggingface" &&
+            settings.hf_mode !== "server" &&
+            localState === "loading"
+          ) && (
           <div className="flex items-center justify-between gap-3 border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800">
             <span>
               {settings.provider === "huggingface" && settings.hf_mode !== "server" ? (

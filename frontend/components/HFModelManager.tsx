@@ -13,11 +13,13 @@ import {
   deleteHFModel,
   downloadHFModel,
   listHFModels,
+  loadHFModelFromPath,
   searchHFModels,
   stopHFEngine,
   updateSettings,
   useHFModel,
 } from "@/lib/api";
+import { Spinner, ThinkingDots } from "./LoadingScreen";
 
 function fmtBytes(n: number): string {
   if (!n) return "—";
@@ -54,7 +56,25 @@ export default function HFModelManager({
   const [hits, setHits] = useState<HFSearchHit[] | null>(null);
   const [searchError, setSearchError] = useState<string | null>(null);
   const [token, setToken] = useState("");
+  const [folderPath, setFolderPath] = useState("");
   const pollRef = useRef<number | null>(null);
+
+  // ---- loading screen: detik berjalan selama model di-load ---------------
+  const engineLoading = data?.engine.state === "loading";
+  const [elapsed, setElapsed] = useState(0);
+  useEffect(() => {
+    if (!engineLoading) {
+      setElapsed(0);
+      return;
+    }
+    setElapsed(0);
+    const started = Date.now();
+    const t = window.setInterval(
+      () => setElapsed(Math.floor((Date.now() - started) / 1000)),
+      1000
+    );
+    return () => window.clearInterval(t);
+  }, [engineLoading]);
 
   const refresh = useCallback(async () => {
     try {
@@ -136,11 +156,80 @@ export default function HFModelManager({
     await refresh();
   }
 
+  async function loadFromFolder() {
+    const p = folderPath.trim();
+    if (!p) return;
+    setFolderPath("");
+    await act("__folder", () => loadHFModelFromPath(p, { thinking }));
+  }
+
   const engine = data?.engine;
   const localModels = data?.models || [];
 
+  // ---- loading screen: status area masih kosong saat pertama dibuka -------
+  if (!data) {
+    return (
+      <div className="flex items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-4 py-8 text-[12.5px] text-zinc-500">
+        <Spinner size={15} className="text-accent" />
+        Memuat model &amp; status engine
+        <ThinkingDots />
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-3">
+      {/* ---- loading screen: model sedang dimuat ke memori ---------------- */}
+      {engineLoading && (
+        <div
+          data-testid="model-loading-card"
+          className="flex items-start gap-2.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2.5 text-[11.5px] text-sky-800"
+        >
+          <Spinner size={15} className="mt-0.5 shrink-0 text-sky-600" />
+          <div className="min-w-0">
+            <p className="font-medium">
+              Memuat {engine?.model_label || engine?.repo_id || "model"} ke memori…
+            </p>
+            <p className="mt-0.5 text-sky-700/80">
+              {elapsed}s berjalan — besarnya model &amp; kecepatan mesin
+              menentukan durasi (biasanya beberapa detik–puluhan detik).
+              UI diperbarui otomatis begitu model siap; chat langsung bisa
+              dipakai tanpa perlu mengulang apa pun.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ---- load model dari folder apa pun (di luar models/ sekalipun) --- */}
+      <div className="rounded-lg border border-zinc-200 bg-white px-3 py-2">
+        <label className="mb-1 block text-xs font-medium text-zinc-700">
+          Muat model dari folder
+        </label>
+        <p className="mb-1.5 text-[10.5px] leading-relaxed text-zinc-500">
+          Punya model yang sudah di-download manual (<code>huggingface-cli</code>,
+          git, zip…)? Tempel jalan foldernya (harus memuat{" "}
+          <code>config.json</code>) — di-load langsung, tak perlu pindah file.
+        </p>
+        <div className="flex gap-2">
+          <input
+            className="w-full rounded-lg border border-zinc-200 bg-white px-3 py-1.5 font-mono text-[11px] text-zinc-700 outline-none focus:border-accent"
+            value={folderPath}
+            onChange={(e) => setFolderPath(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void loadFromFolder();
+            }}
+            placeholder="~/models/Qwen/Qwen2.5-0.5B-Instruct  atau  models/qwen-0.5b"
+          />
+          <button
+            onClick={() => void loadFromFolder()}
+            disabled={!folderPath.trim() || busy !== null}
+            className="shrink-0 rounded-lg border border-zinc-900 bg-zinc-900 px-3 py-1.5 text-xs font-medium text-white hover:bg-zinc-800 disabled:opacity-50"
+          >
+            {busy === "__folder" ? "… " : "Muat"}
+          </button>
+        </div>
+      </div>
+
       <div className="rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] leading-relaxed text-zinc-600">
         Cari model di <b>HuggingFace</b> (mis.{" "}
         <code className="rounded bg-white px-1 text-zinc-800">

@@ -575,5 +575,105 @@ def use_model(repo_id: str, thinking: bool | None = None) -> dict[str, Any]:
     if thinking is not None:
         patch["thinking"] = bool(thinking)
     result = update_settings(**patch)
+    set_active(repo_id.strip("/"), str(path))
     result["local_model_path"] = str(path)
     return result
+
+
+# ---------------------------------------------------------------------------
+# model aktif: siapa yang harus di-load otomatis saat backend (re)start
+# ---------------------------------------------------------------------------
+ACTIVE_FILE = ".active.json"
+
+
+def active_file() -> Path:
+    return models_dir() / ACTIVE_FILE
+
+
+def set_active(repo_id: str, path: str | Path) -> None:
+    """Ingat model terakhir yang dipakai + lokasi foldernya.
+
+    Path disimpan (bukan hanya repo id) agar model yang di-load dari folder
+    di luar `models/` pun tetap bisa di-muat-ulang otomatis saat restart.
+    """
+    try:
+        d = models_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        active_file().write_text(
+            json.dumps({"repo_id": repo_id, "path": str(path)},
+                       ensure_ascii=False, indent=2),
+            encoding="utf-8")
+    except OSError:
+        pass  # memuat ulang model tetap mungkin lewat repo id / auto-pick
+
+
+def active_model() -> tuple[str, Path] | None:
+    """Model terakhir yang dipakai bila foldernya masih ada di disk."""
+    try:
+        data = json.loads(active_file().read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    repo_id = str(data.get("repo_id") or "").strip("/")
+    path = Path(str(data.get("path") or "")).expanduser()
+    if repo_id and (path / "config.json").is_file():
+        return repo_id, path
+    return None
+
+
+def auto_pick_model() -> tuple[str, Path] | None:
+    """Model terunduh paling baru yang lengkap — fallback saat startup.
+
+    Ini yang membuat "apapun modelnya yang di-download, langsung jalan":
+    backend memilihkan sendiri model di `models/` bila user belum memilih.
+    """
+    candidates = [m for m in list_local() if m.get("ready")]
+    if not candidates:
+        return None
+    newest = max(
+        candidates,
+        key=lambda m: (int(m.get("downloaded_at") or 0), m["repo_id"]))
+    return newest["repo_id"], Path(newest["path"])
+
+
+def register_model_folder(path: Path,
+                          repo_id: str = "") -> tuple[str, dict[str, Any]]:
+    """Daftarkan folder model apa pun (di dalam/luar `models/`) ke app.
+
+    Menulis manifest bila belum ada (agar `list_local()`/`local_info()`
+    menganggapnya model lengkap) dan mengembalikan repo id-nya.
+    """
+    path = Path(path).expanduser()
+    if not (path / "config.json").is_file():
+        raise FileNotFoundError(
+            f"bukan folder model HuggingFace (config.json tidak ada): {path}")
+    path = path.resolve()
+
+    repo_id = (repo_id or "").strip().strip("/")
+    if not repo_id:
+        manifest = _read_manifest(path / MANIFEST_NAME)
+        repo_id = str(manifest.get("repo_id") or "").strip("/")
+    if not repo_id:
+        try:
+            rel = path.relative_to(models_dir())
+            repo_id = rel.as_posix()
+        except ValueError:
+            repo_id = path.name
+    if not repo_id:
+        repo_id = "model-lokal"
+
+    if not (path / MANIFEST_NAME).is_file():
+        try:
+            (path / MANIFEST_NAME).write_text(
+                json.dumps({
+                    "repo_id": repo_id,
+                    "revision": "local",
+                    "downloaded_at": int(time.time()),
+                    "file_count": sum(1 for p in path.rglob("*") if p.is_file()),
+                    "size_bytes": _dir_size(path),
+                    "complete": True,
+                    "source": "folder-lokal",
+                }, ensure_ascii=False, indent=2),
+                encoding="utf-8")
+        except OSError:
+            pass
+    return repo_id, _read_manifest(path / MANIFEST_NAME)

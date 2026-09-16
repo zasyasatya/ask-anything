@@ -302,3 +302,28 @@ describe("ChatView — sitasi saat streaming", () => {
     expect(screen.queryByTestId("citation-bar")).toBeNull();
   });
 });
+
+describe("ChatView — loading screen saat streaming", () => {
+  it("menampilkan 'Model sedang berpikir' sebelum token pertama tiba", () => {
+    renderChat({ streaming: true, live: EMPTY });
+    const ind = screen.getByTestId("thinking-indicator");
+    expect(ind.textContent).toContain("Model sedang berpikir");
+  });
+
+  it("indikator hilang begitu token (answer) mulai mengalir", () => {
+    renderChat({ streaming: true, live: { ...EMPTY, answer: "Halo" } });
+    expect(screen.queryByTestId("thinking-indicator")).toBeNull();
+  });
+
+  it("indikator tidak muncul saat tool sedang berjalan (chip toolnya yang tampil)", () => {
+    renderChat({
+      streaming: true,
+      live: {
+        ...EMPTY,
+        tools: [{ name: "web_search", status: "running", source: "browser" }],
+      },
+    });
+    expect(screen.queryByTestId("thinking-indicator")).toBeNull();
+    expect(screen.getByTestId("tool-chip-web_search")).toBeTruthy();
+  });
+});

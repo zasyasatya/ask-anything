@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 from typing import Any, AsyncIterator
 
 import httpx
@@ -346,6 +347,55 @@ async def use_hf_model(req: RepoRequest):
                     "engine": status}
     return {"ok": True, "repo_id": req.repo_id, "settings": result,
             "engine": status}
+
+
+class LoadPathRequest(BaseModel):
+    """Muat model dari SEMANGKAH folder di disk — bukan hanya `models/`.
+
+    `path` boleh absolut (`/home/user/models/Qwen/Qwen2.5-0.5B-Instruct`),
+    relatif ke project (`models/Qwen/...`), atau `~/...`. Ini jalur untuk
+    model yang di-download manual (huggingface-cli, git, dsb.) ke luar folder
+    default — "apapun modelnya yang ter-load, pasti jalan".
+    """
+
+    path: str
+    repo_id: str | None = None
+    thinking: bool | None = None
+    device: str | None = None
+    dtype: str | None = None
+
+
+@router.post("/hf/models/load")
+async def load_model_from_path(req: LoadPathRequest):
+    raw = (req.path or "").strip().strip("'\"")
+    if not raw:
+        return {"error": "path folder model tidak boleh kosong"}
+    p = Path(raw).expanduser()
+    if not p.is_absolute():
+        p = PROJECT_ROOT / p
+    try:
+        repo_id, manifest = hf_hub.register_model_folder(p, req.repo_id or "")
+    except FileNotFoundError as exc:
+        return {"error": str(exc)}
+    hf_hub.set_active(repo_id, str(p))
+
+    patch: dict[str, Any] = {"provider": "huggingface", "hf_mode": "local",
+                             "hf_model": repo_id}
+    if req.thinking is not None:
+        patch["thinking"] = bool(req.thinking)
+    result = update_settings(**patch)
+    result["local_model_path"] = str(p)
+
+    status = engine.status()
+    try:
+        status = engine.start_load(str(p), device=req.device, dtype=req.dtype)
+    except RuntimeError as exc:      # torch/transformers belum ada
+        return {"error": str(exc), "settings": result, "engine": status}
+    if status["state"] == "error":
+        return {"error": status["error"], "settings": result,
+                "engine": status}
+    return {"ok": True, "repo_id": repo_id, "manifest": manifest,
+            "settings": result, "engine": status}
 
 
 @router.get("/hf/runtime")

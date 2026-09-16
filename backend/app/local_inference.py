@@ -173,6 +173,7 @@ class LocalInferenceEngine:
         self.device: str = ""
         self.dtype: str = ""
         self.params: int | None = None
+        self.max_position: int = 0
         self.state: str = "idle"        # idle | loading | ready | error
         self.error: str | None = None
         self.loaded_at: float | None = None
@@ -205,6 +206,12 @@ class LocalInferenceEngine:
         hint = None
         if not deps["available"]:
             hint = deps["install_hint"]
+        elif self.state == "loading":
+            label = self.repo_id or (Path(self.model_path).name
+                                     if self.model_path else "model")
+            hint = (f"Memuat {label} ke memori — beberapa detik hingga "
+                    "puluhan detik tergantung ukuran model & mesin. "
+                    "Chat yang dikirim sekarang akan otomatis menunggu.")
         elif self.state == "idle" and not self.model_path:
             hint = ("Belum ada model yang dimuat. Buka Settings → Model offline "
                     "(HuggingFace), cari model di HuggingFace, unduh, lalu klik "
@@ -221,6 +228,7 @@ class LocalInferenceEngine:
             "device": self.device or deps.get("device"),
             "dtype": self.dtype,
             "params": self.params,
+            "max_position": self.max_position,
             "loaded_at": self.loaded_at,
             "generating": self.generating,
             "error": self.error,
@@ -244,6 +252,18 @@ class LocalInferenceEngine:
         if self._task is not None and not self._task.done():
             return self.status()
         self._task = asyncio.create_task(self.load(model_path, device, dtype))
+
+        def _log_failure(task: asyncio.Task) -> None:
+            # Kegagalan load sudah disimpan di `state`/`error` (UI mem-poll
+            # status); callback ini memastikan exception task tidak mengambang
+            # ("Task exception was never retrieved") di log server.
+            if task.cancelled():
+                return
+            exc = task.exception()
+            if exc is not None:
+                print(f"[local-inference] load gagal: {exc}", flush=True)
+
+        self._task.add_done_callback(_log_failure)
         return self.status()
 
     async def wait_load(self, timeout: float | None = None) -> dict[str, Any]:
@@ -283,6 +303,7 @@ class LocalInferenceEngine:
             self.dtype = loaded["dtype"]
             self.params = loaded["params"]
             self.repo_id = loaded["repo_id"]
+            self.max_position = int(loaded.get("max_position") or 0)
             self.loaded_at = time.time()
             self._set_state("ready", error=None)
             return self.status()
@@ -311,28 +332,51 @@ class LocalInferenceEngine:
 
         want = (dtype or self.settings.hf_dtype or "auto").strip() or "auto"
         torch_dtype = want
-        if want == "float16" and device == "cpu":
+        if torch_dtype in ("float16", "half") and device == "cpu":
             torch_dtype = "bfloat16"   # fp16 matmul on CPU is painfully slow
+        elif torch_dtype == "auto" and device == "cpu":
+            # Repo-model Qwen2/3, Llama-3.2, dsb. menyimpan bobot asli bf16;
+            # memuat bf16 di CPU memangkas RAM ±50% dibanding fp32 tanpa
+            # kehilangan kualitas berarti untuk model <3B — penting di mesin
+            # 4–8 GB yang menjalankan 0.5B/1.7B.
+            torch_dtype = "bfloat16"
 
         kwargs: dict[str, Any] = {"trust_remote_code": trust_remote,
                                   "low_cpu_mem_usage": True}
+        # Setiap generasi transformers menerima nama argumen dtype yang
+        # berbeda (≥4.56: `dtype`, sebelumnya: `torch_dtype`, beberapa versi
+        # hanya satu di antaranya) — coba semuanya supaya SEMUA model bisa
+        # dimuat, lalu terakhir tanpa dtype (fallback fp32/bobot asli).
         model = None
         last_error: Exception | None = None
-        for key in ("dtype", "torch_dtype"):   # transformers ≥4.56 → `dtype`
+        for attempt in ({"dtype": torch_dtype},
+                        {"torch_dtype": torch_dtype},
+                        {}):
             try:
                 model = AutoModelForCausalLM.from_pretrained(
-                    str(path), **{key: torch_dtype}, **kwargs)
+                    str(path), **attempt, **kwargs)
                 break
-            except (TypeError, ValueError) as exc:
+            except (TypeError, ValueError, KeyError) as exc:
                 last_error = exc
         if model is None:
-            if last_error is not None:
-                raise last_error
-            model = AutoModelForCausalLM.from_pretrained(str(path), **kwargs)
+            raise last_error if last_error is not None else RuntimeError(
+                "gagal memuat model dari folder")
 
         model = model.to(device)
         model.eval()
         params = sum(p.numel() for p in model.parameters())
+        # Batas konteks model ini: prompt yang melebihi batas akan membuat
+        # generate() salah (attention mask tidak valid / crash), jadi stream()
+        # men-truncate riwayat ke angka ini — model berapapun konteksnya tetap
+        # bisa dipakai.
+        cfg = getattr(model, "config", None)
+        max_position = (getattr(cfg, "max_position_embeddings", None)
+                        or getattr(cfg, "max_sequence_length", None)
+                        or getattr(cfg, "model_max_length", None))
+        try:
+            max_position = int(max_position)
+        except (TypeError, ValueError):
+            max_position = 0
         repo_id = ""
         manifest = path / ".ask-anything.json"
         if manifest.is_file():
@@ -343,7 +387,8 @@ class LocalInferenceEngine:
                 repo_id = ""
         return {"model": model, "tokenizer": tokenizer, "device": device,
                 "dtype": str(getattr(model, "dtype", torch_dtype)),
-                "params": int(params), "repo_id": repo_id or path.name}
+                "params": int(params), "repo_id": repo_id or path.name,
+                "max_position": max_position}
 
     async def unload(self) -> bool:
         async with self._mutex():
@@ -353,6 +398,7 @@ class LocalInferenceEngine:
             self.model_path = None
             self.repo_id = None
             self.params = None
+            self.max_position = 0
             self.loaded_at = None
             self.error = None
             self.state = "idle"
@@ -417,14 +463,15 @@ class LocalInferenceEngine:
             def __call__(self, input_ids, scores, **kwargs) -> bool:
                 return stop.is_set()
 
+        pad = self.tokenizer.pad_token_id or self.tokenizer.eos_token_id
         kwargs: dict[str, Any] = {
             "max_new_tokens": int(max_new_tokens),
             "streamer": streamer,
             "do_sample": temperature > 0,
-            "pad_token_id": self.tokenizer.pad_token_id
-            or self.tokenizer.eos_token_id,
             "stopping_criteria": StoppingCriteriaList([_Stop()]),
         }
+        if pad is not None:
+            kwargs["pad_token_id"] = pad
         if temperature > 0:
             kwargs["temperature"] = float(temperature)
             kwargs["top_p"] = 0.95
@@ -465,15 +512,29 @@ class LocalInferenceEngine:
         import torch
         from transformers import TextIteratorStreamer
 
+        # Truncate bila prompt melebihi batas konteks model: riwayat
+        # percakapan yang panjang boleh membuat model kecil (mis. 512 token)
+        # melampaui batasnya — bukannya error, riwayat terlama yang dipangkas.
+        def _tokenize(truncate_to: int | None) -> Any:
+            args: dict[str, Any] = {"return_tensors": "pt"}
+            if truncate_to and truncate_to > 0:
+                args.update({"truncation": "left", "max_length": truncate_to})
+            return self.tokenizer(prompt, **args)
+
         try:
-            inputs = self.tokenizer(prompt, return_tensors="pt")
+            inputs = _tokenize(None)
+            prompt_tokens = int(inputs["input_ids"].shape[-1])
+            limit = self.max_position
+            if limit and prompt_tokens >= limit:
+                keep = max(limit - 64, 8)   # sisakan ruang utk jawaban
+                inputs = _tokenize(keep)
+                prompt_tokens = int(inputs["input_ids"].shape[-1])
             inputs = {k: v.to(self.device) for k, v in inputs.items()}
         except Exception as exc:  # noqa: BLE001
             yield StreamEvent("error", {
                 "message": f"tokenisasi gagal: {type(exc).__name__}: {exc}"})
             return
 
-        prompt_tokens = int(inputs["input_ids"].shape[-1])
         streamer = TextIteratorStreamer(self.tokenizer, skip_prompt=True,
                                         skip_special_tokens=True)
         stop = threading.Event()
