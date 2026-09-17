@@ -103,23 +103,108 @@ def ensure_backend_deps() -> Path:
     return py
 
 
-def install_local_stack(py: Path) -> None:
-    """PyTorch + transformers: hanya dibutuhkan untuk inference model lokal."""
+#: Smoke test stack inference lokal. Import saja tidak cukup: operasi kecil
+#: memastikan DLL torch benar-benar bisa di-*initialize*. Ini menangkap kasus
+#: khas Windows — paket ada di pip tapi `import torch` jatuh dengan
+#: `OSError: [WinError 1114] A dynamic link library (DLL) initialization
+#: routine failed. Error loading ...torch\lib\c10.dll` (instalasi rusak /
+#: setengah jadi, build campuran, file korup, atau VC++ Runtime hilang).
+LOCAL_PROBE_CODE = (
+    "import torch, transformers\n"
+    "_ = torch.randn(2, 2).sum()\n"
+    "print(torch.__version__ + ' / ' + transformers.__version__)\n"
+)
+
+
+def probe_local_stack(py: Path) -> subprocess.CompletedProcess:
+    """Jalankan smoke test torch + transformers; inspeksi hasil via returncode."""
+    return subprocess.run([str(py), "-c", LOCAL_PROBE_CODE],
+                          capture_output=True, text=True)
+
+
+def _last_error(proc: subprocess.CompletedProcess) -> str:
+    for line in reversed((proc.stderr or proc.stdout or "").strip()
+                         .splitlines()):
+        line = line.strip()
+        if line:
+            return line[:300]
+    return "error tidak dikenal"
+
+
+def _torch_broken_help(py: Path, last_err: str) -> str:
+    """Panduan manual bila torch rusak dan pasang ulang otomatis tak berkesudahan."""
+    return (
+        "torch ada di pip tapi rusak, dan pasang ulang otomatis tidak "
+        "membuahkan hasil.\n"
+        f"  Error terakhir: {last_err}\n\n"
+        "Coba manual, berurutan:\n"
+        "  1. Pasang Visual C++ Redistributable 2015-2022 (x64) bila belum ada:\n"
+        "     https://aka.ms/vs/17/release/vc_redist.x64.exe\n"
+        "  2. Matikan sementara antivirus / OneDrive yang memindai folder proyek,\n"
+        "     lalu pasang ulang PyTorch CPU:\n"
+        f"     {py} -m pip uninstall -y torch torchvision torchaudio\n"
+        f"     {py} -m pip install --no-cache-dir --index-url https://download.pytorch.org/whl/cpu torch\n"
+        f"  3. Uji: {py} -c \"import torch; print(torch.__version__)\"\n"
+        "  4. Masih gagal? Buat venv baru: hapus folder .venv, lalu jalankan lagi:\n"
+        "     python run.py --install-local\n\n"
+        "Sementara itu app tetap bisa jalan:  python run.py --demo  "
+        "atau  python run.py --provider openai"
+    )
+
+
+def _clean_reinstall_torch(py: Path) -> None:
+    """Pasang ulang bersih PyTorch dari CPU wheels (instalasi terdeteksi rusak)."""
+    print("  torch ter-install di pip tapi tidak bisa dijalankan — "
+          "pasang ulang bersih (CPU wheels, tanpa cache) …")
+    subprocess.run([str(py), "-m", "pip", "uninstall", "-y",
+                    "torch", "torchvision", "torchaudio"], check=False)
+    subprocess.run([str(py), "-m", "pip", "install", "--no-cache-dir",
+                    "--index-url", "https://download.pytorch.org/whl/cpu",
+                    "torch"], check=False)
+    subprocess.run([str(py), "-m", "pip", "install", "--no-cache-dir",
+                    "-r", str(BACKEND / "requirements-local.txt")],
+                   check=False)
+
+
+def install_local_stack(py: Path) -> bool:
+    """PyTorch + transformers: hanya dibutuhkan untuk inference model lokal.
+
+    Kembalikan True bila torch benar-benar *bisa dijalankan* (bukan sekadar
+    ada di pip). Urutan: probe → install biasa (bila belum ada) → pasang
+    ulang bersih CPU wheels (bila ada tapi rusak) → panduan manual.
+    """
     print("== Local inference stack (torch + transformers) ==")
-    probe = subprocess.run([str(py), "-c", "import torch, transformers"],
-                           capture_output=True)
+    probe = probe_local_stack(py)
     if probe.returncode == 0:
-        version = subprocess.run(
-            [str(py), "-c",
-             "import torch, transformers; "
-             "print(torch.__version__, transformers.__version__)"],
-            capture_output=True, text=True).stdout.strip()
-        ok(f"torch/transformers tersedia ({version})")
-        return
-    print("  installing backend/requirements-local.txt (±1–2 GB, bisa lama) …")
-    subprocess.run([str(py), "-m", "pip", "install", "-r",
-                    str(BACKEND / "requirements-local.txt")], check=True)
-    ok("torch + transformers ter-install")
+        ok(f"torch/transformers siap ({probe.stdout.strip()})")
+        return True
+
+    err = _last_error(probe)
+    torch_present = subprocess.run(
+        [str(py), "-m", "pip", "show", "torch"],
+        capture_output=True).returncode == 0
+
+    if not torch_present:
+        print(f"  (belum ter-install; detail: {err})")
+        print("  installing backend/requirements-local.txt (±1–2 GB, bisa lama) …")
+        subprocess.run([str(py), "-m", "pip", "install", "-r",
+                        str(BACKEND / "requirements-local.txt")], check=True)
+        probe = probe_local_stack(py)
+        if probe.returncode == 0:
+            ok(f"torch/transformers siap ({probe.stdout.strip()})")
+            return True
+        err = _last_error(probe)
+
+    print(f"  (ter-install tapi rusak; detail: {err})")
+    _clean_reinstall_torch(py)
+    probe = probe_local_stack(py)
+    if probe.returncode == 0:
+        ok(f"torch/transformers siap setelah pasang ulang "
+           f"({probe.stdout.strip()})")
+        return True
+
+    fail(_torch_broken_help(py, _last_error(probe)))
+    return False  # tak tercapai: fail() di atas keluar lebih dulu
 
 
 def ensure_frontend_deps() -> None:
@@ -170,7 +255,9 @@ def main() -> None:
     ap.add_argument("--list-models", action="store_true",
                     help="tampilkan model yang sudah terunduh di ./models")
     ap.add_argument("--install-local", action="store_true",
-                    help="install PyTorch + transformers (butuh untuk model lokal)")
+                    help="install PyTorch + transformers (butuh untuk model "
+                         "lokal); memverifikasi torch benar-benar bisa dijalankan "
+                         "dan memperbaiki otomatis bila instalasinya rusak")
     ap.add_argument("--no-thinking", action="store_true",
                     help="matikan reasoning (<think>) pada model lokal")
     ap.add_argument("--skip-frontend", action="store_true")
@@ -246,11 +333,13 @@ def main() -> None:
                     fail("server tiruan tidak hidup; lihat data/fakellm.log")
                 ok(f"server tiruan di {llm_url}")
         elif args.provider == "huggingface" and hf_mode == "local":
-            probe = subprocess.run([str(py), "-c", "import torch, transformers"],
-                                   capture_output=True)
+            probe = probe_local_stack(py)
             if probe.returncode != 0:
-                warn("PyTorch/transformers belum ter-install — model lokal belum "
-                     "bisa dijalankan.\n         python run.py --install-local\n"
+                warn("PyTorch/transformers belum siap — model lokal belum bisa "
+                     "dijalankan.\n"
+                     f"         {_last_error(probe)}\n"
+                     "         Perbaiki: python run.py --install-local\n"
+                     "         (mendeteksi torch rusak & pasang ulang otomatis)\n"
                      "         (atau pakai --provider openai / --demo)")
 
         # ---- backend ----

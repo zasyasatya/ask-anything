@@ -35,9 +35,11 @@ TOOL_KIND = "tool_call"
 
 #: `pip install -r backend/requirements-local.txt`
 INSTALL_HINT = (
-    "Inference lokal butuh PyTorch + transformers, yang belum ter-install di "
-    "environment ini. Jalankan:\n"
+    "Inference lokal butuh PyTorch + transformers yang benar-benar bisa "
+    "dijalankan, dan environment ini belum memenuhinya. Jalankan:\n"
     "  python run.py --install-local\n"
+    "  (memverifikasi torch; bila instalasi rusak — mis. Windows OSError "
+    "WinError 1114 pada c10.dll — ia mendeteksi dan pasang ulang otomatis)\n"
     "atau langsung:\n"
     "  .venv/bin/pip install -r backend/requirements-local.txt\n"
     "(CPU saja: tambahkan --index-url https://download.pytorch.org/whl/cpu)\n"
