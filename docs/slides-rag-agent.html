@@ -1,0 +1,1497 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>RAG + AI Agent — Dari Knowledge ke Visualisasi Web</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<style>
+:root{
+  --bg:#0a0a0f; --bg2:#111119; --card:#171721; --card2:#1e1e2e; --line:#26263a;
+  --ink:#f2f2f7; --mut:#9aa0b2; --mut2:#63677a;
+  --accent:#7c5cfc; --accent2:#a78bfa; --accent-soft:#1e1a33;
+  --emerald:#10b981; --emerald-soft:#0f2a22;
+  --sky:#38bdf8; --sky-soft:#0f2330;
+  --amber:#f59e0b; --amber-soft:#2a2110;
+  --rose:#fb7185; --rose-soft:#2a151c;
+  --violet:#8b5cf6; --indigo:#6366f1;
+  --mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace;
+  --sans:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);overflow:hidden; -webkit-font-smoothing:antialiased}
+a{color:var(--accent2)}
+.deck{height:100vh;display:flex;flex-direction:column}
+header{display:flex;align-items:center;justify-content:space-between;padding:12px 22px;border-bottom:1px solid var(--line);background:rgba(17,17,25,.9);backdrop-filter:blur(12px);position:relative;z-index:10}
+.brand{display:flex;gap:12px;align-items:center;font-weight:700;font-size:13.5px;letter-spacing:.02em}
+.mark{width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,var(--accent),var(--indigo));display:grid;place-items:center;font-size:14px;color:white;font-weight:900}
+.meta{font-size:11px;color:var(--mut);font-family:var(--mono);display:flex;gap:12px;align-items:center}
+.meta b{color:var(--ink);font-weight:600}
+#progress{height:3px;background:linear-gradient(90deg,var(--accent),var(--sky));width:0;transition:width .35s cubic-bezier(.4,0,.2,1)}
+main{flex:1;position:relative;overflow:hidden;background:
+  radial-gradient(900px 500px at 20% -10%, rgba(124,92,252,.18), transparent 60%),
+  radial-gradient(800px 400px at 90% 0%, rgba(56,189,248,.12), transparent 60%),
+  radial-gradient(600px 600px at 50% 120%, rgba(16,185,129,.08), transparent 60%),
+  var(--bg);
+}
+.slide{position:absolute;inset:0;display:none;padding:44px 56px 28px 56px;overflow:auto;scrollbar-width:thin}
+.slide.active{display:block;animation:enter .45s cubic-bezier(.16,1,.3,1)}
+@keyframes enter{from{opacity:0;transform:translateY(14px) scale(.98)}to{opacity:1;transform:none}}
+.grid{position:absolute;inset:0;pointer-events:none;opacity:.04;background-image:linear-gradient(to right,white 1px,transparent 1px),linear-gradient(to bottom,white 1px,transparent 1px);background-size:64px 64px}
+h1{font-size:52px;line-height:.95;letter-spacing:-.03em;font-weight:800}
+h1 span.grad{background:linear-gradient(90deg,var(--accent2),var(--sky));-webkit-background-clip:text;background-clip:text;color:transparent}
+h2{font-size:32px;letter-spacing:-.02em;font-weight:750;line-height:1.1;margin-bottom:10px}
+h3{font-size:14.5px;font-weight:700;letter-spacing:.02em;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.sub{color:var(--mut);font-size:15px;line-height:1.6;max-width:760px}
+.pill{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--line);background:var(--card);border-radius:999px;padding:5px 12px;font-size:11px;font-family:var(--mono);color:var(--mut);letter-spacing:.04em;text-transform:uppercase;margin-bottom:18px}
+.pill.dot::before{content:'';width:6px;height:6px;border-radius:50%;background:var(--emerald);display:inline-block;box-shadow:0 0 8px var(--emerald)}
+.cols{display:grid;gap:18px;margin-top:22px}
+.cols-2{grid-template-columns:1fr 1fr}
+.cols-3{grid-template-columns:1fr 1fr 1fr}
+.card{background:linear-gradient(180deg,var(--card2),var(--card));border:1px solid var(--line);border-radius:16px;padding:18px 20px;position:relative;overflow:hidden}
+.card::before{content:'';position:absolute;top:0;left:0;right:0;height:1px;background:linear-gradient(90deg,transparent,rgba(255,255,255,.08),transparent)}
+.card h3{font-size:13.5px}
+.card p,.card li{font-size:13.5px;line-height:1.65;color:#c7c9d6}
+.card ul{margin:8px 0 0 16px}
+.card li{margin:4px 0}
+.card li b{color:var(--ink)}
+.code{font-family:var(--mono);font-size:12px;background:#0f0f16;border:1px solid var(--line);border-radius:12px;padding:14px 16px;line-height:1.7;overflow:auto;color:#d6d8e8;white-space:pre}
+.code .c{color:#6b728a} .code .k{color:var(--accent2)} .code .g{color:var(--emerald)} .code .y{color:var(--amber)} .code .s{color:var(--sky)}
+.flow{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
+.node{border:1px solid var(--line);background:var(--card2);border-radius:14px;padding:12px 14px;min-width:140px;position:relative}
+.node b{display:block;font-size:12.5px;margin-bottom:2px}
+.node small{color:var(--mut);font-size:11px;line-height:1.4;display:block}
+.node.hl{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft),0 8px 24px -12px rgba(124,92,252,.4)}
+.arrow{color:var(--accent2);font-weight:800;font-size:18px}
+.badge{display:inline-flex;border-radius:6px;padding:2px 8px;font-size:10.5px;font-family:var(--mono);font-weight:700;letter-spacing:.03em}
+.badge-vec{background:var(--sky-soft);color:var(--sky);border:1px solid rgba(56,189,248,.2)}
+.badge-llm{background:var(--accent-soft);color:var(--accent2);border:1px solid rgba(124,92,252,.25)}
+.badge-tool{background:var(--amber-soft);color:var(--amber);border:1px solid rgba(245,158,11,.2)}
+.badge-ok{background:var(--emerald-soft);color:var(--emerald);border:1px solid rgba(16,185,129,.2)}
+.viz{border:1px solid var(--line);background:var(--card);border-radius:16px;padding:0;overflow:hidden;margin-top:18px;position:relative}
+.viz-head{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.02)}
+.viz-head b{font-size:12px;font-family:var(--mono);letter-spacing:.04em}
+.viz-body{padding:16px}
+.canvas-wrap{width:100%;height:100%;position:relative}
+.kbd{font-family:var(--mono);font-size:11px;border:1px solid var(--line);background:var(--card2);padding:2px 7px;border-radius:6px;color:var(--mut)}
+table{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:12px}
+th,td{border:1px solid var(--line);padding:8px 10px;text-align:left;vertical-align:top}
+th{background:rgba(255,255,255,.03);font-size:11px;letter-spacing:.06em;text-transform:uppercase;color:var(--mut)}
+footer{display:flex;align-items:center;justify-content:space-between;padding:10px 22px;border-top:1px solid var(--line);background:rgba(17,17,25,.9);backdrop-filter:blur(8px);font-size:11px;color:var(--mut);font-family:var(--mono)}
+.btn{border:1px solid var(--line);background:var(--card2);color:var(--ink);border-radius:10px;padding:6px 14px;font-size:12px;cursor:pointer;transition:.15s}
+.btn:hover{background:var(--card);border-color:#3a3a52;transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn-accent{background:linear-gradient(135deg,var(--accent),var(--indigo));border-color:transparent;color:white}
+.hint{position:fixed;right:16px;bottom:46px;font-size:11px;color:var(--mut2);font-family:var(--mono);background:var(--card);border:1px solid var(--line);padding:6px 10px;border-radius:999px;z-index:20}
+/* RAG viz specifics */
+.rag-pipe{display:grid;grid-template-columns:1fr 44px 1fr 44px 1fr;gap:8px;align-items:center;margin-top:16px}
+.rag-step{border:1px dashed #2e2e4a;border-radius:14px;padding:14px;background:rgba(255,255,255,.015);text-align:center;position:relative;transition:.3s}
+.rag-step.active{border-style:solid;border-color:var(--accent);background:var(--accent-soft);transform:translateY(-2px);box-shadow:0 10px 30px -14px rgba(124,92,252,.5)}
+.rag-step .ico{width:36px;height:36px;border-radius:10px;display:grid;place-items:center;margin:0 auto 8px;font-size:18px;background:var(--card2);border:1px solid var(--line)}
+.rag-step.active .ico{background:var(--accent);color:white;border-color:transparent}
+.rag-step b{font-size:12px;display:block}
+.rag-step small{font-size:10.5px;color:var(--mut)}
+.chunk-demo{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.chunk{border:1px solid var(--line);background:var(--card2);border-radius:10px;padding:8px 10px;font-size:11px;min-width:110px;flex:1;transition:.3s}
+.chunk.hl{border-color:var(--emerald);background:var(--emerald-soft)}
+.embed-dot{position:absolute;width:10px;height:10px;border-radius:50%;transform:translate(-50%,-50%);cursor:pointer;transition:.2s}
+.embed-dot:hover{transform:translate(-50%,-50%) scale(1.6);z-index:5}
+.agent-loop{display:grid;grid-template-columns:200px 1fr;gap:18px;margin-top:16px}
+.loop-steps{display:flex;flex-direction:column;gap:8px}
+.loop-step{border:1px solid var(--line);border-radius:12px;padding:10px 12px;background:var(--card);cursor:pointer;transition:.2s;display:flex;gap:10px;align-items:center}
+.loop-step.active{border-color:var(--accent);background:var(--accent-soft)}
+.loop-step .num{width:24px;height:24px;border-radius:7px;background:var(--card2);border:1px solid var(--line);display:grid;place-items:center;font-size:11px;font-family:var(--mono);font-weight:700}
+.loop-step.active .num{background:var(--accent);color:white;border-color:transparent}
+.tool-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:12px}
+.tool-card{border:1px solid var(--line);border-radius:12px;padding:12px;background:var(--card);transition:.2s;cursor:pointer}
+.tool-card:hover{border-color:var(--accent);transform:translateY(-1px)}
+.tool-card.selected{border-color:var(--accent);background:var(--accent-soft);box-shadow:0 0 0 3px var(--accent-soft)}
+.chart-bar{height:10px;border-radius:999px;background:var(--line);overflow:hidden;position:relative;margin-top:6px}
+.chart-bar > div{height:100%;background:linear-gradient(90deg,var(--accent),var(--sky));border-radius:999px;transition:width 1s cubic-bezier(.16,1,.3,1)}
+@media (max-width:900px){
+  .slide{padding:22px 18px}
+  h1{font-size:34px} h2{font-size:24px}
+  .cols-2,.cols-3{grid-template-columns:1fr}
+  .rag-pipe{grid-template-columns:1fr;gap:12px}
+  .rag-pipe .arrow{display:none}
+  .tool-grid{grid-template-columns:1fr 1fr}
+  .agent-loop{grid-template-columns:1fr}
+}
+</style>
+</head>
+<body>
+<div class="deck">
+<header>
+  <div class="brand"><span class="mark">R</span> RAG × AI AGENT — Knowledge to Visual Web</div>
+  <div class="meta"><span><b id="cur">1</b> / <span id="tot">30</span></span><span>← → / Space • F fullscreen • G grid</span></div>
+</header>
+<div id="progress"></div>
+<main id="deck">
+
+<!-- 1 COVER -->
+<section class="slide active">
+  <div class="grid"></div>
+  <div class="pill dot">Live system · ask-anything · 2026</div>
+  <h1>Membuat AI yang<br/>Menjawab dari <span class="grad">Knowledge Anda</span><br/>dan Memvisualisasikannya<br/>Langsung di Web</h1>
+  <p class="sub" style="margin-top:18px;font-size:17px;line-height:1.7">
+    Dari upload dokumen berstruktur → chunking → embedding → retrieval → agent orchestration → <b>visualisasi elemen web native</b> (bukan hanya Mermaid).
+    Materi lengkap untuk membangun sistem RAG yang production-ready.
+  </p>
+  <div class="cols cols-3" style="margin-top:28px">
+    <div class="card"><h3>🎯 Goal Utama</h3><p>Jawaban AI <b>grounded</b> pada dokumen yang di-upload user, tersimpan dengan struktur aslinya, bisa di-retrieve akurat, dan divisualisasikan sebagai komponen web interaktif.</p></div>
+    <div class="card"><h3>🧩 3 Pilar</h3><p><b>1. RAG</b> — Ingestion & Retrieval<br/><b>2. Agent</b> — Reasoning & Tool Orchestration<br/><b>3. Visual Web</b> — Dari JSON → DOM, bukan string markdown</p></div>
+    <div class="card"><h3>🛠️ Hasil Akhir</h3><p>User upload PDF/DOCX/MD → sistem ekstrak struktur → tanya “Buatkan flowchart SOP ini” → Agent panggil RAG → render flowchart interaktif sebagai elemen web yang bisa di-drag/zoom.</p></div>
+  </div>
+  <p class="sub" style="margin-top:20px"><span class="kbd">→</span> untuk mulai • Visualisasi di slide ini sudah interaktif, bukan gambar statis</p>
+</section>
+
+<!-- 2 AGENDA -->
+<section class="slide">
+  <h2>Agenda & Peta Belajar</h2>
+  <p class="sub">Kita akan bedah 4 fase: RAG fundamentals → RAG advanced (struktur) → Agent orchestration → Visual Web rendering.</p>
+  <div class="cols cols-2">
+    <div class="card"><h3>📚 Fase 1 — RAG Fundamentals (Slide 3-12)</h3>
+      <ul>
+        <li>Masalah LLM tanpa RAG & definisi RAG</li>
+        <li>Arsitektur ingestion: parse → chunk → embed → store</li>
+        <li>Chunking strategy & embedding space (live demo)</li>
+        <li>Retrieval: similarity, reranking, citations</li>
+      </ul>
+    </div>
+    <div class="card"><h3>🤖 Fase 2 — Agent + RAG (Slide 13-21)</h3>
+      <ul>
+        <li>Apa itu AI Agent & ReAct loop</li>
+        <li>Bagaimana agent membagi tugas ke tools</li>
+        <li>Arsitektur Agent × RAG: planner → retriever → generator</li>
+        <li>Contoh nyata di codebase ask-anything</li>
+      </ul>
+    </div>
+    <div class="card"><h3>🎨 Fase 3 — Visualisasi Web Native (Slide 22-26)</h3>
+      <ul>
+        <li>Kenapa tidak hanya Mermaid? Limitasi string-based viz</li>
+        <li>Pola: Tool → Structured JSON → React Renderer</li>
+        <li>GraphView interaktif, Chart, Timeline, Table</li>
+        <li>Demo live: generate visual dari dokumen</li>
+      </ul>
+    </div>
+    <div class="card"><h3>🚀 Fase 4 — Implementasi & Task (Slide 27-30)</h3>
+      <ul>
+        <li>Target arsitektur lengkap (upload → struktur → retrieve → visual)</li>
+        <li>Tech stack: vector DB, embedding, parser</li>
+        <li>Task breakdown & kriteria sukses</li>
+        <li>Best practices & pitfall</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 3 PROBLEM -->
+<section class="slide">
+  <h2>Kenapa LLM Saja Tidak Cukup?</h2>
+  <div class="cols cols-3">
+    <div class="card" style="border-left:3px solid var(--rose)"><h3>❌ Hallucination</h3><p>LLM mengarang jawaban saat tidak tahu. Tanpa grounding ke dokumen, jawaban terlihat meyakinkan tapi salah.</p><div class="code" style="margin-top:10px">Q: “Apa SOP cuti di dokumen kami?”
+A (tanpa RAG): “SOP cuti adalah 12 hari...”
+<span class="c">// Padahal di dokumen 15 hari + perlu approval HR</span></div></div>
+    <div class="card" style="border-left:3px solid var(--amber)"><h3>⚠️ Outdated & No Private Data</h3><p>Knowledge LLM cutoff 2024. Dokumen internal perusahaan, PDF SOP, kontrak — tidak pernah dilihat model saat training.</p><ul><li>Data privat tidak boleh dikirim ke training</li><li>Perlu jawaban dari file yang baru di-upload 5 menit lalu</li></ul></div>
+    <div class="card" style="border-left:3px solid var(--sky)"><h3>✅ Solusi: RAG</h3><p><b>Retrieval-Augmented Generation</b>: sebelum menjawab, cari dulu konteks relevan dari knowledge base, lalu suruh LLM menjawab <i>hanya</i> dari konteks itu.</p><div style="margin-top:10px"><span class="badge badge-ok">grounded</span> <span class="badge badge-vec">up-to-date</span> <span class="badge badge-llm">private-safe</span></div></div>
+  </div>
+  <div class="viz">
+    <div class="viz-head"><b>PERBANDINGAN FLOW</b><span class="badge badge-ok">interactive</span></div>
+    <div class="viz-body">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+        <div><b style="font-size:12px">Tanpa RAG</b><div class="flow"><div class="node"><b>👤 User Query</b><small>“SOP cuti?”</small></div><div class="arrow">→</div><div class="node"><b>🧠 LLM</b><small>jawab dari memory</small></div><div class="arrow">→</div><div class="node" style="border-color:var(--rose)"><b>💬 Jawaban Ngarang</b><small>risiko hallucination</small></div></div></div>
+        <div><b style="font-size:12px">Dengan RAG</b><div class="flow"><div class="node"><b>👤 Query</b></div><div class="arrow">→</div><div class="node hl"><b>🔍 Retrieval</b><small>cari di Vector DB</small></div><div class="arrow">→</div><div class="node hl"><b>🧠 LLM + Context</b><small>jawab dari dokumen</small></div><div class="arrow">→</div><div class="node" style="border-color:var(--emerald)"><b>✅ Grounded Answer + Citation</b></div></div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 4 DEFINISI RAG -->
+<section class="slide">
+  <h2>Apa itu RAG? Definisi Lengkap</h2>
+  <div class="cols cols-2">
+    <div>
+      <p class="sub"><b>Retrieval-Augmented Generation</b> = teknik memberikan LLM akses ke external knowledge base saat inference, bukan saat training.</p>
+      <div class="card" style="margin-top:16px">
+        <h3>📖 Definisi Formal</h3>
+        <p>Diberikan query <code>q</code> dan corpus dokumen <code>D</code>:</p>
+        <div class="code" style="margin-top:10px"><span class="c">// 1. Retrieval</span>
+<span class="k">context</span> = <span class="g">retriever</span>(q, D)  <span class="c">// top-k chunks paling relevan</span>
+
+<span class="c">// 2. Augmentation</span>
+<span class="k">prompt</span> = f"""
+Konteks:
+{context}
+
+Pertanyaan: {q}
+Jawab hanya dari konteks. Sertakan sitasi [1][2].
+"""
+
+<span class="c">// 3. Generation</span>
+<span class="k">answer</span> = LLM(prompt)</div>
+      </div>
+    </div>
+    <div>
+      <div class="viz">
+        <div class="viz-head"><b>RAG TRIANGLE</b></div>
+        <div class="viz-body" style="display:grid;place-items:center;padding:28px">
+          <svg width="320" height="240" viewBox="0 0 320 240">
+            <polygon points="160,20 30,200 290,200" fill="none" stroke="#2a2a40" stroke-width="1.5" stroke-dasharray="6 6"/>
+            <g id="rag-tri">
+              <circle cx="160" cy="20" r="28" fill="#1e1a33" stroke="#7c5cfc" stroke-width="2"/>
+              <text x="160" y="25" text-anchor="middle" fill="#a78bfa" font-size="12" font-family="var(--mono)" font-weight="700">LLM</text>
+              <circle cx="30" cy="200" r="28" fill="#0f2330" stroke="#38bdf8" stroke-width="2"/>
+              <text x="30" y="205" text-anchor="middle" fill="#38bdf8" font-size="10" font-family="var(--mono)" font-weight="700">RETRIEVAL</text>
+              <circle cx="290" cy="200" r="28" fill="#0f2a22" stroke="#10b981" stroke-width="2"/>
+              <text x="290" y="205" text-anchor="middle" fill="#10b981" font-size="10" font-family="var(--mono)" font-weight="700">KNOWLEDGE</text>
+              <line x1="160" y1="48" x2="48" y2="178" stroke="#3a3a5a" stroke-width="1"/>
+              <line x1="160" y1="48" x2="272" y2="178" stroke="#3a3a5a" stroke-width="1"/>
+              <line x1="58" y1="200" x2="262" y2="200" stroke="#3a3a5a" stroke-width="1"/>
+            </g>
+          </svg>
+          <p style="font-size:11px;color:var(--mut);font-family:var(--mono);margin-top:8px">3 komponen harus seimbang — lemah satu, RAG gagal</p>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px"><h3>🎯 Kapan pakai RAG?</h3><ul><li>Data privat / internal (SOP, kontrak, manual)</li><li>Data yang sering berubah (kebijakan, harga)</li><li>Butuh sitasi & audit trail</li><li>Tidak punya budget fine-tuning</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 ARSITEKTUR HIGH LEVEL -->
+<section class="slide">
+  <h2>Arsitektur RAG — End-to-End (Live)</h2>
+  <p class="sub">Klik step untuk melihat detail. Ini adalah flow yang akan kalian build.</p>
+  <div class="rag-pipe" id="rag-pipe">
+    <div class="rag-step active" data-step="0"><div class="ico">📄</div><b>1. INGESTION</b><small>Upload → Parse → Chunk → Embed → Store</small><div style="margin-top:8px"><span class="badge badge-vec">offline</span></div></div>
+    <div class="arrow">→</div>
+    <div class="rag-step" data-step="1"><div class="ico">🔍</div><b>2. RETRIEVAL</b><small>Query → Embed → Similarity Search → Rerank</small><div style="margin-top:8px"><span class="badge badge-llm">online</span></div></div>
+    <div class="arrow">→</div>
+    <div class="rag-step" data-step="2"><div class="ico">💬</div><b>3. GENERATION</b><small>Context + Prompt → LLM → Cited Answer + Visual</small><div style="margin-top:8px"><span class="badge badge-ok">grounded</span></div></div>
+  </div>
+  <div class="viz" style="margin-top:18px">
+    <div class="viz-head"><b id="rag-title">STEP 1 — INGESTION PIPELINE</b><span class="badge badge-vec" id="rag-badge">DETAIL</span></div>
+    <div class="viz-body" id="rag-detail">
+      <!-- JS will fill -->
+    </div>
+  </div>
+</section>
+
+<!-- 6 INGESTION DEEP DIVE -->
+<section class="slide">
+  <h2>Deep Dive: Ingestion — Dari Upload ke Vector DB</h2>
+  <p class="sub">Goal: dokumen tersimpan <b>berdasarkan strukturnya</b>, bukan sekadar text blob. Ini kunci untuk retrieval akurat & visualisasi.</p>
+  <div class="cols cols-2">
+    <div class="card">
+      <h3>📤 1. Upload & Parse (Structure-Aware)</h3>
+      <p>Jangan langsung plain text. Ekstrak struktur:</p>
+      <div class="code" style="margin-top:8px">{
+  "file": "SOP-Cuti.pdf",
+  "pages": 12,
+  "structure": [
+    {"type":"heading", "level":1, "text":"SOP Cuti Karyawan", "page":1},
+    {"type":"heading", "level":2, "text":"1. Jenis Cuti", "page":1},
+    {"type":"list", "items":["Cuti Tahunan 12 hari","Cuti Sakit..."], "page":2},
+    {"type":"table", "headers":["Jenis","Durasi","Approval"], "rows":[...]},
+    {"type":"flow", "text":"Karyawan → Atasan → HR → Selesai"}
+  ]
+}</div>
+      <p style="margin-top:8px;font-size:11px;color:var(--amber)">⚠️ PDF/DOCX butuh parser khusus: PyMuPDF, pdfplumber, python-docx, markdown-it</p>
+    </div>
+    <div class="card">
+      <h3>✂️ 2. Chunking — Pecah dengan Cerdas</h3>
+      <div style="margin-top:8px">
+        <div style="display:flex;gap:6px;margin-bottom:8px"><span class="badge badge-tool">naive: fixed 512 tokens</span><span class="badge badge-ok">smart: structure + semantic</span></div>
+        <div class="chunk-demo" id="chunk-demo"></div>
+        <div class="code" style="margin-top:10px"><span class="c">// ❌ Naive</span>
+chunks = split_text(text, 500) <span class="c">// bisa potong tengah kalimat & tabel</span>
+
+<span class="c">// ✅ Structure-aware</span>
+chunks = []
+for section in doc.structure:
+  if section.type == "table": keep whole table as 1 chunk
+  if section.type == "heading": merge with next paragraph
+  else: semantic_chunk(section.text, 400, overlap=50)</div>
+      </div>
+    </div>
+  </div>
+  <div class="cols cols-2" style="margin-top:12px">
+    <div class="card"><h3>🧮 3. Embedding</h3><p>Ubah chunk jadi vektor 768-dimensi. Model: <code>all-MiniLM-L6-v2</code>, <code>bge-m3</code>, OpenAI <code>text-embedding-3-small</code></p><div class="code">emb = embedding_model.encode(chunk.text)
+# [0.021, -0.34, 0.88, ...] 768 dim</div><div class="chart-bar"><div style="width:72%"></div></div><small style="color:var(--mut);font-size:11px">embedding latency ~40ms / chunk</small></div>
+    <div class="card"><h3>💾 4. Store — Vector DB + Metadata</h3><div class="code">{
+  "id": "doc_1_chunk_3",
+  "vector": [0.021, ...],
+  "metadata": {
+    "doc_id": "SOP-Cuti.pdf",
+    "page": 2,
+    "section": "Jenis Cuti",
+    "type": "table",
+    "hierarchy": ["SOP Cuti","Jenis Cuti"],
+    "created_at": "2026-09-17"
+  },
+  "text": "Cuti Tahunan: 12 hari..."
+}</div><p style="margin-top:6px;font-size:11px">DB: Chroma, Qdrant, pgvector, SQLite+sqlite-vss. <b>Metadata hierarchy = kunci untuk visualisasi & filtering.</b></p></div>
+  </div>
+</section>
+
+<!-- 7 CHUNKING STRATEGY -->
+<section class="slide">
+  <h2>Chunking Strategy — Visual Comparison</h2>
+  <div class="cols cols-2">
+    <div class="viz">
+      <div class="viz-head"><b>❌ FIXED SIZE (Naive)</b><span class="badge" style="background:var(--rose-soft);color:var(--rose)">bad</span></div>
+      <div class="viz-body">
+        <div style="font-family:var(--mono);font-size:11px;line-height:1.8;background:#0f0f16;border:1px solid var(--line);border-radius:10px;padding:12px">
+          <span style="background:rgba(251,113,133,.15);border:1px dashed #fb7185;padding:2px 4px;border-radius:4px">Bab 1: Jenis Cuti. Cuti tahunan adalah hak karyawan setelah 12 bulan kerja. Cuti ini sebanyak 12 ha</span><span style="background:rgba(56,189,248,.15);border:1px dashed #38bdf8;padding:2px 4px;border-radius:4px">ri kerja. Untuk mengajukan, karyawan harus mengisi form...</span>
+          <br/><br/>Tabel dipotong: <br/><span style="background:rgba(251,113,133,.15);padding:2px 4px">| Jenis | Durasi |<br/>| Cuti Tahun | 12 hari</span> <span style="background:rgba(56,189,248,.15);padding:2px 4px">| Cuti Sakit | ... |</span>
+        </div>
+        <ul style="margin-top:10px;font-size:12px;color:var(--mut)"><li>Potong tengah kalimat → embedding rusak</li><li>Tabel terbelah → retrieval gagal</li><li>Hilang konteks hierarki</li></ul>
+      </div>
+    </div>
+    <div class="viz">
+      <div class="viz-head"><b>✅ STRUCTURE + SEMANTIC</b><span class="badge badge-ok">good</span></div>
+      <div class="viz-body">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="chunk hl" style="border-left:3px solid var(--emerald)"><b>Chunk 1 — Section: Jenis Cuti (p1)</b><br/>Bab 1: Jenis Cuti. Cuti tahunan adalah hak karyawan setelah 12 bulan kerja sebanyak 12 hari. <br/><small>metadata: {type: heading+paragraph, hierarchy: [SOP Cuti > Jenis Cuti]}</small></div>
+          <div class="chunk hl" style="border-left:3px solid var(--sky)"><b>Chunk 2 — Table: Durasi Cuti (p2, keep whole)</b><br/>| Jenis | Durasi | Approval |<br/>| Cuti Tahunan | 12 hari | Atasan |<br/>| Cuti Sakit | Sesuai surat dokter | HR |<br/><small>metadata: {type: table, page:2}</small></div>
+          <div class="chunk hl" style="border-left:3px solid var(--accent)"><b>Chunk 3 — Flow: Proses Pengajuan (p3)</b><br/>Karyawan → Atasan → HR → Selesai<br/><small>metadata: {type: flow, visualizable: true}</small></div>
+        </div>
+        <ul style="margin-top:10px;font-size:12px;color:var(--mut)"><li>Utuh per semantic unit</li><li>Tabel & flow tidak terpotong → bisa langsung jadi visual</li><li>Hierarchy tersimpan → bisa filter “hanya dari Bab 1”</li></ul>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 8 EMBEDDING VIZ -->
+<section class="slide">
+  <h2>Embedding & Vector Space — Live Demo</h2>
+  <div class="cols cols-2">
+    <div>
+      <p class="sub">Embedding = koordinat makna. Query “cuti tahunan” harus dekat dengan chunk tentang “jatah libur tahunan”, jauh dari “cuti melahirkan” jika konteks beda? Tidak, harus dekat juga — tapi dengan nuansa.</p>
+      <div class="card" style="margin-top:14px"><h3>🧠 Model Embedding</h3><table><tr><th>Model</th><th>Dim</th><th>Speed</th><th>Quality</th></tr><tr><td>all-MiniLM-L6-v2</td><td>384</td><td>⚡⚡⚡</td><td>Good</td></tr><tr><td>bge-m3</td><td>1024</td><td>⚡⚡</td><td>Best OSS</td></tr><tr><td>text-embedding-3-small</td><td>1536</td><td>⚡ (API)</td><td>Excellent</td></tr></table><div class="code" style="margin-top:10px">from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('all-MiniLM-L6-v2')
+vec = model.encode("SOP cuti tahunan 12 hari")
+# cosine similarity untuk retrieval</div></div>
+    </div>
+    <div class="viz">
+      <div class="viz-head"><b>VECTOR SPACE (2D projection)</b><span class="badge badge-vec">interactive — hover dots</span></div>
+      <div class="viz-body" style="padding:0">
+        <div style="position:relative;height:360px;background:radial-gradient(400px 300px at 50% 50%, rgba(124,92,252,.08), transparent), #0f0f16;border-radius:0 0 16px 16px;overflow:hidden" id="embed-canvas">
+          <canvas id="embedChart" width="600" height="360" style="width:100%;height:100%"></canvas>
+          <div id="embed-tooltip" style="position:absolute;pointer-events:none;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:8px 10px;font-size:11px;max-width:200px;display:none;z-index:5"></div>
+        </div>
+        <div style="padding:10px 14px;display:flex;gap:8px;flex-wrap:wrap"><span class="badge" style="background:#1e1a33;color:#a78bfa">● query</span><span class="badge" style="background:#0f2a22;color:#10b981">● cuti tahunan</span><span class="badge" style="background:#0f2330;color:#38bdf8">● cuti sakit</span><span class="badge" style="background:#2a2110;color:#f59e0b">● unrelated</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 9 STORAGE -->
+<section class="slide">
+  <h2>Storage — Simpan Berdasarkan Struktur</h2>
+  <p class="sub">Ini yang membedakan RAG biasa vs RAG yang bisa visualisasi. Simpan <b>hierarchy, type, dan visual hint</b>.</p>
+  <div class="cols cols-2">
+    <div class="viz"><div class="viz-head"><b>SCHEMA VECTOR DB</b></div><div class="viz-body"><div class="code">{
+  "id": "sop_cuti_p2_table1",
+  "text": "| Jenis | Durasi | ...",
+  "vector": [0.02, -0.11, ...],
+  "metadata": {
+    "document_id": "doc_123",
+    "document_name": "SOP-Cuti.pdf",
+    "page": 2,
+    "chunk_index": 3,
+    "hierarchy": ["SOP Cuti", "1. Jenis Cuti", "Tabel Durasi"],
+    "type": "table",                <span class="g">// heading | paragraph | list | table | flow | image</span>
+    "visualizable": true,           <span class="g">// bisa jadi chart/flow?</span>
+    "visual_type": "table",         <span class="g">// table | flowchart | timeline | bar_chart</span>
+    "entities": ["Cuti Tahunan", "HR"],
+    "created_at": "2026-09-17",
+    "author": "HRD"
+  }
+}</div></div></div>
+    <div>
+      <div class="card"><h3>🗂️ Kenapa Hierarchy Penting?</h3><ul><li><b>Filtering</b>: “Cari hanya di Bab 2” → filter metadata.hierarchy contains “Bab 2”</li><li><b>Grouping</b>: Saat visualisasi, group chunks per section jadi satu flowchart</li><li><b>Citation presisi</b>: Jawaban bisa bilang “Menurut Tabel di halaman 2, Bab 1” bukan cuma “[1]”</li><li><b>Visual routing</b>: type=flow → render sebagai flowchart, type=table → render sebagai table interaktif</li></ul></div>
+      <div class="card" style="margin-top:12px"><h3>💾 Pilihan DB</h3><table><tr><th>DB</th><th>Plus</th><th>Minus</th></tr><tr><td><b>Chroma</b></td><td>Mudah, embed di Python, persist lokal</td><td>Kurang scalable</td></tr><tr><td><b>Qdrant</b></td><td>Fast, filter metadata powerful</td><td>Butuh server</td></tr><tr><td><b>pgvector</b></td><td>Pakai Postgres existing, ACID</td><td>Setup extension</td></tr><tr><td><b>SQLite + sqlite-vss</b></td><td>Zero-ops, cocok untuk ask-anything saat ini</td><td>Fitur terbatas</td></tr></table></div>
+    </div>
+  </div>
+</section>
+
+<!-- 10 RETRIEVAL -->
+<section class="slide">
+  <h2>Retrieval — Dari Query ke Konteks Relevan</h2>
+  <div class="viz">
+    <div class="viz-head"><b>RETRIEVAL PIPELINE — LIVE ANIMATION</b><span class="badge badge-llm">click play</span></div>
+    <div class="viz-body">
+      <div style="display:grid;grid-template-columns:1fr 60px 1fr 60px 1fr 60px 1fr;gap:6px;align-items:center" id="retrieval-flow">
+        <div class="node" id="ret-0"><b>👤 Query</b><small id="ret-q">“Berapa hari cuti tahunan?”</small></div>
+        <div class="arrow">→</div>
+        <div class="node" id="ret-1"><b>🧮 Embed Query</b><small>384-dim vector</small><div class="chart-bar"><div style="width:0%" id="ret-bar1"></div></div></div>
+        <div class="arrow">→</div>
+        <div class="node" id="ret-2"><b>🔍 Similarity Search</b><small>cosine top-k=5</small><div id="ret-scores" style="margin-top:6px;font-family:var(--mono);font-size:10px"></div></div>
+        <div class="arrow">→</div>
+        <div class="node" id="ret-3"><b>🏆 Rerank + Filter</b><small>cross-encoder + hierarchy</small></div>
+      </div>
+      <div style="margin-top:16px;display:flex;gap:10px">
+        <button class="btn btn-accent" onclick="playRetrieval()">▶ Play Retrieval</button>
+        <button class="btn" onclick="resetRetrieval()">Reset</button>
+        <span style="font-size:11px;color:var(--mut);font-family:var(--mono);align-self:center" id="ret-status">Klik Play untuk simulasi</span>
+      </div>
+      <div class="cols cols-3" style="margin-top:14px" id="ret-results"></div>
+    </div>
+  </div>
+  <div class="cols cols-2" style="margin-top:14px">
+    <div class="card"><h3>⚙️ Parameter Penting</h3><ul><li><b>top-k</b>: berapa chunk diambil (3-10). Terlalu banyak → context bengkak, LLM bingung</li><li><b>similarity threshold</b>: mis. 0.75. Di bawah itu jangan dipakai → cegah hallucination</li><li><b>reranker</b>: cross-encoder (bge-reranker) untuk urutkan ulang top-k lebih akurat</li><li><b>metadata filter</b>: filter dulu per document_id / type sebelum vector search</li></ul></div>
+    <div class="card"><h3>🛡️ Anti-Hallucination</h3><div class="code"><span class="k">if</span> max(similarities) < 0.70:
+  <span class="k">return</span> "Maaf, tidak ada info tentang itu di dokumen."
+<span class="k">else</span>:
+  context = top_chunks
+  answer = LLM(f"Jawab HANYA dari konteks:\n{context}\nJika tidak ada, bilang tidak tahu.")</div></div>
+  </div>
+</section>
+
+<!-- 11 GENERATION -->
+<section class="slide">
+  <h2>Generation — Jawaban Grounded + Sitasi</h2>
+  <div class="cols cols-2">
+    <div class="card"><h3>📝 Prompt Template (Production)</h3><div class="code">SYSTEM: Kamu adalah asisten yang menjawab HANYA dari konteks.
+Jika konteks tidak cukup, katakan tidak tahu. Jangan mengarang.
+Selalu sertakan sitasi [n] untuk setiap fakta.
+
+CONTEKS:
+[1] (SOP-Cuti.pdf, p2, Tabel Durasi): Cuti Tahunan 12 hari, approval Atasan
+[2] (SOP-Cuti.pdf, p3, Flow): Proses: Karyawan → Atasan → HR → Selesai
+[3] (SOP-Cuti.pdf, p1): Cuti tahunan hak setelah 12 bulan kerja
+
+USER: Berapa hari cuti tahunan dan bagaimana prosesnya?
+
+ASSISTANT:
+Cuti tahunan adalah 12 hari [1], diberikan setelah 12 bulan kerja [3].
+Proses pengajuannya: Karyawan → Atasan → HR → Selesai [2].
+
+Sumber:
+[1] SOP-Cuti.pdf p2
+[2] SOP-Cuti.pdf p3</div></div>
+    <div>
+      <div class="viz"><div class="viz-head"><b>CITATION FLOW</b></div><div class="viz-body"><div class="flow"><div class="node"><b>📚 Sources</b><small>[1] p2 table<br/>[2] p3 flow<br/>[3] p1 text</small></div><div class="arrow">→</div><div class="node hl"><b>🧠 LLM</b><small>generate dengan [n]</small></div><div class="arrow">→</div><div class="node"><b>✅ Verify</b><small>cek [n] valid? ada di sources?</small></div><div class="arrow">→</div><div class="node" style="border-color:var(--emerald)"><b>💬 Answer + Citation Bar</b></div></div><p style="margin-top:12px;font-size:11px;color:var(--mut)">Seperti di <b>ask-anything</b>: <code>sources.py</code> register → prompt_block() → finalize_answer() verifikasi → UI render CiteChips</p></div></div>
+      <div class="card" style="margin-top:12px"><h3>✅ Checklist Generation</h3><ul><li>Selalu sertakan metadata (doc, page) di context</li><li>Instruksi eksplisit “jangan mengarang”</li><li>Verifikasi sitasi di backend (bukan percaya LLM)</li><li>Fallback jika similarity rendah</li><li>Streaming jawaban + citations (SSE)</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- 12 RAG VS OTHERS -->
+<section class="slide">
+  <h2>RAG vs Fine-Tuning vs Prompt-Only</h2>
+  <table><tr><th>Aspek</th><th>Prompt-Only</th><th>RAG (kita)</th><th>Fine-Tuning</th></tr>
+    <tr><td><b>Data privat</b></td><td>❌ Tidak bisa, harus paste manual</td><td>✅ Upload & retrieve otomatis</td><td>⚠️ Bisa tapi mahal & statis</td></tr>
+    <tr><td><b>Update data</b></td><td>Manual paste lagi</td><td>✅ Upload baru langsung searchable</td><td>❌ Harus training ulang</td></tr>
+    <tr><td><b>Sitasi</b></td><td>❌ Tidak ada</td><td>✅ Ada, traceable ke halaman</td><td>❌ Tidak ada</td></tr>
+    <tr><td><b>Hallucination</b></td><td>🔴 Tinggi</td><td>🟢 Rendah (grounded)</td><td>🟡 Medium</td></tr>
+    <tr><td><b>Biaya</b></td><td>Rendah</td><td>Rendah-Medium (embedding + DB)</td><td>Tinggi (GPU training)</td></tr>
+    <tr><td><b>Visualisasi</b></td><td>❌ LLM tebak</td><td>✅ Dari struktur dokumen asli</td><td>❌ Tidak relevan</td></tr>
+  </table>
+  <div class="card" style="margin-top:16px"><h3>💡 Kesimpulan: Untuk kasus “jawaban dari knowledge yang diberikan + upload dokumen” → RAG adalah jawaban paling tepat. Fine-tuning untuk style/tone, bukan untuk knowledge dinamis.</h3></div>
+</section>
+
+<!-- 13 INTRO AGENT -->
+<section class="slide">
+  <h2>Apa itu AI Agent? (Bukan Sekadar Chatbot)</h2>
+  <div class="cols cols-2">
+    <div>
+      <div class="card"><h3>🤖 Definisi Agent</h3><p><b>Agent = LLM + Tools + Loop + Memory</b>. Dia tidak hanya menjawab, tapi <i>bertindak</i>: memutuskan tool apa yang dipakai, mengeksekusi, mengamati hasil, lalu melanjutkan.</p><div class="code" style="margin-top:10px"><span class="c">// Chatbot biasa</span>
+user: "cari SOP cuti"
+bot: "SOP cuti adalah..." <span class="c">// dari memory, bisa ngarang</span>
+
+<span class="c">// Agent</span>
+user: "cari SOP cuti + buatkan flowchart"
+agent:
+  1. think: perlu cari di knowledge base
+  2. act: call retrieve_knowledge("SOP cuti")
+  3. observe: dapat 3 chunks + 1 flow structure
+  4. think: user mau flowchart, ada flow structure
+  5. act: call create_diagram(flow_data)
+  6. answer: jawaban + visual flowchart interaktif</div></div>
+    </div>
+    <div class="viz"><div class="viz-head"><b>AGENT LOOP — REACT</b></div><div class="viz-body"><div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:center"><div style="text-align:center"><div style="width:140px;height:140px;border-radius:50%;border:2px dashed var(--line);margin:0 auto;display:grid;place-items:center;position:relative;background:radial-gradient(circle, var(--accent-soft), transparent)"><div style="position:absolute;inset:-10px;border-radius:50%;border:1px solid rgba(124,92,252,.2);animation:spin 8s linear infinite"></div><b style="font-size:12px">🧠<br/>REASON</b></div><div style="margin-top:12px"><div class="node" style="text-align:center"><b>🛠️ ACT</b><small>call tool</small></div><div style="margin:8px auto;width:2px;height:20px;background:var(--line)"></div><div class="node" style="text-align:center"><b>👁️ OBSERVE</b><small>tool result</small></div></div></div><div><div class="card" style="margin:0"><h3>🔄 Siklus</h3><ul><li><b>Reason</b>: LLM mikir “apa yang perlu dilakukan?” (chain-of-thought)</li><li><b>Act</b>: pilih tool & argumen (JSON)</li><li><b>Observe</b>: baca hasil tool, masukkan ke context</li><li>Ulang sampai dapat jawaban final atau max_steps habis</li></ul><div class="code" style="margin-top:8px">for step in range(max_steps):
+  thought = LLM.reason(history)
+  tool_call = LLM.decide_tool(thought)
+  if not tool_call: break
+  result = execute(tool_call)
+  history.append(result)</div></div></div></div></div></div>
+  </div>
+</section>
+
+<!-- 14 AGENT VS RAG -->
+<section class="slide">
+  <h2>Agent vs RAG vs Workflow — Bedanya?</h2>
+  <div class="cols cols-3">
+    <div class="card"><h3>🔗 RAG (Pipeline)</h3><p>Alur <b>statis</b>: retrieve → generate. Selalu sama.</p><div class="flow" style="margin-top:8px"><div class="node"><b>Query</b></div><div class="arrow">→</div><div class="node"><b>Retrieve</b></div><div class="arrow">→</div><div class="node"><b>Generate</b></div></div><p style="margin-top:8px;font-size:11px;color:var(--mut)">Cocok untuk Q&A sederhana dari dokumen.</p></div>
+    <div class="card"><h3>🔀 Workflow (Fixed)</h3><p>Alur <b>ditentukan developer</b>: if-else, step 1-2-3.</p><div class="flow" style="margin-top:8px"><div class="node"><b>Step 1</b></div><div class="arrow">→</div><div class="node"><b>Step 2</b></div><div class="arrow">→</div><div class="node"><b>Step 3</b></div></div><p style="margin-top:8px;font-size:11px;color:var(--mut)">Deterministik, tapi tidak fleksibel jika query kompleks.</p></div>
+    <div class="card" style="border-color:var(--accent)"><h3>🤖 Agent (Dynamic)</h3><p>Alur <b>ditentukan LLM</b> saat runtime: dia yang memutuskan tool & urutan.</p><div class="flow" style="margin-top:8px"><div class="node hl"><b>LLM Brain</b></div><div class="arrow">→</div><div class="node"><b>Tool A?</b></div><div class="arrow">→</div><div class="node"><b>Tool B?</b></div></div><p style="margin-top:8px;font-size:11px;color:var(--mut)"><b>Contoh:</b> “Bandingkan SOP cuti lama vs baru + visualkan perbedaan” → Agent bisa retrieve 2 dokumen, compare, lalu generate diagram.</p></div>
+  </div>
+  <div class="viz" style="margin-top:16px"><div class="viz-head"><b>KAPAN PAKAI APA?</b></div><div class="viz-body"><table><tr><th>Use Case</th><th>Pola</th><th>Alasan</th></tr><tr><td>Q&A dari 1 dokumen</td><td>RAG</td><td>Cukup retrieve → generate</td></tr><tr><td>Upload → tanya → visualisasi</td><td><b>Agent + RAG</b></td><td>Butuh keputusan: kapan retrieve, kapan visualisasi, kapan hitung</td></tr><tr><td>Multi-step kompleks (research → analyze → visualize → report)</td><td><b>Agent</b></td><td>LLM yang atur strategi</td></tr><tr><td>Proses bisnis tetap (approval flow)</td><td>Workflow</td><td>Harus deterministik & auditable</td></tr></table></div></div>
+</section>
+
+<!-- 15 REACT LOOP DETAIL -->
+<section class="slide">
+  <h2>Cara Kerja Agent — ReAct Loop Detail (dari codebase ask-anything)</h2>
+  <div class="agent-loop">
+    <div class="loop-steps" id="loop-steps">
+      <div class="loop-step active" data-loop="0"><div class="num">1</div><div><b>Prompt Assembly</b><br/><small>System + history + tools schema</small></div></div>
+      <div class="loop-step" data-loop="1"><div class="num">2</div><div><b>LLM Streaming</b><br/><small>thinking, delta, tool_calls</small></div></div>
+      <div class="loop-step" data-loop="2"><div class="num">3</div><div><b>Tool Selection</b><br/><small>LLM pilih tool & args JSON</small></div></div>
+      <div class="loop-step" data-loop="3"><div class="num">4</div><div><b>Tool Execution</b><br/><small>run tool (30s timeout)</small></div></div>
+      <div class="loop-step" data-loop="4"><div class="num">5</div><div><b>Observation</b><br/><small>hasil tool → masuk context</small></div></div>
+      <div class="loop-step" data-loop="5"><div class="num">6</div><div><b>Loop / Final Answer</b><br/><small>jika ada tool lagi, lanjut; else jawab</small></div></div>
+    </div>
+    <div class="viz"><div class="viz-head"><b id="loop-title">STEP 1 — PROMPT ASSEMBLY</b><span class="badge badge-llm">live code</span></div><div class="viz-body" id="loop-detail"></div></div>
+  </div>
+</section>
+
+<!-- 16 TOOLS -->
+<section class="slide">
+  <h2>Bagaimana Agent Membagi Tugas ke Tools?</h2>
+  <p class="sub">Tools adalah “tangan” agent. LLM hanya otak — dia tidak bisa browsing atau bikin diagram sendiri, dia harus <b>memanggil tool</b>.</p>
+  <div class="viz">
+    <div class="viz-head"><b>TOOL REGISTRY (ask-anything)</b><span class="badge badge-tool">4 tools + RAG tool (yang akan kalian buat)</span></div>
+    <div class="viz-body">
+      <div class="tool-grid">
+        <div class="tool-card selected" data-tool="rag"><div style="font-size:20px">📚</div><b style="font-size:12px;display:block;margin:6px 0 2px">retrieve_knowledge</b><small style="color:var(--mut);font-size:11px">Cari di Vector DB (yang akan kalian build). Source: knowledge</small><div style="margin-top:8px"><span class="badge badge-vec">evidence</span></div><div class="code" style="margin-top:8px;font-size:10px">{
+  "query": "SOP cuti",
+  "top_k": 5,
+  "filter": {"doc_id":"..."}
+}</div></div>
+        <div class="tool-card" data-tool="search"><div style="font-size:20px">🌐</div><b style="font-size:12px;display:block;margin:6px 0 2px">web_search</b><small style="color:var(--mut);font-size:11px">Cari web (DDG). Source: browser</small><div style="margin-top:8px"><span class="badge badge-vec">evidence</span></div></div>
+        <div class="tool-card" data-tool="diagram"><div style="font-size:20px">🔀</div><b style="font-size:12px;display:block;margin:6px 0 2px">create_diagram</b><small style="color:var(--mut);font-size:11px">Generate Mermaid + Graph JSON. Source: diagram</small><div style="margin-top:8px"><span class="badge badge-tool">visual</span></div></div>
+        <div class="tool-card" data-tool="calc"><div style="font-size:20px">🧮</div><b style="font-size:12px;display:block;margin:6px 0 2px">calculator</b><small style="color:var(--mut);font-size:11px">Hitung aman via AST. Source: compute</small><div style="margin-top:8px"><span class="badge badge-ok">compute</span></div></div>
+      </div>
+      <div class="cols cols-2" style="margin-top:14px">
+        <div class="card"><h3>🧠 Bagaimana LLM Memilih Tool?</h3><div class="code">Tool schemas dikirim ke LLM sebagai JSON Schema:
+
+{
+  "name": "retrieve_knowledge",
+  "description": "Cari informasi dari dokumen yang di-upload user...",
+  "parameters": {
+    "query": {"type":"string","description":"kata kunci pencarian"},
+    "top_k": {"type":"integer"}
+  }
+}
+
+LLM output:
+{
+  "tool_calls": [{
+    "id": "call_1",
+    "name": "retrieve_knowledge",
+    "arguments": {"query":"proses cuti tahunan"}
+  }]
+}</div></div>
+        <div class="card"><h3>⚙️ Eksekusi & Provenance</h3><p>Setiap tool punya <b>source</b> & <b>evidence</b> flag (dari <code>base.py</code>):</p><div class="code">class Tool:
+  name: str
+  source: "browser" | "diagram" | "compute" | "knowledge"
+  evidence: bool  # apakah hasilnya jadi sumber sitasi?
+  run: async fn(args, ctx) -> ToolResult
+
+# Di loop.py:
+result = await asyncio.wait_for(
+  tool.run(args, ctx), timeout=30
+)
+sources.register(result) if tool.evidence
+llm_messages.append({"role":"tool", "content": result})</div><p style="margin-top:8px;font-size:11px;color:var(--amber)">⚠️ Timeout 30s, error jadi data (bukan crash), provenance untuk UI badge</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 17 AGENT X RAG ARCH -->
+<section class="slide">
+  <h2>Arsitektur Agent × RAG — Gabungannya</h2>
+  <div class="viz">
+    <div class="viz-head"><b>TARGET ARCHITECTURE (yang akan kalian build)</b><span class="badge badge-ok">production</span></div>
+    <div class="viz-body" style="padding:20px">
+      <svg viewBox="0 0 860 360" width="100%" height="360" style="max-height:360px">
+        <!-- Upload -->
+        <g>
+          <rect x="10" y="20" width="150" height="70" rx="12" fill="#1e1a33" stroke="#7c5cfc" stroke-width="1.5"/>
+          <text x="85" y="42" text-anchor="middle" fill="#a78bfa" font-size="11" font-family="var(--mono)" font-weight="700">📤 UPLOAD</text>
+          <text x="85" y="58" text-anchor="middle" fill="#c7c9d6" font-size="10" font-family="var(--sans)">PDF/DOCX/MD</text>
+          <text x="85" y="72" text-anchor="middle" fill="#9aa0b2" font-size="9" font-family="var(--mono)">parse structure</text>
+        </g>
+        <path d="M160 55 L190 55" stroke="#3a3a5a" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Chunk + Embed -->
+        <g>
+          <rect x="190" y="20" width="150" height="70" rx="12" fill="#0f2330" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="265" y="42" text-anchor="middle" fill="#38bdf8" font-size="11" font-family="var(--mono)" font-weight="700">✂️🧮 CHUNK+EMBED</text>
+          <text x="265" y="58" text-anchor="middle" fill="#c7c9d6" font-size="10">Structure-aware</text>
+          <text x="265" y="72" text-anchor="middle" fill="#9aa0b2" font-size="9" font-family="var(--mono)">400 tokens + overlap</text>
+        </g>
+        <path d="M340 55 L370 55" stroke="#3a3a5a" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <!-- Vector DB -->
+        <g>
+          <rect x="370" y="20" width="150" height="70" rx="12" fill="#0f2a22" stroke="#10b981" stroke-width="1.5"/>
+          <text x="445" y="42" text-anchor="middle" fill="#10b981" font-size="11" font-family="var(--mono)" font-weight="700">💾 VECTOR DB</text>
+          <text x="445" y="58" text-anchor="middle" fill="#c7c9d6" font-size="10">Chroma/Qdrant/pgvector</text>
+          <text x="445" y="72" text-anchor="middle" fill="#9aa0b2" font-size="9" font-family="var(--mono)">+ hierarchy metadata</text>
+        </g>
+        <!-- Agent Loop big -->
+        <g>
+          <rect x="10" y="120" width="510" height="210" rx="16" fill="rgba(124,92,252,.06)" stroke="#7c5cfc" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <text x="20" y="138" fill="#a78bfa" font-size="11" font-family="var(--mono)" font-weight="700">🤖 AGENT LOOP (ReAct) — max_steps=6</text>
+          <!-- LLM -->
+          <rect x="30" y="150" width="120" height="50" rx="10" fill="#1e1a33" stroke="#7c5cfc"/>
+          <text x="90" y="170" text-anchor="middle" fill="#a78bfa" font-size="11" font-weight="700">🧠 LLM</text>
+          <text x="90" y="185" text-anchor="middle" fill="#9aa0b2" font-size="9" font-family="var(--mono)">reason + decide</text>
+          <!-- Tools -->
+          <rect x="170" y="150" width="320" height="50" rx="10" fill="#1e1e2e" stroke="#3a3a5a"/>
+          <text x="330" y="165" text-anchor="middle" fill="#f2f2f7" font-size="10" font-family="var(--mono)">TOOLS: retrieve_knowledge | web_search | create_diagram | calculator | create_chart | create_table</text>
+          <text x="330" y="182" text-anchor="middle" fill="#9aa0b2" font-size="9">LLM pilih via tool_calls JSON — eksekusi parallel, timeout 30s</text>
+          <!-- Observe -->
+          <rect x="30" y="215" width="460" height="50" rx="10" fill="#171721" stroke="#2a2a40"/>
+          <text x="260" y="235" text-anchor="middle" fill="#c7c9d6" font-size="11">👁️ OBSERVE — hasil tool masuk context + sources registry + visual payload</text>
+          <text x="260" y="250" text-anchor="middle" fill="#9aa0b2" font-size="9" font-family="var(--mono)">Jika masih butuh tool → loop lagi, else → final answer</text>
+          <!-- Answer -->
+          <rect x="30" y="278" width="460" height="40" rx="10" fill="#0f2a22" stroke="#10b981"/>
+          <text x="260" y="302" text-anchor="middle" fill="#10b981" font-size="11" font-weight="700">💬 FINAL ANSWER: grounded text + citations [1][2] + visual JSON → React component</text>
+        </g>
+        <!-- User query -->
+        <g>
+          <rect x="560" y="20" width="140" height="70" rx="12" fill="#2a2110" stroke="#f59e0b" stroke-width="1.5"/>
+          <text x="630" y="42" text-anchor="middle" fill="#f59e0b" font-size="11" font-family="var(--mono)" font-weight="700">👤 USER QUERY</text>
+          <text x="630" y="58" text-anchor="middle" fill="#c7c9d6" font-size="10">“Buatkan flowchart</text>
+          <text x="630" y="72" text-anchor="middle" fill="#c7c9d6" font-size="10">SOP cuti”</text>
+        </g>
+        <path d="M630 90 L630 115 L520 115" stroke="#f59e0b" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow)"/>
+        <path d="M445 90 L445 115" stroke="#10b981" stroke-width="1.5" stroke-dasharray="4 4" marker-end="url(#arrow)"/>
+        <!-- Visual output -->
+        <g>
+          <rect x="560" y="120" width="290" height="210" rx="16" fill="rgba(56,189,248,.06)" stroke="#38bdf8" stroke-width="1.5"/>
+          <text x="570" y="138" fill="#38bdf8" font-size="11" font-family="var(--mono)" font-weight="700">🎨 VISUAL WEB RENDERING</text>
+          <rect x="570" y="150" width="270" height="50" rx="10" fill="#0f2330" stroke="#38bdf8"/>
+          <text x="705" y="170" text-anchor="middle" fill="#38bdf8" font-size="10" font-weight="700">Structured JSON dari Tool</text>
+          <text x="705" y="185" text-anchor="middle" fill="#9aa0b2" font-size="9" font-family="var(--mono)">{type:"flowchart", nodes:[...], edges:[...]}</text>
+          <rect x="570" y="212" width="130" height="50" rx="10" fill="#1e1e2e" stroke="#3a3a5a"/>
+          <text x="635" y="232" text-anchor="middle" fill="#c7c9d6" font-size="10">GraphView</text>
+          <text x="635" y="245" text-anchor="middle" fill="#9aa0b2" font-size="9">pan/zoom/drag</text>
+          <rect x="710" y="212" width="130" height="50" rx="10" fill="#1e1e2e" stroke="#3a3a5a"/>
+          <text x="775" y="232" text-anchor="middle" fill="#c7c9d6" font-size="10">Chart/Table/Timeline</text>
+          <text x="775" y="245" text-anchor="middle" fill="#9aa0b2" font-size="9">recharts / custom</text>
+          <rect x="570" y="274" width="270" height="44" rx="10" fill="#171721" stroke="#2a2a40"/>
+          <text x="705" y="293" text-anchor="middle" fill="#c7c9d6" font-size="10">DOM element native — bukan image, bukan markdown string</text>
+          <text x="705" y="305" text-anchor="middle" fill="#9aa0b2" font-size="9" font-family="var(--mono)">React component dengan state interaktif</text>
+        </g>
+        <path d="M510 250 L560 250" stroke="#38bdf8" stroke-width="1.5" marker-end="url(#arrow)"/>
+        <defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#3a3a5a"/></marker></defs>
+      </svg>
+    </div>
+  </div>
+</section>
+
+<!-- 18 FLOW UPLOAD TO VISUAL -->
+<section class="slide">
+  <h2>Flow Lengkap: Upload → Tanya → Visual</h2>
+  <div class="cols cols-2">
+    <div class="viz"><div class="viz-head"><b>USER JOURNEY</b></div><div class="viz-body" style="display:flex;flex-direction:column;gap:10px">
+      <div class="flow"><div class="node hl"><b>1. 📤 Upload SOP-Cuti.pdf</b><small>drag & drop di UI</small></div><div class="arrow">→</div><div class="node"><b>Backend parse</b><small>extract text + tables + flows</small></div></div>
+      <div class="flow"><div class="node"><b>2. Chunk & Embed</b><small>structure-aware, 400 tokens</small></div><div class="arrow">→</div><div class="node"><b>💾 Store</b><small>vector + metadata hierarchy</small></div><div class="arrow">→</div><div class="node" style="border-color:var(--emerald)"><b>✅ Ready</b><small>“Dokumen siap ditanya”</small></div></div>
+      <div class="flow"><div class="node" style="border-color:var(--amber)"><b>3. 👤 “Buatkan flowchart proses cuti”</b></div><div class="arrow">→</div><div class="node hl"><b>🤖 Agent decide</b><small>need retrieve_knowledge + create_diagram</small></div></div>
+      <div class="flow"><div class="node"><b>🔍 retrieve_knowledge</b><small>top-k flow chunks</small></div><div class="arrow">→</div><div class="node"><b>🔀 create_diagram</b><small>nodes/edges dari flow text</small></div><div class="arrow">→</div><div class="node" style="border-color:var(--emerald)"><b>💬 Jawaban + Visual Interaktif</b></div></div>
+    </div></div>
+    <div>
+      <div class="card"><h3>🧩 Task Decomposition Agent</h3><p>Agent memecah “Buatkan flowchart SOP cuti” jadi sub-tugas:</p><div class="code" style="margin-top:8px"><span class="k">Planner</span> (LLM):
+  - User mau flowchart → butuh data flow dari dokumen
+  - Subtask 1: retrieve flow structure
+  - Subtask 2: generate diagram JSON
+
+<span class="k">Executor</span>:
+  1. call retrieve_knowledge(query="proses pengajuan cuti flow", filter={type:"flow"})
+     → dapat: "Karyawan → Atasan → HR → Selesai"
+  2. call create_diagram(
+       kind="flowchart",
+       nodes=[{id:"A",label:"Karyawan"},{id:"B",label:"Atasan"}...],
+       edges=[{from:"A",to:"B"}...]
+     )
+     → dapat: {mermaid:"flowchart TD...", graph:{nodes,edges}}
+
+<span class="k">Generator</span>:
+  - Jawab dengan sitasi + render graph JSON sebagai komponen web</div></div>
+      <div class="card" style="margin-top:10px"><h3>💡 Kenapa Agent, bukan RAG biasa?</h3><ul><li>RAG biasa hanya return text. Agent bisa <b>chain tools</b>: retrieve → diagram → chart → table</li><li>User bisa tanya “Bandingkan SOP lama vs baru” → Agent retrieve 2 dokumen, lalu reasoning</li><li>Visualisasi butuh tool khusus, bukan hanya text generation</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- 19 TOOL ORCHESTRATION -->
+<section class="slide">
+  <h2>Tool Orchestration — Bagaimana Agent Membagi Tugas</h2>
+  <div class="cols cols-2">
+    <div class="viz"><div class="viz-head"><b>ORCHESTRATION PATTERN</b><span class="badge badge-tool">ReAct + Parallel</span></div><div class="viz-body">
+      <div class="code"><span class="c"># loop.py — simplified</span>
+<span class="k">for</span> step <span class="k">in</span> range(max_steps):  <span class="c"># 6</span>
+  <span class="c"># 1. LLM decide</span>
+  events = await provider.stream(messages, tool_schemas)
+  tool_calls = events.tool_calls  <span class="c"># bisa 1-3 tools sekaligus</span>
+
+  <span class="k">if</span> not tool_calls: <span class="k">break</span>  <span class="c"># final answer</span>
+
+  <span class="c"># 2. Execute (bisa parallel)</span>
+  tasks = []
+  <span class="k">for</span> call <span class="k">in</span> tool_calls:
+    tool = get_tool(call.name)
+    tasks.append(tool.run(call.args, ctx))
+
+  results = await asyncio.gather(*tasks)  <span class="c"># parallel!</span>
+
+  <span class="c"># 3. Observe — masukkan ke context</span>
+  <span class="k">for</span> call, result <span class="k">in</span> zip(tool_calls, results):
+    sources.register(result) <span class="k">if</span> tool.evidence
+    messages.append({role:"tool", content: result.data})
+
+  <span class="c"># 4. Hint untuk next step</span>
+  messages.append({role:"system", content: TOOL_RESULT_HINT})
+  messages.append({role:"system", content: sources.prompt_block()})</div>
+      <p style="margin-top:10px;font-size:11px;color:var(--mut)">Di ask-anything: timeout 30s per tool, error jadi data (graceful), provenance badge untuk UI</p>
+    </div></div>
+    <div>
+      <div class="card"><h3>🔀 Contoh Parallel Tool Calling</h3><p>User: “Cari SOP cuti di dokumen dan di web, bandingkan”</p><div class="flow" style="margin-top:8px"><div class="node"><b>LLM decide</b><small>need both sources</small></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px"><div class="node hl"><b>🔍 retrieve_knowledge</b><small>query: SOP cuti</small></div><div class="node hl"><b>🌐 web_search</b><small>query: SOP cuti Indonesia</small></div></div><div style="text-align:center;margin:6px 0"><span class="arrow">↓ parallel</span></div><div class="node" style="border-color:var(--emerald)"><b>👁️ Observe both</b><small>compare internal vs external knowledge</small></div><div class="node" style="margin-top:8px;border-color:var(--emerald)"><b>💬 Answer: Perbandingan + sitasi [1] internal, [2] web</b></div></div>
+      <div class="card" style="margin-top:10px"><h3>🛠️ Tool Design Principle</h3><ul><li><b>Single responsibility</b>: 1 tool = 1 tugas jelas</li><li><b>Structured I/O</b>: input JSON Schema, output JSON (bukan string)</li><li><b>Evidence flag</b>: apakah hasilnya jadi sumber sitasi?</li><li><b>Idempotent</b>: panggil 2x hasil sama (kecuali web search)</li><li><b>Fast</b>: < 2s ideal, timeout 30s max</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- 20 VISUAL BEYOND MERMAID INTRO -->
+<section class="slide">
+  <h2>Visualisasi: Kenapa Tidak Hanya Mermaid?</h2>
+  <div class="cols cols-2">
+    <div>
+      <div class="card" style="border-left:3px solid var(--rose)"><h3>❌ Limitasi Mermaid String</h3><ul><li>Hanya string → tidak bisa interaktif (drag, zoom, filter)</li><li>All-or-nothing: 1 baris salah, seluruh diagram hilang</li><li>Tidak bisa binding data dinamis (mis. klik node → detail)</li><li>Styling terbatas, tidak bisa pakai design system app</li><li>Tidak bisa reuse sebagai data (mis. export ke JSON)</li></ul><div class="code" style="margin-top:8px"><span class="c">// Mermaid: string</span>
+```mermaid
+flowchart TD
+  A[Karyawan] --> B[Atasan]
+  B --> C[HR]
+``` 
+<span class="c">// → render jadi SVG statis, tidak bisa di-drag</span></div></div>
+    </div>
+    <div>
+      <div class="card" style="border-left:3px solid var(--emerald)"><h3>✅ Visual sebagai Elemen Web Native</h3><ul><li><b>Structured JSON</b> → React component → DOM interaktif</li><li>Bisa pan/zoom/drag node/klik untuk detail relasi</li><li>Bisa ganti layout (TD/LR), filter, search</li><li>Bisa export, fullscreen, embed</li><li>Data tetap ada → bisa jadi sumber untuk tool lain</li></ul><div class="code" style="margin-top:8px"><span class="c">// Native: JSON → Component</span>
+{
+  "type": "flowchart",
+  "nodes": [
+    {"id":"A","label":"Karyawan","data":{"role":"requester"}},
+    {"id":"B","label":"Atasan","data":{"role":"approver"}}
+  ],
+  "edges": [
+    {"from":"A","to":"B","label":"ajukan"}
+  ]
+}
+<span class="c">// → <GraphView nodes={...} edges={...} /> 
+// interaktif: drag, zoom, click</span></div></div>
+    </div>
+  </div>
+  <div class="viz" style="margin-top:14px"><div class="viz-head"><b>PERBANDINGAN RENDERING</b></div><div class="viz-body" style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+    <div><b style="font-size:11px">Mermaid (string → SVG)</b><div style="margin-top:8px;background:#0f0f16;border:1px solid var(--line);border-radius:10px;padding:12px;font-family:var(--mono);font-size:11px">flowchart TD<br/>  A --> B<br/>  B --> C<br/><br/><span style="color:var(--mut)">→ SVG statis, tidak interaktif</span></div></div>
+    <div><b style="font-size:11px">Native Web (JSON → React DOM)</b><div style="margin-top:8px;background:var(--card2);border:1px solid var(--line);border-radius:10px;padding:12px"><div style="display:flex;gap:8px;align-items:center"><div style="width:60px;height:28px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:8px;display:grid;place-items:center;font-size:10px">Karyawan</div><div style="color:var(--accent)">→</div><div style="width:60px;height:28px;background:var(--sky-soft);border:1px solid var(--sky);border-radius:8px;display:grid;place-items:center;font-size:10px">Atasan</div><div style="color:var(--accent)">→</div><div style="width:40px;height:28px;background:var(--emerald-soft);border:1px solid var(--emerald);border-radius:8px;display:grid;place-items:center;font-size:10px">HR</div></div><div style="margin-top:8px;font-size:10px;color:var(--mut)">✓ drag node ✓ zoom ✓ click → detail ✓ filter ✓ fullscreen</div></div></div>
+  </div></div>
+</section>
+
+<!-- 21 POLA JSON TO DOM -->
+<section class="slide">
+  <h2>Pola: Tool → Structured JSON → React Renderer</h2>
+  <p class="sub">Ini pola inti yang dipakai ask-anything untuk diagram, dan yang akan kalian perluas untuk chart/table/timeline.</p>
+  <div class="cols cols-2">
+    <div class="viz"><div class="viz-head"><b>DATA FLOW</b></div><div class="viz-body">
+      <div class="code"><span class="c">// 1. Backend Tool: create_diagram (diagrams.py)</span>
+<span class="k">def</span> create_diagram(kind, nodes, edges):
+  <span class="c"># normalisasi id, escape label, validasi edge</span>
+  mermaid = f"flowchart TD\n"
+  <span class="k">for</span> n <span class="k">in</span> nodes: mermaid += f"  {n.id}[{n.label}]\n"
+  <span class="k">for</span> e <span class="k">in</span> edges: mermaid += f"  {e.from} --> {e.to}\n"
+  
+  <span class="k">return</span> {
+    "mermaid": mermaid,          <span class="c"># fallback</span>
+    "graph": {                   <span class="c"># primary: structured!</span>
+      "nodes": [{"id":..., "label":..., "x":0,"y":0, "data":...}],
+      "edges": [{"from":..., "to":..., "label":...}],
+      "meta": {"kind": kind, "title": title}
+    },
+    "title": title,
+    "warnings": []
+  }
+
+<span class="c">// 2. Agent Loop simpan sebagai artifact</span>
+diagrams.append({
+  "tool": "create_diagram",
+  "mermaid": payload.mermaid,
+  "graph": payload.graph,  <span class="c"># ← ini yang dirender sebagai DOM</span>
+})
+
+<span class="c">// 3. Frontend: DiagramBlock.tsx</span>
+<span class="k">if</span> (payload.graph) {
+  <span class="k">return</span> <span class="g">&lt;GraphView model={parseMermaid(mermaid)} 
+                  graph={payload.graph} /&gt;</span>  <span class="c">// interaktif!</span>
+} <span class="k">else</span> {
+  <span class="k">return</span> <span class="g">&lt;Mermaid source={mermaid} /&gt;</span> <span class="c">// fallback</span>
+}</div>
+    </div></div>
+    <div>
+      <div class="card"><h3>🎨 Yang Akan Kalian Build: Lebih dari Diagram</h3><div class="tool-grid" style="grid-template-columns:1fr 1fr">
+        <div class="tool-card"><b style="font-size:11px">📊 create_chart</b><small style="font-size:10px;display:block;margin-top:4px">Bar/Line/Pie dari table di dokumen</small><div class="code" style="margin-top:6px;font-size:9px">{
+  "type":"bar",
+  "data":[{x:"Cuti Tahunan",y:12},...],
+  "xKey":"jenis", yKey:"hari"
+}</div></div>
+        <div class="tool-card"><b style="font-size:11px">📅 create_timeline</b><small style="font-size:10px;display:block;margin-top:4px">Timeline dari proses SOP</small><div class="code" style="margin-top:6px;font-size:9px">{
+  "type":"timeline",
+  "events":[{date:"H+0",title:"Ajukan"},...]
+}</div></div>
+        <div class="tool-card"><b style="font-size:11px">📋 create_table</b><small style="font-size:10px;display:block;margin-top:4px">Table interaktif sortable</small><div class="code" style="margin-top:6px;font-size:9px">{
+  "type":"table",
+  "headers":["Jenis","Hari"],
+  "rows":[["Tahunan",12],...]
+}</div></div>
+        <div class="tool-card"><b style="font-size:11px">🗺️ create_knowledge_graph</b><small style="font-size:10px;display:block;margin-top:4px">Graph relasi entitas</small><div class="code" style="margin-top:6px;font-size:9px">{
+  "type":"graph",
+  "nodes":[...],
+  "edges":[{from:"Karyawan",to:"HR"}]
+}</div></div>
+      </div></div>
+      <div class="card" style="margin-top:10px"><h3>🔑 Prinsip: Data First, Visual Second</h3><ul><li>Tool selalu return <b>structured data</b> dulu, visual string (mermaid) hanya fallback</li><li>Frontend punya registry renderer: <code>type → Component</code></li><li>Contoh di codebase: <code>lib/graph/parseMermaid.ts</code> toleran (tidak throw), <code>lib/graph/layout.ts</code> deterministik, <code>GraphView.tsx</code> interaktif</li><li>Keuntungan: data bisa dipakai untuk reasoning selanjutnya, bukan dead-end SVG</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<!-- 22 LIVE DEMO VISUAL -->
+<section class="slide">
+  <h2>Live Demo — Generate Visual dari Dokumen (Interaktif)</h2>
+  <p class="sub">Klik tombol untuk simulasi agent mengubah table di dokumen menjadi chart & table interaktif — langsung jadi elemen DOM, bukan gambar.</p>
+  <div class="cols cols-2">
+    <div class="viz"><div class="viz-head"><b>📄 DOKUMEN SOURCE (Table di p2)</b><span class="badge badge-vec">retrieved chunk</span></div><div class="viz-body"><div class="code">| Jenis Cuti | Durasi | Approval |
+|------------|--------|----------|
+| Tahunan    | 12 hari| Atasan   |
+| Sakit      | Sesuai | HR       |
+| Melahirkan | 90 hari| HR       |
+| Besar      | 30 hari| Direksi  |</div><div style="margin-top:12px;display:flex;gap:8px"><button class="btn btn-accent" onclick="genVisual('chart')">📊 Generate Chart</button><button class="btn" onclick="genVisual('table')">📋 Generate Table</button><button class="btn" onclick="genVisual('flow')">🔀 Generate Flowchart</button></div></div></div>
+    <div class="viz"><div class="viz-head"><b id="visual-title">🎨 VISUAL OUTPUT (DOM Element)</b><span class="badge badge-ok">native web</span></div><div class="viz-body" id="visual-output" style="min-height:260px;display:grid;place-items:center;color:var(--mut);font-size:13px">Klik tombol di kiri untuk generate visual — akan muncul sebagai elemen web interaktif, bukan Mermaid string</div></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>💻 Code Pattern untuk Task Kalian</h3><div class="code"><span class="c">// Backend: tool baru create_chart</span>
+<span class="k">@tool</span>(name="create_chart", description="Buat chart dari data tabel")
+<span class="k">async def</span> create_chart(data: list[dict], chart_type: str, x_key: str, y_key: str):
+  <span class="k">return</span> {
+    "type": "chart",
+    "chart_type": chart_type,  <span class="c"># bar | line | pie</span>
+    "data": data,
+    "x_key": x_key,
+    "y_key": y_key,
+    "title": "Durasi Cuti per Jenis"
+  }
+
+<span class="c">// Frontend: ChartRenderer.tsx</span>
+<span class="k">function</span> ChartRenderer({payload}) {
+  <span class="k">if</span> (payload.chart_type === "bar") {
+    <span class="k">return</span> &lt;BarChart data={payload.data} /&gt;  <span class="c">// pakai recharts atau custom div</span>
+  }
+}
+<span class="c">// Registry</span>
+const renderers = { chart: ChartRenderer, table: TableRenderer, flowchart: GraphView, timeline: TimelineRenderer }</div></div>
+</section>
+
+<!-- 23 GOAL ARCH -->
+<section class="slide">
+  <h2>Goal Architecture — Target Akhir yang Harus Dibangun</h2>
+  <div class="viz"><div class="viz-head"><b>SYSTEM REQUIREMENTS</b><span class="badge badge-ok">checklist</span></div><div class="viz-body">
+    <div class="cols cols-3">
+      <div class="card"><h3>📤 1. Upload & Structure</h3><ul><li>UI drag & drop PDF/DOCX/MD/TXT</li><li>Backend: <code>/api/documents/upload</code></li><li>Parse: PyMuPDF/pdfplumber + python-docx</li><li>Ekstrak: headings, paragraphs, lists, <b>tables (keep whole)</b>, flows</li><li>Simpan file + metadata di <code>data/documents/</code></li><li>✅ <b>Harus simpan struktur hierarchy</b></li></ul></div>
+      <div class="card"><h3>🧠 2. RAG Pipeline</h3><ul><li>Chunking: structure-aware, 400 tokens, overlap 50</li><li>Embedding: all-MiniLM-L6-v2 (lokal) atau OpenAI</li><li>Vector DB: Chroma (mudah) / Qdrant / pgvector</li><li>Metadata: doc_id, page, hierarchy, type, visualizable</li><li>Retrieval: top-k=5, threshold 0.7, rerank opsional</li><li>API: <code>/api/rag/query</code> → contexts + scores</li></ul></div>
+      <div class="card"><h3>🤖 3. Agent Integration</h3><ul><li>Tool baru: <code>retrieve_knowledge</code></li><li>Tool visual: <code>create_chart</code>, <code>create_table</code>, <code>create_timeline</code></li><li>Agent loop: sudah ada di <code>loop.py</code>, tinggal tambah tools</li><li>Prompt: instruksi “jawab hanya dari konteks + sitasi”</li><li>Sources registry: untuk citations [1][2]</li></ul></div>
+    </div>
+    <div class="cols cols-2" style="margin-top:12px">
+      <div class="card"><h3>🎨 4. Visual Web Native</h3><ul><li>Backend return structured JSON (bukan hanya mermaid string)</li><li>Frontend registry: type → React component</li><li>Komponen: GraphView (sudah ada, bisa reuse), BarChart, Table, Timeline</li><li>Interaktif: drag, zoom, filter, sort, fullscreen</li><li>Payload disimpan di <code>messages.meta.diagrams</code> + <code>trace_events</code></li></ul></div>
+      <div class="card"><h3>💬 5. Chat Experience</h3><ul><li>User: “Apa isi SOP cuti?” → RAG → grounded answer + citation</li><li>User: “Buatkan flowchart prosesnya” → RAG flow type → GraphView interaktif</li><li>User: “Visualkan tabel cuti jadi chart” → RAG table → create_chart → BarChart</li><li>Streaming SSE: delta + tool_call + tool_result + citations</li><li>Interpreter panel: lihat thinking, tool args, sources (transparansi)</li></ul></div>
+    </div>
+  </div></div>
+</section>
+
+<!-- 24 TECH STACK -->
+<section class="slide">
+  <h2>Tech Stack — Rekomendasi Implementasi</h2>
+  <div class="cols cols-3">
+    <div class="card"><h3>📄 Document Parsing</h3><table><tr><th>Format</th><th>Library</th></tr><tr><td>PDF</td><td><code>PyMuPDF (fitz)</code> + <code>pdfplumber</code> (untuk table)</td></tr><tr><td>DOCX</td><td><code>python-docx</code></td></tr><tr><td>MD/TXT</td><td>Native + <code>markdown-it</code></td></tr><tr><td>Table extract</td><td><code>camelot</code> / <code>tabula</code> (optional)</td></tr></table><div class="code" style="margin-top:8px">import fitz  <span class="c"># PyMuPDF</span>
+doc = fitz.open("sop.pdf")
+for page in doc:
+  blocks = page.get_text("dict")["blocks"]
+  <span class="c"># blocks berisi text + bbox + type</span></div></div>
+    <div class="card"><h3>🧮 Embedding & Vector DB</h3><table><tr><th>Komponen</th><th>Pilihan</th></tr><tr><td>Embedding (lokal)</td><td><code>sentence-transformers/all-MiniLM-L6-v2</code> (384 dim, cepat)</td></tr><tr><td>Embedding (API)</td><td>OpenAI <code>text-embedding-3-small</code></td></tr><tr><td>Vector DB (dev)</td><td><code>Chroma</code> — <code>pip install chromadb</code></td></tr><tr><td>Vector DB (prod)</td><td>Qdrant / pgvector</td></tr><tr><td>Reranker</td><td><code>bge-reranker-base</code></td></tr></table><div class="code" style="margin-top:8px">import chromadb
+client = chromadb.PersistentClient(path="./data/chroma")
+col = client.get_or_create_collection("knowledge")
+col.add(ids=[...], embeddings=[...], metadatas=[...], documents=[...])</div></div>
+    <div class="card"><h3>🎨 Frontend Visual</h3><table><tr><th>Visual</th><th>Implementasi</th></tr><tr><td>Flowchart/Graph</td><td>Reuse <code>GraphView.tsx</code> (sudah ada, interaktif)</td></tr><tr><td>Bar/Line/Pie Chart</td><td>Custom div + flex (simple) atau <code>recharts</code></td></tr><tr><td>Table</td><td>HTML table + sort/filter state</td></tr><tr><td>Timeline</td><td>Custom vertical timeline component</td></tr><tr><td>Mermaid fallback</td><td>Sudah ada <code>Mermaid.tsx</code></td></tr></table><div class="code" style="margin-top:8px"><span class="c">// Simple bar chart tanpa lib</span>
+&lt;div&gt;
+  {data.map(d => &lt;div key={d.x} style={{width: `${d.y}%`}}&gt;{d.x}&lt;/div&gt;)}
+&lt;/div&gt;</div></div>
+  </div>
+  <div class="card" style="margin-top:12px"><h3>🔌 Integrasi ke ask-anything (existing codebase)</h3><ul><li><b>Backend</b>: tambah file <code>backend/app/tools/rag.py</code> (tool retrieve_knowledge), <code>backend/app/rag/</code> folder (ingestion, vector store, chunking). Tambah routes <code>/api/documents/*</code> dan <code>/api/rag/*</code> di <code>api/routes.py</code></li><li><b>Frontend</b>: tambah <code>components/DocumentUploader.tsx</code>, <code>components/ChartRenderer.tsx</code>, <code>components/TableRenderer.tsx</code>, <code>lib/renderRegistry.ts</code></li><li><b>DB</b>: tambah table <code>documents</code> di <code>db.py</code>, atau pakai Chroma terpisah</li><li><b>Agent</b>: daftarkan tools baru di <code>tools/__init__.py</code> → otomatis masuk ke LLM tool_schemas</li></ul></div>
+</section>
+
+<!-- 25 TASK BREAKDOWN -->
+<section class="slide">
+  <h2>Task Breakdown — Untuk Dikerjakan</h2>
+  <p class="sub">Dibagi menjadi 5 task incremental. Setiap task punya deliverable yang bisa didemo.</p>
+  <div class="cols cols-2">
+    <div class="card" style="border-left:3px solid var(--sky)"><h3>📝 Task 1 — Document Upload & Structure Parser (2-3 hari)</h3><p><b>Goal:</b> User bisa upload PDF/DOCX/MD, backend ekstrak struktur.</p><ul><li>Buat endpoint <code>POST /api/documents/upload</code> (multipart)</li><li>Parse PDF: text, headings (font size), tables (pdfplumber), simpan JSON struktur</li><li>Parse DOCX: paragraphs, tables, headings</li><li>Simpan file di <code>data/documents/{id}/original.pdf</code> + <code>structure.json</code></li><li>UI: komponen uploader drag & drop + list dokumen + preview struktur</li><li>DB: table <code>documents(id, name, type, pages, structure_path, created_at)</code></li></ul><div style="margin-top:8px"><span class="badge badge-ok">Deliverable: Upload 1 PDF → lihat struktur JSON di UI</span></div></div>
+    <div class="card" style="border-left:3px solid var(--accent)"><h3>🧠 Task 2 — RAG Pipeline (Chunk + Embed + Store) (3-4 hari)</h3><p><b>Goal:</b> Dokumen ter-chunk structure-aware, ter-embed, masuk vector DB, bisa di-query.</p><ul><li>Chunking: 400 tokens, overlap 50, <b>jangan potong table/flow</b>, hierarchy dari headings</li><li>Embedding: pakai <code>sentence-transformers</code> lokal (all-MiniLM-L6-v2)</li><li>Vector DB: Chroma persistent (<code>data/chroma</code>)</li><li>Metadata: doc_id, page, hierarchy, type, visualizable, visual_type</li><li>Endpoint <code>POST /api/rag/query</code> → top-k + scores + metadata</li><li>Test: query “cuti tahunan” → harus return chunk tabel p2</li></ul><div style="margin-top:8px"><span class="badge badge-ok">Deliverable: Query API return relevant chunks dengan hierarchy</span></div></div>
+    <div class="card" style="border-left:3px solid var(--emerald)"><h3>🤖 Task 3 — Agent Tool: retrieve_knowledge (2 hari)</h3><p><b>Goal:</b> Agent bisa panggil RAG sebagai tool.</p><ul><li>Buat tool <code>retrieve_knowledge</code> di <code>backend/app/tools/rag.py</code></li><li>Tool args: query, top_k, filter (doc_id, type)</li><li>Tool return: contexts + sources (untuk sitasi)</li><li>Daftarkan di <code>tools/__init__.py</code> → otomatis jadi tool LLM</li><li>Set <code>source="knowledge"</code>, <code>evidence=True</code> (jadi sumber sitasi)</li><li>Update system prompt: instruksi jawab hanya dari konteks + sitasi</li><li>Test: chat “Apa isi SOP cuti?” → agent panggil retrieve_knowledge → jawab grounded</li></ul><div style="margin-top:8px"><span class="badge badge-ok">Deliverable: Chat Q&A dari dokumen dengan sitasi [1]</span></div></div>
+    <div class="card" style="border-left:3px solid var(--amber)"><h3>🎨 Task 4 — Visual Tools & Native Rendering (3-4 hari)</h3><p><b>Goal:</b> Agent bisa generate visual sebagai elemen web, bukan hanya mermaid.</p><ul><li>Tools baru: <code>create_chart</code>, <code>create_table</code>, <code>create_timeline</code> (selain <code>create_diagram</code> yang sudah ada)</li><li>Setiap tool return <b>structured JSON</b> (bukan string): {type, data, x_key, y_key, ...}</li><li>Frontend: buat <code>ChartRenderer.tsx</code> (bar chart pakai div), <code>TableRenderer.tsx</code> (sortable), <code>TimelineRenderer.tsx</code></li><li>Registry: <code>lib/visualRegistry.ts</code> → type → component</li><li>DiagramBlock: extend untuk handle chart/table/timeline (bukan hanya graph/mermaid)</li><li>Test: “Visualkan tabel cuti jadi bar chart” → Agent: retrieve table → create_chart → render BarChart interaktif</li></ul><div style="margin-top:8px"><span class="badge badge-ok">Deliverable: Chat → visual chart/table/flow sebagai DOM interaktif</span></div></div>
+  </div>
+  <div class="card" style="margin-top:12px;border-left:3px solid var(--violet)"><h3>🚀 Task 5 — Polish & Integration (2 hari) — Stretch Goal</h3><div class="cols cols-2"><div><ul><li>UI: gabungkan uploader + chat + visual dalam 1 page (layout 3 kolom: docs | chat | visual)</li><li>Filtering: user bisa pilih dokumen mana yang jadi knowledge base untuk query ini</li><li>Citations: klik [1] → scroll ke chunk sumber + highlight</li><li>Interpreter: tampilkan retrieval scores, chunk metadata di tab Tools</li><li>Error handling: jika similarity < 0.7 → jawab “tidak ada info”</li></ul></div><div><ul><li>Performance: embedding batch, caching, lazy load</li><li>Export: chat + visual → PDF/MD</li><li>Testing: unit test chunking, embedding, retrieval</li><li>Dokumentasi: README + demo video</li><li>Bonus: support image di PDF (OCR dengan pytesseract)</li></ul></div></div><div style="margin-top:8px"><span class="badge badge-ok">Deliverable: Aplikasi RAG+Agent+Visual full flow, siap demo</span></div></div>
+</section>
+
+<!-- 26 KRITERIA SUKSES -->
+<section class="slide">
+  <h2>Kriteria Sukses & Deliverable</h2>
+  <div class="cols cols-2">
+    <div class="card"><h3>✅ Must Have (Wajib)</h3><ul><li>☑️ Upload PDF/DOCX/MD berfungsi, struktur tersimpan (JSON) dengan hierarchy</li><li>☑️ Chunking structure-aware (table tidak terpotong)</li><li>☑️ Vector DB + retrieval (top-k, threshold) berfungsi</li><li>☑️ Agent tool <code>retrieve_knowledge</code> terintegrasi ke loop</li><li>☑️ Jawaban grounded + sitasi [1][2] (verifikasi backend, bukan percaya LLM)</li><li>☑️ Minimal 1 visual native: chart atau table atau flowchart sebagai elemen web (bukan hanya mermaid string)</li><li>☑️ Chat streaming SSE tetap jalan</li><li>☑️ Tidak hallucination saat dokumen tidak relevan (jawab “tidak tahu”)</li></ul></div>
+    <div class="card"><h3>🌟 Nice to Have (Nilai Plus)</h3><ul><li>⭐ Multiple visual types (chart + table + timeline + graph)</li><li>⭐ Interaktif: drag node, sort table, filter chart</li><li>⭐ Reranker (bge-reranker) untuk akurasi retrieval</li><li>⭐ Metadata filtering (cari hanya di dokumen X, atau type=table)</li><li>⭐ Preview struktur dokumen di UI (tree view hierarchy)</li><li>⭐ Citations klik → highlight sumber</li><li>⭐ Support 10+ dokumen, 1000+ chunks tanpa lag</li><li>⭐ Unit tests + dokumentasi</li><li>⭐ Fullscreen visual + export</li></ul></div>
+  </div>
+  <div class="viz" style="margin-top:14px"><div class="viz-head"><b>DEMO SCENARIO — Yang Harus Bisa Didemo</b></div><div class="viz-body">
+    <div class="code"><span class="c">1. Upload SOP-Cuti.pdf (12 halaman, ada tabel & flowchart text)</span>
+  → UI tampil: "Dokumen berhasil diproses: 12 halaman, 34 chunks, 2 tables, 1 flow"
+
+<span class="c">2. Chat: "Berapa hari cuti tahunan?"</span>
+  → Agent: call retrieve_knowledge("cuti tahunan") → dapat chunk tabel p2
+  → Jawab: "Cuti tahunan 12 hari [1]" + citation bar
+
+<span class="c">3. Chat: "Buatkan flowchart proses pengajuan cuti"</span>
+  → Agent: call retrieve_knowledge(filter type=flow) → dapat "Karyawan → Atasan → HR"
+  → call create_diagram(nodes=[...], edges=[...])
+  → Jawab: teks + GraphView interaktif (bisa drag/zoom)
+
+<span class="c">4. Chat: "Visualkan tabel cuti jadi bar chart"</span>
+  → Agent: retrieve table chunk → create_chart(data tabel, type bar)
+  → Jawab: BarChart interaktif (bukan image, tapi div yang bisa hover)
+
+<span class="c">5. Chat: "Apa kebijakan WFH di dokumen ini?" (tidak ada di dokumen)</span>
+  → Agent: retrieve → similarity rendah (0.45)
+  → Jawab: "Maaf, tidak ada informasi tentang WFH di dokumen yang di-upload."</div>
+  </div></div>
+</section>
+
+<!-- 27 BEST PRACTICES -->
+<section class="slide">
+  <h2>Best Practices & Pitfalls</h2>
+  <div class="cols cols-3">
+    <div class="card"><h3>✅ Do</h3><ul><li><b>Simpan struktur</b>: hierarchy, type, page — bukan cuma text</li><li><b>Chunk smart</b>: jangan potong table/list/flow, pakai overlap</li><li><b>Threshold</b>: jika similarity < 0.7, jangan pakai context (cegah hallucination)</li><li><b>Structured JSON first</b>: tool return JSON, bukan string → frontend render</li><li><b>Citations</b>: verifikasi di backend, bukan percaya LLM</li><li><b>Streaming</b>: SSE untuk delta + tool_call + citations (UX)</li><li><b>Timeout & graceful</b>: tool error → jadi data, bukan crash</li></ul></div>
+    <div class="card"><h3>❌ Don't</h3><ul><li>Jangan chunk fixed 512 tanpa lihat struktur → tabel hancur</li><li>Jangan langsung embed tanpa cleaning (buang header/footer)</li><li>Jangan pakai embedding model terlalu besar untuk dev (lambat)</li><li>Jangan return visual hanya sebagai mermaid string → tidak interaktif</li><li>Jangan percaya LLM untuk sitasi → harus verifikasi backend</li><li>Jangan simpan vector di memory saja → harus persistent (Chroma)</li><li>Jangan lupakan metadata filtering → user mau filter per dokumen</li></ul></div>
+    <div class="card"><h3>🐛 Pitfalls Umum</h3><ul><li><b>PDF scanned</b>: text tidak bisa di-extract → butuh OCR (pytesseract)</li><li><b>Table kompleks</b>: pdfplumber gagal → fallback ke camelot/tabula</li><li><b>Embedding lambat</b>: batch embedding, cache, atau pakai model kecil dulu</li><li><b>Context bengkak</b>: top-k terlalu banyak → LLM bingung, batasi 5</li><li><b>Hallucination tetap</b>: prompt harus eksplisit “jika tidak ada di konteks, bilang tidak tahu”</li><li><b>Visual tidak muncul</b>: pastikan tool return JSON valid + frontend registry ada</li></ul></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>🔍 Referensi Codebase ask-anything yang Bisa Direuse</h3><table><tr><th>File</th><th>Bisa Dipakai Untuk</th></tr><tr><td><code>backend/app/tools/base.py</code></td><td>Definisi Tool class, ToolResult, source, evidence</td></tr><tr><td><code>backend/app/tools/diagrams.py</code></td><td>Contoh tool visual yang return structured + mermaid fallback</td></tr><tr><td><code>backend/app/agent/loop.py</code></td><td>Agent loop ReAct, tool execution, sources registry</td></tr><tr><td><code>backend/app/sources.py</code></td><td>Citation registry & verification</td></tr><tr><td><code>frontend/components/GraphView.tsx</code></td><td>Contoh visual native interaktif (pan/zoom/drag)</td></tr><tr><td><code>frontend/components/DiagramBlock.tsx</code></td><td>Renderer yang handle mermaid + graph JSON</td></tr><tr><td><code>frontend/lib/graph/layout.ts</code></td><td>Layout deterministik untuk graph</td></tr></table></div>
+</section>
+
+<!-- 28 ARSITEKTUR FINAL -->
+<section class="slide">
+  <h2>Arsitektur Final — End-to-End</h2>
+  <div class="viz"><div class="viz-head"><b>FINAL SYSTEM DIAGRAM</b></div><div class="viz-body" style="padding:0"><div style="display:grid;grid-template-columns:280px 1fr;gap:0;min-height:380px">
+    <div style="background:#0f0f16;border-right:1px solid var(--line);padding:16px"><b style="font-size:11px;font-family:var(--mono)">📁 FILE STRUCTURE</b><div class="code" style="margin-top:10px;font-size:10px">backend/
+  app/
+    rag/
+      parser.py      <span class="c"># PDF/DOCX → structure</span>
+      chunker.py     <span class="c"># structure → chunks</span>
+      embedder.py    <span class="c"># chunks → vectors</span>
+      vectorstore.py <span class="c"># Chroma wrapper</span>
+    tools/
+      rag.py         <span class="c"># retrieve_knowledge</span>
+      charts.py      <span class="c"># create_chart/table</span>
+      diagrams.py    <span class="c"># existing</span>
+    api/
+      routes.py      <span class="c"># + /documents, /rag</span>
+    db.py            <span class="c"># + documents table</span>
+data/
+  documents/{id}/
+    original.pdf
+    structure.json
+  chroma/            <span class="c"># vector DB</span>
+frontend/
+  components/
+    DocumentUploader.tsx
+    ChartRenderer.tsx
+    TableRenderer.tsx
+    GraphView.tsx    <span class="c"># existing, reuse</span>
+  lib/
+    visualRegistry.ts</div></div>
+    <div style="padding:16px"><b style="font-size:11px;font-family:var(--mono)">🔄 DATA FLOW</b><div style="margin-top:10px;display:flex;flex-direction:column;gap:8px">
+      <div class="flow"><div class="node"><b>📤 Upload</b><small>POST /api/documents/upload</small></div><div class="arrow">→</div><div class="node"><b>📄 Parser</b><small>PyMuPDF → structure.json</small></div><div class="arrow">→</div><div class="node"><b>✂️ Chunker</b><small>structure-aware 400t</small></div></div>
+      <div class="flow"><div class="node"><b>🧮 Embedder</b><small>MiniLM 384d</small></div><div class="arrow">→</div><div class="node"><b>💾 Chroma</b><small>persist + metadata</small></div><div class="arrow">→</div><div class="node" style="border-color:var(--emerald)"><b>✅ Ready</b></div></div>
+      <div style="height:1px;background:var(--line);margin:8px 0"></div>
+      <div class="flow"><div class="node" style="border-color:var(--amber)"><b>👤 Query: “flowchart cuti”</b></div><div class="arrow">→</div><div class="node hl"><b>🤖 Agent</b><small>loop.py max 6 steps</small></div><div class="arrow">→</div><div class="node"><b>🔍 retrieve_knowledge</b><small>top-k + filter type=flow</small></div></div>
+      <div class="flow"><div class="node"><b>🔀 create_diagram</b><small>nodes/edges JSON</small></div><div class="arrow">→</div><div class="node"><b>💬 Answer + Citation</b><small>grounded + [1]</small></div><div class="arrow">→</div><div class="node" style="border-color:var(--sky)"><b>🎨 GraphView DOM</b><small>drag/zoom/click</small></div></div>
+      <div class="card" style="margin-top:8px"><h3>🔑 Key Insight: Visual sebagai Data, bukan String</h3><p>Tool return <code>{type:"flowchart", nodes:[...], edges:[...]}</code> → Frontend <code>visualRegistry[type]</code> → React component. Data tetap ada untuk reasoning selanjutnya, bisa di-export, bisa interaktif. Ini beda dari Mermaid yang hanya string → SVG statis.</p></div>
+    </div>
+  </div></div></div>
+</section>
+
+<!-- 29 NEXT STEPS -->
+<section class="slide">
+  <h2>Next Steps & Resources</h2>
+  <div class="cols cols-2">
+    <div class="card"><h3>📚 Resources Wajib Baca</h3><ul><li><b>RAG Paper</b>: Lewis et al. 2020 — Retrieval-Augmented Generation</li><li><b>Chunking</b>: LangChain docs — Text Splitters, Semantic Chunking</li><li><b>Embedding</b>: Sentence-Transformers docs, BGE models</li><li><b>Vector DB</b>: Chroma docs, Qdrant docs</li><li><b>Agent</b>: ReAct paper (Yao et al. 2022), OpenAI Function Calling docs</li><li><b>Visual</b>: Lihat <code>GraphView.tsx</code> di repo ini — contoh visual native interaktif</li></ul><div class="code" style="margin-top:10px"><span class="c"># Quick start Chroma</span>
+pip install chromadb sentence-transformers pymupdf pdfplumber python-docx
+<span class="c"># Test embedding</span>
+from sentence_transformers import SentenceTransformer
+model = SentenceTransformer('all-MiniLM-L6-v2')
+vec = model.encode("test")
+print(len(vec))  <span class="c"># 384</span></div></div>
+    <div class="card"><h3>🎯 Mulai dari Mana?</h3><ol style="margin:8px 0 0 16px;font-size:13px;line-height:1.7;color:#c7c9d6"><li><b>Hari 1</b>: Clone repo ask-anything, pahami <code>loop.py</code>, <code>tools/diagrams.py</code>, <code>GraphView.tsx</code></li><li><b>Hari 2-3</b>: Task 1 — upload & parser (fokus PDF dulu)</li><li><b>Hari 4-6</b>: Task 2 — chunking + embedding + Chroma</li><li><b>Hari 7-8</b>: Task 3 — tool retrieve_knowledge + integrasi agent</li><li><b>Hari 9-11</b>: Task 4 — visual tools (chart/table)</li><li><b>Hari 12-13</b>: Task 5 — polish, filtering, citations klik</li><li><b>Hari 14</b>: Demo & dokumentasi</li></ol><div style="margin-top:12px;padding:10px;background:var(--amber-soft);border:1px solid rgba(245,158,11,.2);border-radius:10px;font-size:11px"><b style="color:var(--amber)">💡 Tips:</b> Jangan build semuanya sekaligus. Incremental: upload → RAG → agent → visual. Setiap task harus bisa didemo.</div></div>
+  </div>
+  <div class="card" style="margin-top:14px"><h3>❓ FAQ</h3><div class="cols cols-2"><div><b style="font-size:12px">Q: Embedding model apa yang dipakai?</b><p style="font-size:12px;color:var(--mut)">A: Untuk dev, all-MiniLM-L6-v2 (cepat, 384 dim, 80MB). Untuk prod, bge-m3 (1024 dim, lebih akurat). Bisa juga OpenAI text-embedding-3-small jika ada API key.</p><b style="font-size:12px;margin-top:8px;display:block">Q: Vector DB apa?</b><p style="font-size:12px;color:var(--mut)">A: Chroma untuk kemudahan (persist lokal, no server). Qdrant jika butuh scale. Di repo ini SQLite + sqlite-vss juga bisa untuk zero-ops.</p></div><div><b style="font-size:12px">Q: Bagaimana handle PDF scanned (gambar)?</b><p style="font-size:12px;color:var(--mut)">A: Pakai OCR: pytesseract atau easyocr. Cek jika page.get_text() kosong → fallback OCR. Ini stretch goal.</p><b style="font-size:12px;margin-top:8px;display:block">Q: Visual harus pakai library?</b><p style="font-size:12px;color:var(--mut)">A: Tidak wajib. Bar chart bisa pakai div + width %, table pakai HTML table native. GraphView sudah ada di repo, bisa reuse. Yang penting JSON → DOM, bukan string → image.</p></div></div></div>
+</section>
+
+<!-- 30 CLOSING -->
+<section class="slide">
+  <div class="grid"></div>
+  <div class="pill dot">Ready to build</div>
+  <h1>Dari Dokumen<br/>Menjadi <span class="grad">Knowledge</span> yang<br/>Bisa Ditanya & Divisualisasikan</h1>
+  <div class="cols cols-3" style="margin-top:28px">
+    <div class="card"><h3>🎯 Ingat Goal</h3><p>Jawaban AI <b>berdasarkan knowledge yang diberikan</b> (upload dokumen, simpan berstruktur, retrieve) + <b>visualisasi langsung ke elemen web</b> (bukan hanya mermaid).</p><div style="margin-top:10px"><span class="badge badge-ok">grounded</span> <span class="badge badge-vec">structure-aware</span> <span class="badge badge-llm">visual native</span></div></div>
+    <div class="card"><h3>🧩 3 Pilar yang Sudah Dipelajari</h3><p><b>RAG</b>: ingestion (parse→chunk→embed→store) + retrieval (similarity+rerank)<br/><b>Agent</b>: ReAct loop + tool orchestration + task decomposition<br/><b>Visual</b>: JSON → React component (GraphView, Chart, Table) — interaktif, bukan string</p></div>
+    <div class="card"><h3>🚀 Mulai Sekarang</h3><p>Clone repo, pahami <code>loop.py</code> & <code>GraphView.tsx</code>, lalu kerjakan Task 1: upload & parser. Setiap task incremental & demo-able.</p><div style="margin-top:10px"><button class="btn btn-accent" onclick="show(0)">↺ Kembali ke Awal</button> <button class="btn" onclick="window.print()">🖨️ Print / Save PDF</button></div></div>
+  </div>
+  <p class="sub" style="margin-top:24px">Materi ini ada di <code>docs/slides-rag-agent.html</code> (interaktif) dan <code>docs/slides-rag-agent.pptx</code> (presentasi). Codebase: <code>ask-anything</code> — lihat <code>TEKNIS.md</code> untuk detail arsitektur existing.</p>
+</section>
+
+</main>
+<footer>
+  <span id="counter">1 / 30</span>
+  <span>RAG × AI Agent — Knowledge to Visual Web · ask-anything · 2026</span>
+  <span style="display:flex;gap:6px"><button class="btn" onclick="nav(-1)">←</button><button class="btn" onclick="nav(1)">→</button></span>
+</footer>
+</div>
+
+<div class="hint" id="hint">← → navigasi • F fullscreen • G toggle grid • Klik visual untuk interaksi</div>
+
+<script>
+// SLIDE NAV
+const slides=[...document.querySelectorAll('.slide')];
+let idx=0;
+function show(n){
+  idx=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,k)=>s.classList.toggle('active',k===idx));
+  document.getElementById('counter').textContent=(idx+1)+' / '+slides.length;
+  document.getElementById('cur').textContent=idx+1;
+  document.getElementById('tot').textContent=slides.length;
+  document.getElementById('progress').style.width=((idx+1)/slides.length*100)+'%';
+  // trigger per-slide init
+  if(idx===5) initRagPipe();
+  if(idx===7) initEmbed();
+  if(idx===9) resetRetrieval();
+  if(idx===14) initLoop();
+}
+function nav(d){show(idx+d)}
+addEventListener('keydown',e=>{
+  if(e.key==='ArrowRight'||e.key===' '||e.key==='PageDown'){e.preventDefault();nav(1)}
+  if(e.key==='ArrowLeft'||e.key==='PageUp'){e.preventDefault();nav(-1)}
+  if(e.key==='Home')show(0);
+  if(e.key==='End')show(slides.length-1);
+  if(e.key==='f'||e.key==='F'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen()}
+  if(e.key==='g'||e.key==='G'){document.querySelectorAll('.grid').forEach(g=>g.style.display=g.style.display==='none'?'':'none')}
+});
+let touchX=0;
+addEventListener('touchstart',e=>touchX=e.touches[0].clientX);
+addEventListener('touchend',e=>{let dx=e.changedTouches[0].clientX-touchX; if(Math.abs(dx)>50) nav(dx<0?1:-1)});
+
+// RAG PIPE INTERACTIVE
+const ragData=[
+  {title:'STEP 1 — INGESTION PIPELINE',badge:'OFFLINE',html:`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div><b style="font-size:12px">📄 Upload</b><div class="code" style="margin-top:6px">POST /api/documents/upload
+→ simpan file + ekstrak struktur
+→ {headings, tables, flows, paragraphs}</div>
+      <b style="font-size:12px;margin-top:10px;display:block">✂️ Chunking (structure-aware)</b><div class="chunk-demo"><div class="chunk hl">Chunk 1: heading+para (Bab 1)</div><div class="chunk hl">Chunk 2: table utuh (p2)</div><div class="chunk hl">Chunk 3: flow (p3)</div></div></div>
+      <div><b style="font-size:12px">🧮 Embedding</b><div class="code" style="margin-top:6px">model.encode(chunk) → 384-dim
+[0.02, -0.34, 0.88, ...]</div>
+      <b style="font-size:12px;margin-top:10px;display:block">💾 Vector DB + Metadata</b><div class="code" style="margin-top:6px">{
+  id: "doc1_chunk2",
+  vector: [...],
+  metadata: {
+    doc_id, page, hierarchy: ["SOP","Bab1"],
+    type: "table", visualizable: true
+  }
+}</div></div>
+    </div>`},
+  {title:'STEP 2 — RETRIEVAL PIPELINE',badge:'ONLINE',html:`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div><b style="font-size:12px">🔍 Query Embedding</b><div class="code" style="margin-top:6px">query = "Berapa hari cuti tahunan?"
+q_emb = model.encode(query)  # 384-dim
+
+# Cosine similarity
+scores = cosine_sim(q_emb, all_chunks)
+top_k = argsort(scores)[-5:]</div>
+      <b style="font-size:12px;margin-top:10px;display:block">🏆 Reranking (optional)</b><div class="code" style="margin-top:6px">reranker = CrossEncoder('bge-reranker-base')
+reranked = reranker.rank(query, top_k_chunks)
+# lebih akurat dari cosine saja</div></div>
+      <div><b style="font-size:12px">📊 Similarity Scores (live)</b><div style="margin-top:8px;display:flex;flex-direction:column;gap:6px">
+        <div style="display:flex;justify-content:space-between;font-size:11px"><span>Chunk 2 (table p2)</span><span style="color:var(--emerald)">0.89</span></div><div class="chart-bar"><div style="width:89%"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:11px"><span>Chunk 1 (Bab 1)</span><span style="color:var(--emerald)">0.82</span></div><div class="chart-bar"><div style="width:82%"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:11px"><span>Chunk 5 (flow p3)</span><span>0.71</span></div><div class="chart-bar"><div style="width:71%"></div></div>
+        <div style="display:flex;justify-content:space-between;font-size:11px"><span>Chunk 9 (unrelated)</span><span style="color:var(--rose)">0.32</span></div><div class="chart-bar"><div style="width:32%;background:var(--rose)"></div></div>
+      </div>
+      <div style="margin-top:10px;padding:8px;background:var(--emerald-soft);border:1px solid rgba(16,185,129,.2);border-radius:8px;font-size:11px"><b style="color:var(--emerald)">✓ Threshold 0.7:</b> hanya pakai chunks dengan score > 0.7 untuk cegah hallucination</div></div>
+    </div>`},
+  {title:'STEP 3 — GENERATION + VISUAL',badge:'GROUNDED',html:`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+      <div><b style="font-size:12px">📝 Prompt Augmented</b><div class="code" style="margin-top:6px">SYSTEM: Jawab HANYA dari konteks. Sertakan [n].
+
+KONTEKS:
+[1] (p2, table): Cuti Tahunan 12 hari
+[2] (p3, flow): Karyawan→Atasan→HR
+[3] (p1): Hak setelah 12 bulan
+
+USER: Berapa hari cuti tahunan dan prosesnya?
+
+LLM → "12 hari [1], setelah 12 bulan [3]. Proses: ... [2]"</div></div>
+      <div><b style="font-size:12px">🎨 Visual Generation</b><div class="code" style="margin-top:6px"><span class="c">// Jika user minta visual:</span>
+Agent call create_diagram(
+  nodes=[{id:"A",label:"Karyawan"},...],
+  edges=[{from:"A",to:"B"}]
+)
+→ return {
+  mermaid: "flowchart TD...",
+  graph: {nodes, edges}  <span class="c">// structured!</span>
+}
+→ Frontend: &lt;GraphView graph={...} /&gt;
+→ DOM interaktif: drag/zoom/click</div>
+      <div style="margin-top:8px;display:flex;gap:6px"><span class="badge badge-ok">grounded</span><span class="badge badge-vec">cited [1][2]</span><span class="badge badge-llm">visual native</span></div></div>
+    </div>`}
+];
+function initRagPipe(){
+  const pipe=document.getElementById('rag-pipe');
+  if(!pipe) return;
+  pipe.querySelectorAll('.rag-step').forEach(el=>{
+    el.onclick=()=>{
+      pipe.querySelectorAll('.rag-step').forEach(s=>s.classList.remove('active'));
+      el.classList.add('active');
+      const step=parseInt(el.dataset.step);
+      document.getElementById('rag-title').textContent=ragData[step].title;
+      document.getElementById('rag-badge').textContent=ragData[step].badge;
+      document.getElementById('rag-detail').innerHTML=ragData[step].html;
+    }
+  });
+  // init first
+  document.getElementById('rag-detail').innerHTML=ragData[0].html;
+}
+initRagPipe();
+
+// CHUNK DEMO
+function initChunkDemo(){
+  const el=document.getElementById('chunk-demo');
+  if(!el) return;
+  el.innerHTML='';
+  const chunks=[
+    {label:'Chunk 1',text:'Bab 1: Jenis Cuti... 12 hari',color:'var(--emerald)'},
+    {label:'Chunk 2',text:'| Jenis | Durasi |... (table utuh)',color:'var(--sky)'},
+    {label:'Chunk 3',text:'Karyawan → Atasan → HR (flow)',color:'var(--accent)'},
+  ];
+  chunks.forEach(c=>{
+    const d=document.createElement('div');
+    d.className='chunk hl';
+    d.style.borderLeft=`3px solid ${c.color}`;
+    d.innerHTML=`<b>${c.label}</b><br/>${c.text}`;
+    el.appendChild(d);
+  });
+}
+initChunkDemo();
+
+// EMBEDDING CANVAS
+let embedInited=false;
+function initEmbed(){
+  if(embedInited) return;
+  embedInited=true;
+  const canvas=document.getElementById('embedChart');
+  if(!canvas) return;
+  const ctx=canvas.getContext('2d');
+  const tooltip=document.getElementById('embed-tooltip');
+  const dots=[
+    {x:180,y:120,label:'Query: "cuti tahunan"',type:'query',color:'#a78bfa'},
+    {x:200,y:140,label:'Chunk: Cuti tahunan 12 hari (table p2)',type:'cuti tahunan',color:'#10b981'},
+    {x:220,y:130,label:'Chunk: Jatah libur tahunan karyawan',type:'cuti tahunan',color:'#10b981'},
+    {x:190,y:160,label:'Chunk: Hak cuti setelah 12 bulan kerja',type:'cuti tahunan',color:'#10b981'},
+    {x:350,y:180,label:'Chunk: Cuti sakit sesuai surat dokter',type:'cuti sakit',color:'#38bdf8'},
+    {x:370,y:200,label:'Chunk: Cuti melahirkan 90 hari',type:'cuti sakit',color:'#38bdf8'},
+    {x:100,y:250,label:'Chunk: Kebijakan WFH',type:'unrelated',color:'#f59e0b'},
+    {x:480,y:100,label:'Chunk: Laporan keuangan Q3',type:'unrelated',color:'#f59e0b'},
+    {x:450,y:250,label:'Chunk: Struktur organisasi',type:'unrelated',color:'#f59e0b'},
+    {x:120,y:80,label:'Chunk: Aturan lembur',type:'unrelated',color:'#f59e0b'},
+  ];
+  function draw(){
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // grid
+    ctx.strokeStyle='rgba(255,255,255,.04)';
+    ctx.lineWidth=1;
+    for(let i=0;i<canvas.width;i+=60){ctx.beginPath();ctx.moveTo(i,0);ctx.lineTo(i,canvas.height);ctx.stroke()}
+    for(let i=0;i<canvas.height;i+=60){ctx.beginPath();ctx.moveTo(0,i);ctx.lineTo(canvas.width,i);ctx.stroke()}
+    // connections from query
+    const q=dots[0];
+    dots.slice(1).forEach(d=>{
+      const dist=Math.hypot(d.x-q.x,d.y-q.y);
+      const opacity=Math.max(0,1-dist/400);
+      if(opacity>0.1){
+        ctx.strokeStyle=`rgba(124,92,252,${opacity*0.3})`;
+        ctx.lineWidth=1;
+        ctx.beginPath();ctx.moveTo(q.x,q.y);ctx.lineTo(d.x,d.y);ctx.stroke();
+      }
+    });
+    // dots
+    dots.forEach(d=>{
+      ctx.fillStyle=d.color;
+      ctx.beginPath();ctx.arc(d.x,d.y,d.type==='query'?8:6,0,Math.PI*2);ctx.fill();
+      if(d.type==='query'){
+        ctx.strokeStyle='rgba(167,139,250,.4)';ctx.lineWidth=8;ctx.beginPath();ctx.arc(d.x,d.y,12,0,Math.PI*2);ctx.stroke();
+      }
+    });
+  }
+  draw();
+  canvas.addEventListener('mousemove',e=>{
+    const rect=canvas.getBoundingClientRect();
+    const mx=(e.clientX-rect.left)*(canvas.width/rect.width);
+    const my=(e.clientY-rect.top)*(canvas.height/rect.height);
+    let hover=null;
+    dots.forEach(d=>{if(Math.hypot(d.x-mx,d.y-my)<12) hover=d});
+    if(hover){
+      tooltip.style.display='block';
+      tooltip.style.left=(e.clientX-rect.left+12)+'px';
+      tooltip.style.top=(e.clientY-rect.top-30)+'px';
+      tooltip.innerHTML=`<b style="color:${hover.color}">${hover.type}</b><br/>${hover.label}<br/><small style="color:var(--mut)">dist: ${Math.hypot(hover.x-dots[0].x,hover.y-dots[0].y).toFixed(0)}</small>`;
+    } else tooltip.style.display='none';
+  });
+  canvas.addEventListener('mouseleave',()=>tooltip.style.display='none');
+}
+
+// RETRIEVAL ANIMATION
+function playRetrieval(){
+  const status=document.getElementById('ret-status');
+  const bar1=document.getElementById('ret-bar1');
+  const scores=document.getElementById('ret-scores');
+  const results=document.getElementById('ret-results');
+  const steps=['ret-0','ret-1','ret-2','ret-3'];
+  steps.forEach(id=>document.getElementById(id)?.classList.remove('hl'));
+  status.textContent='Embedding query...';
+  document.getElementById('ret-0')?.classList.add('hl');
+  bar1.style.width='0%';
+  scores.innerHTML='';
+  results.innerHTML='';
+  setTimeout(()=>{
+    document.getElementById('ret-1')?.classList.add('hl');
+    bar1.style.width='100%';
+    status.textContent='Similarity search top-k=5...';
+    setTimeout(()=>{
+      document.getElementById('ret-2')?.classList.add('hl');
+      scores.innerHTML=`<div>Chunk2 table: 0.89</div><div>Chunk1 text: 0.82</div><div>Chunk5 flow: 0.71</div><div>Chunk9 other: 0.32</div>`;
+      status.textContent='Reranking & filtering...';
+      setTimeout(()=>{
+        document.getElementById('ret-3')?.classList.add('hl');
+        status.textContent='✓ Done — 2 chunks relevan (threshold 0.7)';
+        results.innerHTML=`
+          <div class="card" style="border-left:3px solid var(--emerald)"><b>Chunk 2 — Table p2 (0.89)</b><br/><small>| Jenis | Durasi |... Cuti Tahunan 12 hari</small><br/><span class="badge badge-ok">keep</span></div>
+          <div class="card" style="border-left:3px solid var(--emerald)"><b>Chunk 1 — Text p1 (0.82)</b><br/><small>Cuti tahunan hak setelah 12 bulan...</small><br/><span class="badge badge-ok">keep</span></div>
+          <div class="card" style="border-left:3px solid var(--rose);opacity:.7"><b>Chunk 9 — Unrelated (0.32)</b><br/><small>Laporan keuangan Q3...</small><br/><span class="badge" style="background:var(--rose-soft);color:var(--rose)">filtered out</span></div>
+        `;
+      },800);
+    },800);
+  },600);
+}
+function resetRetrieval(){
+  document.getElementById('ret-status').textContent='Klik Play untuk simulasi';
+  document.getElementById('ret-bar1').style.width='0%';
+  document.getElementById('ret-scores').innerHTML='';
+  document.getElementById('ret-results').innerHTML='';
+  document.querySelectorAll('#retrieval-flow .node').forEach(n=>n.classList.remove('hl'));
+}
+
+// AGENT LOOP
+const loopData=[
+  {title:'STEP 1 — PROMPT ASSEMBLY',html:`<div class="code">SYSTEM: Kamu adalah asisten...
+Aturan:
+- Jawab HANYA dari konteks dokumen
+- Sertakan sitasi [n]
+- Jika butuh data, panggil tool retrieve_knowledge
+- Jika butuh visual, panggil create_diagram/create_chart
+
+TOOLS:
+- retrieve_knowledge(query, top_k, filter)
+- create_diagram(kind, nodes, edges)
+- create_chart(data, chart_type, x_key, y_key)
+- web_search(query)
+- calculator(expr)
+
+MESSAGES:
+[User] "Buatkan flowchart proses cuti"
+[History] ...
+
+→ Kirim ke LLM dengan tool_schemas[]</div>`},
+  {title:'STEP 2 — LLM STREAMING',html:`<div class="code"><span class="c">// SSE stream dari provider</span>
+data: {"choices":[{"delta":{"content":"&lt;think&gt;User mau flowchart, perlu cari flow structure dulu"}}]}
+data: {"choices":[{"delta":{"content":"&lt;/think&gt;"}}]}
+data: {"choices":[{"delta":{"tool_calls":[{"index":0,"function":{"name":"retrieve_knowledge","arguments":"{\\"query\\": \\"proses cuti flow\\""}}]}}]}
+data: {"choices":[{"finish_reason":"tool_calls"}]}
+
+<span class="c">// Di frontend: Interpreter panel</span>
+<span class="k">thinking</span> · 45 tokens · "User mau flowchart..."
+<span class="k">tool_call</span> · retrieve_knowledge {query: "proses cuti flow"}
+</div><p style="margin-top:8px;font-size:11px;color:var(--mut)">Parser di <code>streamtags.py</code> handle &lt;think&gt; yang terbelah antar chunk, tool args dicicil per index</p>`},
+  {title:'STEP 3 — TOOL SELECTION',html:`<div class="code"><span class="c">// LLM memutuskan tool berdasarkan deskripsi & args schema</span>
+{
+  "tool_calls": [
+    {
+      "id": "call_abc123",
+      "name": "retrieve_knowledge",
+      "arguments": {
+        "query": "proses pengajuan cuti flow",
+        "top_k": 5,
+        "filter": {"type": "flow"}
+      }
+    }
+  ]
+}
+
+<span class="c">// Bisa multiple tools sekaligus (parallel):</span>
+{
+  "tool_calls": [
+    {"name":"retrieve_knowledge","arguments":{"query":"SOP cuti"}},
+    {"name":"web_search","arguments":{"query":"SOP cuti Indonesia"}}
+  ]
+}</div><p style="margin-top:8px;font-size:11px;color:var(--amber)">⚠️ LLM tidak eksekusi tool sendiri — dia hanya output JSON, backend yang eksekusi</p>`},
+  {title:'STEP 4 — TOOL EXECUTION',html:`<div class="code"><span class="c">// backend/app/agent/loop.py</span>
+tool = get_tool("retrieve_knowledge")
+result = await asyncio.wait_for(
+  tool.run({"query":"proses cuti flow", "top_k":5, "filter":{"type":"flow"}}, ctx),
+  timeout=30
+)
+
+<span class="c">// Tool implementation (rag.py)</span>
+<span class="k">async def</span> run(args, ctx):
+  q_emb = embedder.encode(args.query)
+  results = vectorstore.query(q_emb, top_k=5, filter=args.filter)
+  <span class="k">return</span> ToolResult(
+    summary=f"{len(results)} chunks found",
+    data={"results": results, "query": args.query},
+    ok=True, hits=len(results)
+  )
+
+<span class="c">// Hasil:</span>
+{
+  "results": [
+    {"text":"Karyawan → Atasan → HR → Selesai", "score":0.89, "metadata":{...}},
+  ]
+}</div>`},
+  {title:'STEP 5 — OBSERVATION',html:`<div class="code"><span class="c">// Hasil tool dimasukkan ke messages sebagai role:tool</span>
+messages.append({
+  "role": "tool",
+  "tool_call_id": "call_abc123",
+  "content": json.dumps({
+    "results": [{"text":"Karyawan → Atasan → HR → Selesai", "score":0.89}]
+  })
+})
+
+<span class="c">// + sources registry untuk sitasi</span>
+sources.register_tool_result("retrieve_knowledge", args, payload)
+<span class="c">// → prompt_block() untuk next LLM call:</span>
+"""
+Daftar sumber:
+[1] (SOP-Cuti.pdf, p3, flow): Karyawan → Atasan → HR → Selesai
+"""
+
+<span class="c">// + hint system</span>
+messages.append({role:"system", content: TOOL_RESULT_HINT})
+<span class="c">// "Tool results appended. Tulis jawaban final sekarang atau panggil tool lagi jika perlu."</span></div>`},
+  {title:'STEP 6 — LOOP / FINAL ANSWER',html:`<div class="code"><span class="c">// LLM dipanggil lagi dengan context baru (hasil tool)</span>
+<span class="k">for</span> step <span class="k">in</span> range(max_steps):
+  events = await provider.stream(messages, tool_schemas)
+  <span class="k">if</span> not events.tool_calls:
+    <span class="k">break</span>  <span class="c"># final answer</span>
+  <span class="c"># else loop lagi</span>
+
+<span class="c">// Contoh step 2: LLM lihat flow structure, decide butuh visual</span>
+{
+  "tool_calls": [{
+    "name": "create_diagram",
+    "arguments": {
+      "kind": "flowchart",
+      "nodes": [{"id":"A","label":"Karyawan"},...],
+      "edges": [{"from":"A","to":"B",...}]
+    }
+  }]
+}
+
+<span class="c">// Setelah semua tools, LLM generate final:</span>
+"Proses pengajuan cuti: Karyawan mengajukan ke Atasan, 
+ kemudian ke HR, lalu selesai [1].
+
+ [Visual flowchart interaktif di bawah]"
+
+<span class="c">// Backend verifikasi sitasi + simpan diagrams artifact</span>
+answer, citations = finalize_answer(answer, sources)
+diagrams = [{"tool":"create_diagram","mermaid":..., "graph":{...}}]</div>`}
+];
+function initLoop(){
+  const steps=document.getElementById('loop-steps');
+  if(!steps) return;
+  steps.querySelectorAll('.loop-step').forEach(el=>{
+    el.onclick=()=>{
+      steps.querySelectorAll('.loop-step').forEach(s=>s.classList.remove('active'));
+      el.classList.add('active');
+      const idx=parseInt(el.dataset.loop);
+      document.getElementById('loop-title').textContent=loopData[idx].title;
+      document.getElementById('loop-detail').innerHTML=loopData[idx].html;
+    }
+  });
+  document.getElementById('loop-detail').innerHTML=loopData[0].html;
+}
+initLoop();
+
+// VISUAL GENERATOR DEMO
+function genVisual(type){
+  const out=document.getElementById('visual-output');
+  const title=document.getElementById('visual-title');
+  if(type==='chart'){
+    title.textContent='📊 BAR CHART — DOM Element (bukan image)';
+    out.innerHTML=`
+      <div style="width:100%;padding:12px">
+        <b style="font-size:12px">Durasi Cuti per Jenis</b>
+        <div style="margin-top:12px;display:flex;flex-direction:column;gap:10px">
+          <div><div style="display:flex;justify-content:space-between;font-size:11px"><span>Tahunan</span><span>12 hari</span></div><div class="chart-bar"><div style="width:40%;background:linear-gradient(90deg,#7c5cfc,#38bdf8)"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px"><span>Sakit</span><span>~14 hari (rata-rata)</span></div><div class="chart-bar"><div style="width:46%;background:linear-gradient(90deg,#38bdf8,#10b981)"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px"><span>Melahirkan</span><span>90 hari</span></div><div class="chart-bar"><div style="width:100%;background:linear-gradient(90deg,#f59e0b,#fb7185)"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;font-size:11px"><span>Besar</span><span>30 hari</span></div><div class="chart-bar"><div style="width:33%;background:linear-gradient(90deg,#10b981,#38bdf8)"></div></div></div>
+        </div>
+        <div style="margin-top:12px;font-size:10px;color:var(--mut);font-family:var(--mono)">✓ DOM element • hover untuk detail • bisa filter • data dari tool JSON, bukan string</div>
+        <div class="code" style="margin-top:10px;font-size:10px">Tool return: {type:"chart", chart_type:"bar", data:[{x:"Tahunan",y:12},...], x_key:"x", y_key:"y"}</div>
+      </div>`;
+  } else if(type==='table'){
+    title.textContent='📋 TABLE — Interaktif Sortable';
+    out.innerHTML=`
+      <div style="width:100%;padding:12px">
+        <div style="display:flex;justify-content:space-between;align-items:center"><b style="font-size:12px">Tabel Durasi Cuti</b><span class="badge badge-ok">sortable • filterable</span></div>
+        <table style="margin-top:10px"><tr><th>Jenis ▲</th><th>Durasi</th><th>Approval</th></tr><tr><td>Tahunan</td><td>12 hari</td><td>Atasan</td></tr><tr><td>Sakit</td><td>Sesuai surat</td><td>HR</td></tr><tr><td>Melahirkan</td><td>90 hari</td><td>HR</td></tr><tr><td>Besar</td><td>30 hari</td><td>Direksi</td></tr></table>
+        <div style="margin-top:10px;font-size:10px;color:var(--mut);font-family:var(--mono)">✓ click header untuk sort • search filter • pagination • export CSV</div>
+        <div class="code" style="margin-top:10px;font-size:10px">Tool return: {type:"table", headers:["Jenis","Durasi","Approval"], rows:[["Tahunan","12 hari","Atasan"],...]}</div>
+      </div>`;
+  } else if(type==='flow'){
+    title.textContent='🔀 FLOWCHART — GraphView Interaktif';
+    out.innerHTML=`
+      <div style="width:100%;padding:12px">
+        <b style="font-size:12px">Flowchart Proses Cuti</b>
+        <div style="margin-top:12px;display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap">
+          <div style="padding:10px 14px;background:var(--accent-soft);border:1px solid var(--accent);border-radius:12px;font-size:11px;text-align:center;cursor:grab">👤<br/>Karyawan<br/><small style="color:var(--mut)">requester</small></div>
+          <span style="color:var(--accent);font-weight:800">→</span>
+          <div style="padding:10px 14px;background:var(--sky-soft);border:1px solid var(--sky);border-radius:12px;font-size:11px;text-align:center;cursor:grab">👔<br/>Atasan<br/><small style="color:var(--mut)">approver 1</small></div>
+          <span style="color:var(--accent);font-weight:800">→</span>
+          <div style="padding:10px 14px;background:var(--emerald-soft);border:1px solid var(--emerald);border-radius:12px;font-size:11px;text-align:center;cursor:grab">🏢<br/>HR<br/><small style="color:var(--mut)">verifikasi</small></div>
+          <span style="color:var(--accent);font-weight:800">→</span>
+          <div style="padding:10px 14px;background:#1e1e2e;border:1px solid #3a3a52;border-radius:12px;font-size:11px;text-align:center">✅<br/>Selesai</div>
+        </div>
+        <div style="margin-top:14px;display:flex;gap:6px;justify-content:center"><span class="badge badge-llm">drag node</span><span class="badge badge-vec">zoom</span><span class="badge badge-ok">click → detail</span><span class="badge" style="background:#1e1e2e;color:#9aa0b2">fullscreen</span></div>
+        <div style="margin-top:10px;font-size:10px;color:var(--mut);font-family:var(--mono)">✓ Ini GraphView.tsx — komponen yang sudah ada di repo, reuse untuk RAG visual • bukan Mermaid SVG statis</div>
+        <div class="code" style="margin-top:10px;font-size:10px">Tool return: {type:"flowchart", nodes:[{id:"A",label:"Karyawan",data:{role:"requester"}},...], edges:[{from:"A",to:"B",label:"ajukan"}]}</div>
+      </div>`;
+  }
+}
+
+// INIT
+show(0);
+</script>
+</body>
+</html>
