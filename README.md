@@ -63,6 +63,34 @@ sitasi karangan.
   dinormalkan.
 - **Siap produksi**: `Dockerfile` multi-stage (backend + frontend dalam satu
   container, satu port publik) untuk deploy di **Coolify** / VPS mana pun.
+- **Halaman Admin (`/admin`) — pipeline governance**: atur **mode** yang boleh
+  dipakai user (teks, gambar, diagram, PPT, RAG, deep research) dan **tool**
+  yang boleh dieksekusi agent (`web_search`, `fetch_url`, `create_diagram`,
+  `calculator`, `generate_image`, `generate_ppt`, `save_memory`). Penegakan
+  **server-side**: tool yang dimatikan tidak diiklankan ke model dan panggilan
+  liar ditolak + terecord. Konsol bisa dilindungi `ASK_ADMIN_TOKEN`
+  (`X-Admin-Token`).
+- **Mode Gambar & PPT**: `generate_image` (poster generatif offline atau
+  gateway OpenAI-compatible) dan `generate_ppt` (deck `.pptx` via python-pptx)
+  — hasilnya **artifact** teregistry: file + metadata + kartu unduh di chat +
+  kelola/hapus di /admin.
+- **Manajemen memori**: memori (admin / AI via `save_memory` / hasil feedback)
+  di-inject ke system prompt tiap run — perilaku berubah tanpa restart. CRUD
+  lengkap di /admin.
+- **Feedback 👍/👎 → pedoman perilaku**: user menilai jawaban (+komentar);
+  feedback terecord lengkap dengan konteks run (mode, tool, cuplikan jawaban).
+  👎 berkomentar otomatis jadi **pedoman** (memory `source=feedback`) yang
+  menggeser perilaku run berikutnya; admin bisa review/apply manual, matikan
+  auto-guidance, atau mematikan feedback sepenuhnya.
+- **Mode RAG — upload PDF otomatis**: parsing (`pypdf`) → chunking (sliding
+  window per halaman) → embedding (`hashing-v1` 384-dim deterministik) →
+  index (SQLite) → retrieval (cosine top-k) → generate dengan sitasi `[n]`
+  terverifikasi. Semua tahap terlihat: status per dokumen di panel RAG +
+  event `rag_stage`/`rag_retrieve` di interpreter.
+- **Mechanistic Interpreter selalu-on**: kontrak produk (dikunci di kode) —
+  setiap request/response LLM, thinking, logprobs, tool call, event RAG,
+  artifact, dan keputusan policy terecord di SQLite & bisa di-replay.
+  Slide: `docs/slides-admin-pipeline.html` (+ versi `.pptx`).
 
 ```
 ┌──────────────┐   SSE (/api/chat)   ┌──────────────────────────────┐
@@ -339,6 +367,44 @@ dipakai UI untuk melabeli:
 | `fetch_url` | 🌐 browser | Ambil & ekstrak teks sebuah halaman (readability ringan); sumber ditandai `read=True` |
 | `create_diagram` | 🔀 tool diagram | Generate Mermaid: `flowchart`, `graph`, `mindmap` dari `nodes`/`edges` (menerima JSON string, dict `{id: label}`, alias `source`/`target`, edge string `"A -> B: label"`, atau sumber `mermaid` jadi); endpoint yang belum dideklarasikan dibuat otomatis supaya tidak ada edge yang hilang. UI merender payload-nya sebagai kartu graph interaktif. **Bukan** bukti web, jadi tidak pernah masuk registri sitasi |
 | `calculator` | 🧮 compute | Aritmetika aman (AST), dapat diverifikasi ulang tanpa sitasi |
+| `generate_image` | 🔀 tool diagram (baru) | Gambar dari prompt → **artifact**: gateway `/images/generations` (provider `openai`) atau poster SVG generatif offline (`poster-v1`, deterministik dari hash prompt) — meta selalu menyebut generatornya |
+| `generate_ppt` | 🔀 tool diagram (baru) | Deck `.pptx` dari outline `{title, slides:[{title,bullets[]}]}` (python-pptx) → **artifact** + kartu unduh |
+| `save_memory` | 🧮 compute (baru) | AI menyimpan memori jangka panjang (diatur `memory.allow_ai_write`) |
+
+## Halaman Admin — pipeline governance (`/admin`)
+
+Konsol untuk mengatur AI **sebelum dipublish ke user**. Satu sumber kebijakan
+(`backend/app/governance.py`, tabel `admin_policy`) menegakkan aturan di server:
+
+| Tab | Isi |
+|---|---|
+| **Ringkasan** | Counter (percakapan, event interpreter, artifact, dokumen RAG siap, rasio feedback), status proteksi token, checklist publish |
+| **Pipeline** | Toggle 6 mode + 7 tool, parameter RAG (chunk/overlap/top-k/batas upload), memori, feedback/auto-guidance, interpreter (record logprobs & payload; *always-on* terkunci) |
+| **Memori** | CRUD memori (badge asal: admin / AI / feedback), aktif/nonaktif — ter-inject ke system prompt tiap run |
+| **Artifact** | Grid semua keluaran (gambar/deck/dokumen) dengan asal run, buka/unduh/hapus, filter kind |
+| **Feedback** | Daftar 👍/👎 + komentar + konteks run, statistik rasio, aksi **“Jadikan pedoman”** (feedback → memori → prompt) |
+
+Mode yang dimatikan: disembunyikan di UI **dan** ditolak API (SSE error / HTTP
+403). Tool yang dimatikan: tidak diiklankan ke model; bila model memanggilnya,
+loop menolak mengeksekusi, merecord event `policy`, dan memberi tahu model.
+
+```text
+GET  /api/policy                     proyeksi publik policy (gating UI)
+POST /api/feedback                   👍/👎 + komentar (record + auto-guidance)
+POST /api/rag/upload|query           pipeline RAG (ingest & retrieve-generate)
+GET  /api/artifacts/{id}/download    unduh artifact
+── dilindungi X-Admin-Token bila ASK_ADMIN_TOKEN diset ──
+GET/PUT   /api/admin/policy          baca / deep-merge kebijakan
+GET       /api/admin/overview        statistik dashboard
+CRUD      /api/admin/memories        manajemen memori
+CRUD      /api/admin/artifacts       registry artifact
+CRUD      /api/admin/feedback        review + POST …/apply (→ pedoman)
+```
+
+Cara kerja tiap pipeline (dari awal sampai akhir, plus paket yang dipakai)
+ada di slide **`docs/slides-admin-pipeline.html`** — buka juga dari halaman
+Admin → “Docs cara kerja” (diserve di `/slides/…`), tersedia versi
+`docs/slides-admin-pipeline.pptx`.
 
 ## Konfigurasi (env, prefix `ASK_`)
 
@@ -359,6 +425,8 @@ dipakai UI untuk melabeli:
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+key masing-masing) |
 | `ASK_SEARCH_DDG_URL` | `https://lite.duckduckgo.com/lite/` | Endpoint pencarian — ke gateway internal/self-host, atau `scripts/fake_search_server.py` untuk uji E2E tanpa internet |
 | `ASK_DB_PATH` | `data/ask_anything.db` | SQLite (di container: `/app/data/ask_anything.db`) |
+| `ASK_ADMIN_TOKEN` | – (terbuka) | Bila diset, semua `/api/admin/*` wajib header `X-Admin-Token` |
+| `ASK_ARTIFACTS_DIR` / `ASK_RAG_DIR` | `data/artifacts` / `data/rag` | Penyimpanan file artifact & arsip PDF RAG |
 
 Semua juga bisa diubah runtime dari UI → *Settings provider*.
 

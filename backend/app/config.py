@@ -80,6 +80,12 @@ class Settings(BaseSettings):
     deep_research_max_queries: int = 6
     deep_research_max_results_per_query: int = 8
 
+    # ---- governance (halaman Admin) ----
+    #: Bila diset, semua endpoint /api/admin/* mewajibkan header X-Admin-Token.
+    admin_token: str = ""
+    artifacts_dir: str = "data/artifacts"   # penyimpanan artifact (gambar/pptx)
+    rag_dir: str = "data/rag"               # arsip PDF mentah mode RAG
+
     # ---- storage ----
     db_path: str = "data/ask_anything.db"
 

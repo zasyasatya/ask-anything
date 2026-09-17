@@ -138,6 +138,11 @@ def test_defaults_to_active_provider(client, monkeypatch, stub):
 
     stub(handler)
     update_settings(provider="huggingface", hf_base_url="http://127.0.0.1:8081/v1")
-    out = _probe(client, {})
-    assert out["provider"] == settings.provider == "huggingface"
-    assert out["models"][0]["id"] == "local-model"
+    try:
+        out = _probe(client, {})
+        assert out["provider"] == settings.provider == "huggingface"
+        assert out["models"][0]["id"] == "local-model"
+    finally:
+        # `settings` adalah singleton global — tanpa restore, semua tes di
+        # belakangnya tiba-tiba memakai provider huggingface, bukan mock.
+        update_settings(provider="mock")

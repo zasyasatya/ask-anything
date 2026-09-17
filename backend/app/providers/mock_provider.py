@@ -15,6 +15,11 @@ from .base import BaseProvider, StreamEvent
 
 _SEARCH_RE = re.compile(r"\b(cari|search|berita|news|harga|price|cuaca|weather)\b", re.I)
 _DIAGRAM_RE = re.compile(r"\b(diagram|flowchart|alur|graph|graf|mindmap|skema)\b", re.I)
+#: Mode yang dipilih user di composer → dikirim agent loop sebagai arah di
+#: system prompt ("MODE: gambar" / "MODE: PPT"). Mock mengenali arah itu agar
+#: demo offline menunjukkan alur tool generatif yang sama seperti provider nyata.
+_IMAGE_MODE_RE = re.compile(r"MODE: gambar", re.I)
+_PPT_MODE_RE = re.compile(r"MODE: PPT", re.I)
 
 
 def _fake_logprobs(token: str) -> dict[str, Any]:
@@ -43,10 +48,15 @@ class MockProvider(BaseProvider):
         text = " ".join(
             m.get("content") or "" for m in messages if m.get("role") == "user"
         )
+        system = " ".join(
+            m.get("content") or "" for m in messages if m.get("role") == "system"
+        )
         already_tool = any(m.get("role") == "tool" for m in messages)
         return {
             "search": bool(_SEARCH_RE.search(text)),
             "diagram": bool(_DIAGRAM_RE.search(text)),
+            "image_mode": bool(_IMAGE_MODE_RE.search(system)),
+            "ppt_mode": bool(_PPT_MODE_RE.search(system)),
             "already_tool": already_tool,
         }
 
@@ -63,6 +73,16 @@ class MockProvider(BaseProvider):
                 continue
             if isinstance(data, dict):
                 out.append(data)
+        return out
+
+    @staticmethod
+    def _artifacts(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Artefak (gambar/PPT) yang benar-benar dibuat tool — tautan nyata."""
+        out: list[dict[str, Any]] = []
+        for data in MockProvider._tool_payloads(messages):
+            art = data.get("artifact")
+            if isinstance(art, dict) and art.get("url"):
+                out.append(art)
         return out
 
     @staticmethod
@@ -93,9 +113,17 @@ class MockProvider(BaseProvider):
         top_logprobs: int = 4,
     ) -> AsyncIterator[StreamEvent]:
         wants = self._wants(messages)
+        user_text = " ".join(
+            m.get("content") or "" for m in messages if m.get("role") == "user"
+        ).strip()
+        # Hanya tool yang benar-benar diiklankan boleh dipanggil — mode RAG
+        # tidak memberi tool apa pun, jadi mock langsung menjawab dari konteks.
+        tool_names = {t["function"]["name"] for t in tools or []}
+        rag_context = any("DOCUMENT CONTEXT" in (m.get("content") or "")
+                          for m in messages if m.get("role") == "system")
         await asyncio.sleep(0)
 
-        if wants["search"] and not wants["already_tool"]:
+        if wants["search"] and "web_search" in tool_names and not wants["already_tool"]:
             yield StreamEvent(
                 "thinking",
                 {"text": "Pengguna meminta informasi terkini → saya perlu "
@@ -110,7 +138,7 @@ class MockProvider(BaseProvider):
             yield StreamEvent("done", {"finish_reason": "tool_calls"})
             return
 
-        if wants["diagram"] and not wants["already_tool"]:
+        if wants["diagram"] and "create_diagram" in tool_names and not wants["already_tool"]:
             yield StreamEvent(
                 "thinking",
                 {"text": "Ini permintaan visual → saya susun node & edge lalu "
@@ -144,6 +172,49 @@ class MockProvider(BaseProvider):
             yield StreamEvent("done", {"finish_reason": "tool_calls"})
             return
 
+        if wants["image_mode"] and "generate_image" in tool_names and not wants["already_tool"]:
+            yield StreamEvent(
+                "thinking",
+                {"text": "Mode gambar aktif → saya panggil generate_image "
+                          "dengan prompt deskriptif dari permintaan user."},
+            )
+            yield StreamEvent(
+                "tool_calls",
+                {"calls": [{"id": "call_mock_img",
+                            "name": "generate_image",
+                            "arguments": {"prompt": text[:300] or "ilustrasi abstrak"}}]},
+            )
+            yield StreamEvent("done", {"finish_reason": "tool_calls"})
+            return
+
+        if wants["ppt_mode"] and "generate_ppt" in tool_names and not wants["already_tool"]:
+            topic = (user_text[:80] or "Topik presentasi").strip()
+            yield StreamEvent(
+                "thinking",
+                {"text": "Mode PPT aktif → saya susun outline lalu panggil "
+                          "generate_ppt untuk membuat deck .pptx."},
+            )
+            yield StreamEvent(
+                "tool_calls",
+                {"calls": [{"id": "call_mock_ppt",
+                            "name": "generate_ppt",
+                            "arguments": {
+                                "title": topic,
+                                "slides": [
+                                    {"title": "Latar belakang",
+                                     "bullets": ["Konteks " + topic,
+                                                 "Mengapa penting"]},
+                                    {"title": "Rencana",
+                                     "bullets": ["Langkah 1", "Langkah 2",
+                                                 "Langkah 3"]},
+                                    {"title": "Kesimpulan",
+                                     "bullets": ["Ringkasan", "Langkah berikutnya"]},
+                                ],
+                            }}]},
+            )
+            yield StreamEvent("done", {"finish_reason": "tool_calls"})
+            return
+
         # final answer turn
         yield StreamEvent(
             "thinking",
@@ -151,7 +222,20 @@ class MockProvider(BaseProvider):
                       "Saya rangkum menjadi jawaban akhir."},
         )
         hits = self._search_hits(messages)
-        if hits:
+        if rag_context:
+            ctx_line = ""
+            for m in messages:
+                if m.get("role") == "system" and "DOCUMENT CONTEXT" in (m.get("content") or ""):
+                    body = m["content"].split("[1]", 1)
+                    ctx_line = ("[1]" + body[1])[:220].strip() if len(body) > 1 else ""
+                    break
+            answer = (
+                "Berdasarkan dokumen yang diunggah: "
+                + (ctx_line or "potongan relevan ditemukan")
+                + " [1]. Jawaban ini murni dari konteks dokumen — bukan dari "
+                  "pengetahuan umum model."
+            )
+        elif hits:
             # Hanya fakta yang benar-benar ada di payload yang boleh disitasi.
             first = hits[0]
             answer = (
@@ -167,6 +251,15 @@ class MockProvider(BaseProvider):
                 "jawaban final yang bisa memuat diagram Mermaid. "
                 "Catatan: browsing belum menghasilkan data apa pun, jadi tidak "
                 "ada klaim yang bisa disitasi pada jawaban ini."
+            )
+        artifacts_out = self._artifacts(messages)
+        if artifacts_out:
+            links = " · ".join(
+                f"[{a.get('kind', 'artifact')}]({a.get('url', '#')})"
+                for a in artifacts_out)
+            answer += (
+                f"\n\nArtefak siap diunduh: {links}. Semua tahap pembuatannya "
+                "terekord di Mechanistic Interpreter."
             )
         diagram = self._diagram_source(messages)
         if diagram:
