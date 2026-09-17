@@ -16,6 +16,8 @@ export default function Composer({
   accent,
   onAccent,
   compact,
+  deepResearch,
+  onDeepResearch,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -24,6 +26,8 @@ export default function Composer({
   accent: string;
   onAccent: (a: string) => void;
   compact?: boolean;
+  deepResearch?: boolean;
+  onDeepResearch?: (v: boolean) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -48,7 +52,13 @@ export default function Composer({
             if (value.trim() && !disabled) onSend();
           }
         }}
-        placeholder={compact ? "Lanjutkan percakapan …" : "Tanyakan apa pun — browsing, diagram, analisis …"}
+        placeholder={
+          deepResearch
+            ? "Masukkan topik untuk riset mendalam (mis: artificial intelligence, quantum computing)…"
+            : compact
+            ? "Lanjutkan percakapan …"
+            : "Tanyakan apa pun — browsing, diagram, analisis …"
+        }
         className="w-full resize-none bg-transparent text-[15px] leading-6 text-zinc-800 placeholder-zinc-400 outline-none"
       />
       <div className="mt-2 flex items-center justify-between">
@@ -62,6 +72,28 @@ export default function Composer({
             </svg>
             4 tools
           </span>
+          {onDeepResearch && (
+            <button
+              onClick={() => onDeepResearch(!deepResearch)}
+              title={
+                deepResearch
+                  ? "Deep Research ON — Klik untuk matikan (kembali ke mode chat biasa)"
+                  : "Deep Research OFF — Klik untuk mengaktifkan mode riset mendalam dengan canvas interaktif"
+              }
+              className={`flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition ${
+                deepResearch
+                  ? "border-violet-300 bg-violet-50 text-violet-700"
+                  : "border-zinc-200 bg-zinc-50 text-zinc-500 hover:bg-zinc-100"
+              }`}
+            >
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <circle cx="11" cy="11" r="8" />
+                <path d="M21 21l-4.35-4.35" />
+                <path d="M11 8v6M8 11h6" />
+              </svg>
+              {deepResearch ? "Deep Research ✓" : "Deep Research"}
+            </button>
+          )}
           <div className="flex items-center gap-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5">
             {Object.entries(ACCENTS).map(([name, c]) => (
               <button

@@ -14,8 +14,14 @@ import {
   listConversations,
   loadConversation,
   streamChat,
+  streamDeepResearch,
   updateSettings,
 } from "@/lib/api";
+import DeepResearchCanvas, {
+  type ResearchState,
+  type ResearchProgress,
+} from "@/components/DeepResearchCanvas";
+import Composer from "@/components/Composer";
 import { EMPTY_LIVE, reduceLive } from "@/lib/live";
 import type { Conversation, SettingsInfo, TraceEvent } from "@/lib/types";
 
@@ -75,6 +81,11 @@ export default function Page() {
   const [llm, setLlm] = useState<boolean | null>(null);
   const [localState, setLocalState] = useState<string | null>(null);
   const [accent, setAccent] = useState("indigo");
+  // ---- deep research mode ----
+  const [deepResearch, setDeepResearch] = useState(false);
+  const [researchState, setResearchState] = useState<ResearchState | null>(null);
+  const [researchProgress, setResearchProgress] = useState<ResearchProgress | null>(null);
+  const [researchStreaming, setResearchStreaming] = useState(false);
   // ---- loading screen: aplikasi tidak pernah tampil setengah-hidup ----
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
@@ -196,13 +207,118 @@ export default function Page() {
     setLive(EMPTY_LIVE);
   }
 
+  async function sendDeepResearch(topicOverride?: string) {
+    const topic = (topicOverride ?? input).trim();
+    if (!topic || researchStreaming) return;
+    setInput("");
+    setResearchStreaming(true);
+    setResearchState(null);
+    setResearchProgress(null);
+    setShowInt(true);
+    setTrace([]);
+
+    const toolEvents: Array<Record<string, unknown>> = [];
+    const queries: string[] = [];
+
+    try {
+      await streamDeepResearch(topic, (ev) => {
+        const type = String(ev.type || "");
+
+        if (type === "research_phase") {
+          const p: ResearchProgress = {
+            phase: String(ev.phase || ""),
+            query: ev.query as string | undefined,
+            query_index: ev.query_index as number | undefined,
+            total_queries: ev.total_queries as number | undefined,
+            queries_list: queries.length > 0 ? queries : undefined,
+          };
+          setResearchProgress(p);
+        } else if (type === "research_tool") {
+          toolEvents.push(ev);
+          const callId = `dr-${toolEvents.length}`;
+          setTrace((t) => [
+            ...t,
+            {
+              type: "tool_call",
+              name: String(ev.name || ""),
+              arguments: { query: ev.query, url: ev.url },
+              id: callId,
+              source: "browser",
+            },
+          ]);
+          setTrace((t) => [
+            ...t,
+            {
+              type: "tool_result",
+              name: String(ev.name || ""),
+              id: callId,
+              ok: Boolean(ev.ok),
+              hits: ev.hits as number | undefined,
+              summary: `${ev.name}: ${ev.hits ?? 0} hasil`,
+              duration_ms: ev.duration_ms as number,
+              source: "browser",
+            },
+          ]);
+        } else if (type === "start") {
+          if (ev.queries) {
+            queries.push(...(ev.queries as string[]));
+          }
+          setResearchProgress({
+            phase: "expanding",
+            queries_list: ev.queries as string[],
+          });
+        } else if (type === "research_done") {
+          const state: ResearchState = {
+            topic: String(ev.topic || topic),
+            nodes: (ev.nodes as ResearchState["nodes"]) || [],
+            groups: (ev.groups as ResearchState["groups"]) || null,
+            queries: (ev.queries as string[]) || queries,
+            tool_events: (ev.tool_events as ResearchState["tool_events"]) || [],
+            summary: String(ev.summary || ""),
+            total_nodes: Number(ev.total_nodes || 0),
+            total_sources: Number(ev.total_sources || 0),
+            elapsed_ms: Number(ev.elapsed_ms || 0),
+          };
+          setResearchState(state);
+        } else if (type === "error") {
+          setResearchState({
+            topic,
+            nodes: [],
+            groups: null,
+            queries: [],
+            tool_events: [],
+            summary: `Error: ${ev.message}`,
+            total_nodes: 0,
+            total_sources: 0,
+            elapsed_ms: 0,
+          });
+        }
+      });
+    } catch (e) {
+      setResearchState({
+        topic,
+        nodes: [],
+        groups: null,
+        queries: [],
+        tool_events: [],
+        summary: `Error: ${String(e)}`,
+        total_nodes: 0,
+        total_sources: 0,
+        elapsed_ms: 0,
+      });
+    }
+
+    setResearchStreaming(false);
+    setResearchProgress(null);
+  }
+
   const accentVars = {
     "--accent": ACCENTS[accent].accent,
     "--accent-soft": ACCENTS[accent].soft,
     "--accent-ring": ACCENTS[accent].ring,
   } as CSSProperties;
 
-  const inChat = activeId !== null || messages.length > 0 || streaming;
+  const inChat = activeId !== null || messages.length > 0 || streaming || researchState !== null || researchStreaming;
 
   // Loading screen penuh sampai startup selesai (atau error + retry).
   if (booting) {
@@ -359,6 +475,53 @@ export default function Page() {
         )}
 
         {inChat ? (
+          deepResearch || researchState || researchStreaming ? (
+            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+              <div className="flex-1 overflow-y-auto">
+                <div className="mx-auto w-full max-w-[1180px] px-6 py-6 md:px-10">
+                  {/* Topic header */}
+                  {researchState && (
+                    <div className="mb-4 flex items-center gap-3">
+                      <button
+                        onClick={() => {
+                          setResearchState(null);
+                          setResearchProgress(null);
+                          setResearchStreaming(false);
+                        }}
+                        className="rounded-lg border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-zinc-50"
+                      >
+                        ← Kembali
+                      </button>
+                      <h2 className="text-lg font-semibold text-zinc-900">
+                        Deep Research: {researchState.topic}
+                      </h2>
+                    </div>
+                  )}
+                  <DeepResearchCanvas
+                    state={researchState}
+                    progress={researchProgress}
+                    streaming={researchStreaming}
+                  />
+                </div>
+              </div>
+              {/* Composer for new research */}
+              <div className="border-t border-zinc-200/70 bg-[#f7f7f8]/80 px-6 py-4 backdrop-blur md:px-10">
+                <div className="mx-auto w-full max-w-[1180px]">
+                  <Composer
+                    compact
+                    value={input}
+                    onChange={setInput}
+                    onSend={() => sendDeepResearch()}
+                    disabled={researchStreaming || streaming}
+                    accent={accent}
+                    onAccent={setAccent}
+                    deepResearch={deepResearch}
+                    onDeepResearch={setDeepResearch}
+                  />
+                </div>
+              </div>
+            </div>
+          ) : (
           <ChatView
             messages={messages}
             live={live}
@@ -368,20 +531,31 @@ export default function Page() {
             onSend={() => send()}
             accent={accent}
             onAccent={setAccent}
+            deepResearch={deepResearch}
+            onDeepResearch={setDeepResearch}
           />
+          )
         ) : (
           <Hero
             input={input}
             setInput={setInput}
-            onSend={() => send()}
-            streaming={streaming}
+            onSend={() => {
+              if (deepResearch) {
+                sendDeepResearch();
+              } else {
+                send();
+              }
+            }}
+            streaming={streaming || researchStreaming}
             accent={accent}
             onAccent={setAccent}
+            deepResearch={deepResearch}
+            onDeepResearch={setDeepResearch}
           />
         )}
       </main>
 
-      {showInt && <Interpreter trace={trace} streaming={streaming} onClose={() => setShowInt(false)} />}
+      {showInt && <Interpreter trace={trace} streaming={streaming || researchStreaming} onClose={() => setShowInt(false)} />}
 
       {showSettings && (
         <SettingsModal
