@@ -12,6 +12,10 @@ import Logo from "./Logo";
 import Composer from "./Composer";
 import { ThinkingIndicator } from "./LoadingScreen";
 import DiagramBlock from "./DiagramBlock";
+import type { PipelineMode, PolicyInfo } from "@/lib/types";
+import FeedbackButtons from "./FeedbackButtons";
+import ArtifactCards from "./ArtifactCards";
+import type { ArtifactRef } from "./ArtifactCards";
 import { answerHasDiagram, diagramArtifacts, type DiagramArtifact } from "@/lib/diagrams";
 import type { LiveState, LiveTool } from "@/lib/live";
 import {
@@ -30,6 +34,8 @@ export interface DispMsg {
   role: string;
   content: string;
   meta?: Record<string, unknown>;
+  /** id pesan assistant di DB — kunci tombol feedback 👍/👎. */
+  id?: string;
 }
 
 // Status live dimiliki lib/live.ts (reducer murni, teruji tanpa DOM) dan
@@ -237,6 +243,15 @@ export function CitationBar({
 /** Lebar ruang chat: lega, tapi tetap terkontrol di monitor ultrawide. */
 export const CHAT_WIDTH = "mx-auto w-full max-w-[1180px] px-6 md:px-10";
 
+/** Index pesan assistant terakhir di riwayat — tombol feedback hanya untuk
+    jawaban final terakhir supaya tidak berisik di percakapan panjang. */
+function lastAssistantIndex(messages: DispMsg[]): number {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "assistant") return i;
+  }
+  return -1;
+}
+
 export default function ChatView({
   messages,
   live,
@@ -248,6 +263,11 @@ export default function ChatView({
   onAccent,
   deepResearch,
   onDeepResearch,
+  conversationId,
+  feedbackEnabled,
+  policy,
+  mode,
+  onMode,
 }: {
   messages: DispMsg[];
   live: LiveState;
@@ -259,6 +279,14 @@ export default function ChatView({
   onAccent: (a: string) => void;
   deepResearch?: boolean;
   onDeepResearch?: (v: boolean) => void;
+  /** Mode RAG: pertanyaan diarahkan ke pipeline dokumen, bukan browsing. */
+  ragMode?: boolean;
+  /** Policy publik + mode aktif → chip mode di composer. */
+  policy?: PolicyInfo | null;
+  mode?: PipelineMode;
+  onMode?: (m: PipelineMode) => void;
+  conversationId?: string | null;
+  feedbackEnabled?: boolean;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -305,10 +333,17 @@ export default function ChatView({
                     diagrams={diagramArtifacts(m.meta?.diagrams)}
                     answer={m.content}
                   />
+                  <ArtifactCards artifacts={(m.meta?.artifacts as ArtifactRef[]) || []} />
                   <CitationBar
                     sources={(m.meta?.sources as SourceRef[]) || []}
                     report={(m.meta?.citations as CitationReport) || null}
                   />
+                  {feedbackEnabled && m.id && i === lastAssistantIndex(messages) && (
+                    <FeedbackButtons
+                      conversationId={conversationId || null}
+                      messageId={m.id}
+                    />
+                  )}
                 </div>
               </div>
             )
@@ -344,6 +379,7 @@ export default function ChatView({
                   diagrams={live.diagrams || []}
                   answer={live.answer}
                 />
+                <ArtifactCards artifacts={(live.artifacts as ArtifactRef[]) || []} />
                 {live.sources && live.sources.length > 0 && (
                   <CitationBar
                     sources={live.sources}
@@ -369,6 +405,9 @@ export default function ChatView({
             onAccent={onAccent}
             deepResearch={deepResearch}
             onDeepResearch={onDeepResearch}
+            policy={policy}
+            mode={mode}
+            onMode={onMode}
           />
         </div>
       </div>

@@ -35,6 +35,15 @@ export interface LiveTool {
   callId?: string;
 }
 
+export interface LiveArtifact {
+  id: string;
+  kind: string;
+  title: string;
+  url: string;
+  tool?: string;
+  size_bytes?: number;
+}
+
 export interface LiveState {
   answer: string;
   thinking: string;
@@ -45,6 +54,8 @@ export interface LiveState {
   citations?: CitationReport | null;
   /** Artefak diagram dari tool create_diagram (bukan fence di teks jawaban). */
   diagrams?: DiagramArtifact[];
+  /** Artefak gambar/PPTX dari tool generatif (mode gambar & PPT). */
+  artifacts?: LiveArtifact[];
 }
 
 export const EMPTY_LIVE: LiveState = {
@@ -54,6 +65,7 @@ export const EMPTY_LIVE: LiveState = {
   sources: [],
   citations: null,
   diagrams: [],
+  artifacts: [],
 };
 
 /** Event `citations` (trace akhir run) → CitationReport untuk bar sitasi. */
@@ -132,6 +144,22 @@ export function reduceLive(
         diagrams: mergeDiagram(state.diagrams || [], diagram),
       };
     }
+    case "artifact":
+      // Tool generatif menghasilkan artifact (gambar/PPTX) → kartu unduhan.
+      if (!ev.id) return state;
+      return {
+        ...state,
+        artifacts: [
+          ...(state.artifacts || []).filter((a) => a.id !== ev.id),
+          {
+            id: String(ev.id),
+            kind: String(ev.kind || "data"),
+            title: String(ev.title || ""),
+            url: String(ev.url || ""),
+            tool: ev.tool as string | undefined,
+          },
+        ],
+      };
     case "agent_done":
       // Snapshot akhir run: kartu diagram + daftar sumber tetap ada walau
       // pengambilan ulang riwayat gagal.

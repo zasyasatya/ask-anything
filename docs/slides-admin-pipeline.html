@@ -1,0 +1,569 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Ask Anything — Admin Pipeline & Governance</title>
+<style>
+  :root{
+    --bg:#f4f4f5; --card:#ffffff; --ink:#18181b; --mut:#71717a; --line:#e4e4e7;
+    --accent:#6366f1; --accent-soft:#eef2ff; --amber:#f59e0b; --emerald:#10b981;
+    --sky:#0ea5e9; --violet:#8b5cf6; --red:#ef4444;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    --sans:"Inter",ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{height:100%}
+  body{font-family:var(--sans);background:var(--bg);color:var(--ink);overflow:hidden}
+  .deck{height:100%;display:flex;flex-direction:column}
+  header{display:flex;align-items:center;justify-content:space-between;
+    padding:10px 22px;border-bottom:1px solid var(--line);background:#fbfbfc}
+  header .brand{display:flex;gap:8px;align-items:center;font-weight:600;font-size:14px}
+  header .brand .mark{width:14px;height:14px;background:var(--ink);
+    clip-path:polygon(0 35%,100% 0,100% 65%,0 100%);}
+  header .meta{font-size:12px;color:var(--mut);font-family:var(--mono)}
+  main{flex:1;position:relative;overflow:hidden}
+  .slide{position:absolute;inset:0;display:none;padding:44px 64px;overflow:auto}
+  .slide.active{display:block;animation:fade .25s ease}
+  @keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+  .grid-bg{background-image:linear-gradient(to right,rgb(0 0 0/.035) 1px,transparent 1px),
+    linear-gradient(to bottom,rgb(0 0 0/.035) 1px,transparent 1px);background-size:56px 56px}
+  h1{font-size:46px;letter-spacing:-.02em;line-height:1.12}
+  h2{font-size:29px;letter-spacing:-.01em;margin-bottom:6px}
+  .sub{color:var(--mut);font-size:15px}
+  .pill{display:inline-block;border:1px solid var(--line);background:#ececee;
+    border-radius:6px;padding:3px 10px;font-size:12px;color:#52525b;margin-bottom:18px}
+  .cols{display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:20px}
+  .cols3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px;margin-top:20px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;
+    padding:16px 20px;box-shadow:0 8px 24px -14px rgb(0 0 0/.15)}
+  .card h3{font-size:15px;margin-bottom:8px}
+  ul{margin:8px 0 0 18px;font-size:14px;line-height:1.7;color:#3f3f46}
+  li b{color:var(--ink)}
+  code,pre{font-family:var(--mono)}
+  pre{background:#18181b;color:#e4e4e7;border-radius:10px;padding:14px 16px;
+    font-size:12px;line-height:1.6;overflow:auto}
+  pre .c{color:#8b8b93} pre .k{color:#a5b4fc} pre .g{color:#6ee7b7} pre .y{color:#fcd34d} pre .r{color:#fda4af}
+  .flow{display:flex;gap:8px;align-items:stretch;flex-wrap:wrap;margin-top:16px}
+  .node{border:1px solid var(--line);border-radius:12px;background:#fff;
+    padding:11px 13px;font-size:12px;min-width:126px;box-shadow:0 4px 14px -10px rgb(0 0 0/.2)}
+  .node b{display:block;font-size:12.5px;margin-bottom:3px}
+  .node small{color:var(--mut);line-height:1.45;display:block}
+  .arrow{align-self:center;color:var(--accent);font-size:18px;font-weight:700}
+  .tag{display:inline-block;border-radius:6px;padding:1px 8px;font-size:11px;
+    font-family:var(--mono);margin-right:6px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:12px}
+  th,td{border:1px solid var(--line);padding:6px 10px;text-align:left;vertical-align:top}
+  th{background:#fafafa}
+  td code{font-size:11px;background:#f4f4f5;padding:1px 5px;border-radius:5px}
+  .gate{border:2px dashed var(--accent);background:var(--accent-soft);
+    border-radius:12px;padding:11px 13px;font-size:12px;min-width:126px}
+  .gate b{display:block;font-size:12.5px;margin-bottom:3px;color:#3730a3}
+  footer{display:flex;justify-content:space-between;align-items:center;
+    padding:8px 22px;border-top:1px solid var(--line);background:#fbfbfc;
+    font-size:12px;color:var(--mut)}
+  #bar{height:3px;background:var(--accent);width:0;transition:width .25s}
+  button{border:1px solid var(--line);background:#fff;border-radius:8px;
+    padding:4px 12px;font-size:12px;cursor:pointer;color:#3f3f46}
+  button:hover{background:#f4f4f5}
+  .warn{border-left:3px solid var(--amber);background:#fffbeb;border-radius:8px;
+    padding:10px 14px;font-size:13px;color:#713f12;margin-top:14px}
+  .ok{border-left:3px solid var(--emerald);background:#ecfdf5;border-radius:8px;
+    padding:10px 14px;font-size:13px;color:#065f46;margin-top:14px}
+</style>
+</head>
+<body>
+<div class="deck">
+<header>
+  <div class="brand"><span class="mark"></span> ask-anything · admin pipeline</div>
+  <div class="meta">governance · memory · artifacts · feedback · rag · interpreter · 2026</div>
+</header>
+<div id="bar"></div>
+<main id="deck">
+
+<!-- ============ 1 ============ -->
+<section class="slide grid-bg active">
+  <span class="pill">Halaman Admin — siap publish</span>
+  <h1>Admin Pipeline &amp; Governance</h1>
+  <p class="sub" style="margin-top:10px">Satu konsol untuk memutuskan apa yang boleh dijalankan AI —
+  seperti console admin Claude: <b>mode</b>, <b>tool</b>, <b>memori</b>, <b>artifact</b>,
+  <b>feedback 👍/👎</b>, <b>RAG</b> — dan semua langkah terekord di
+  <b>Mechanistic Interpreter</b> yang selalu aktif.</p>
+  <div class="cols" style="margin-top:26px">
+    <div class="card"><h3>Kenapa perlu governance?</h3><ul>
+      <li>Tool eksternal (browsing) &amp; generatif (gambar, PPT) = <b>permukaan risiko</b>.</li>
+      <li>Perilaku model perlu bisa <b>diarahkan tanpa redeploy</b> (memori + feedback).</li>
+      <li>Keluaran biner harus <b>terregistry &amp; bisa diaudit</b>.</li>
+      <li>User eksternal = percaya harus <b>dibuktikan dengan jejak</b>.</li>
+    </ul></div>
+    <div class="card"><h3>Prinsip desain</h3><ul>
+      <li><b>Server-side enforcement</b> — UI hanya menyembunyikan; API menolak.</li>
+      <li><b>Interpreter always-on</b> — dikunci di kode, bukan preferensi.</li>
+      <li><b>Satu sumber kebijakan</b> (<code>governance.py</code>) untuk semua gate.</li>
+      <li><b>Semua fitur jalan offline</b> (provider mock / HF lokal) supaya layak demo.</li>
+    </ul></div>
+  </div>
+  <p class="sub" style="margin-top:22px">Navigasi: ← / → · <b>f</b> layar penuh · dibuka juga dari halaman Admin → “Docs cara kerja”.</p>
+</section>
+
+<!-- ============ 2 ============ -->
+<section class="slide">
+  <h2>1 · Arsitektur governance — satu pintu kebijakan</h2>
+  <div class="flow">
+    <div class="node"><b>User (chat UI)</b><small>Next.js /admin &amp; /<br/>composer mode chips</small></div>
+    <div class="arrow">→</div>
+    <div class="gate"><b>GET /api/policy</b><small>proyeksi publik policy<br/>(menggerakkan UI)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>FastAPI routes</b><small>chat / rag / research<br/><code>mode_allowed()</code></small></div>
+    <div class="arrow">→</div>
+    <div class="gate"><b>governance.policy()</b><small>SQLite admin_policy<br/>deep-merge per section</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>agent loop</b><small>tool schemas difilter,<br/>panggilan liar ditolak</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>tools + artifacts</b><small>web_search … generate_ppt<br/>+ registry file</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>interpreter</b><small>semua event → SQLite<br/>(selalu record)</small></div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div class="card"><h3>Admin API (dilindungi token)</h3>
+<pre>PUT  /api/admin/policy     <span class="c"># deep-merge per section</span>
+GET  /api/admin/overview   <span class="c"># statistik dashboard</span>
+CRUD /api/admin/memories   <span class="c"># memori jangka panjang</span>
+CRUD /api/admin/artifacts  <span class="c"># registry keluaran</span>
+CRUD /api/admin/feedback   <span class="c"># + POST …/apply</span></pre></div>
+    <div class="card"><h3>Auth konsol</h3><ul>
+      <li>Set <code>ASK_ADMIN_TOKEN</code> → semua <code>/api/admin/*</code> wajib header
+          <code>X-Admin-Token</code>.</li>
+      <li>Kosong (default) = terbuka untuk mode lokal/demo.</li>
+      <li>Enforcement untuk <b>end-user</b> tetap server-side, apa pun status token.</li>
+      <li>UI menampilkan badge status proteksi di topbar Admin.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 3 ============ -->
+<section class="slide">
+  <h2>2 · Pipeline chat yang di-govern: dari request ke jawaban</h2>
+  <div class="flow">
+    <div class="node"><b>1 · Request</b><small>POST /api/chat<br/>{message, mode}</small></div>
+    <div class="arrow">→</div>
+    <div class="gate"><b>2 · Mode gate</b><small>mode tidak diizinkan → SSE error<br/>“dimatikan oleh admin”</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>3 · Prompt assembly</b><small>system + <b>MEMORI</b> + <b>PEDOMAN FEEDBACK</b> + arah mode</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>4 · Tool schema filter</b><small>hanya tool yang diizinkan yang diiklankan ke model</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>5 · Agent loop</b><small>streaming + tool calls<br/>maks N langkah</small></div>
+    <div class="arrow">→</div>
+    <div class="gate"><b>6 · Tool gate</b><small>tool diblokir → tidak dieksekusi,<br/>event <code>policy</code> + pesan ke model</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>7 · Artifact</b><small>gambar/PPT → file + row registry<br/>+ event <code>artifact</code></small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>8 · Citations</b><small>marker [n] diverifikasi<br/>terhadap sumber</small></div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div class="card"><h3>Yang berubah di agent loop</h3><ul>
+      <li><code>run_agent(..., mode)</code> — arah mode jadi bagian system prompt
+          (mis. mode PPT → “panggil <code>generate_ppt</code>”).</li>
+      <li>System prompt <b>benar-benar dikirim</b> ke provider (sebelumnya hanya
+          direcord — bug lama yang ikut diperbaiki).</li>
+      <li><code>ToolContext</code> membawa <code>conversation_id</code> + <code>run_id</code>
+          supaya artifact tahu asalnya.</li>
+      <li><code>agent_done</code> kini membawa <code>message_id</code> → tombol 👍/👎
+          menempel pada pesan yang tepat.</li>
+    </ul></div>
+    <div class="card"><h3>Meta trace kini mencatat</h3>
+<pre>{
+  <span class="k">"mode"</span>: <span class="g">"ppt"</span>,
+  <span class="k">"policy"</span>: { modes, tools, feedback, memory },
+  <span class="k">"interpreter"</span>: { <span class="g">"always_on"</span>: true },
+  <span class="k">"memory"</span>: [ <span class="c">/* memori yang di-inject */</span> ],
+  <span class="k">"tools"</span>: [ <span class="c">/* hanya yang diizinkan */</span> ]
+}</pre></div>
+  </div>
+</section>
+
+<!-- ============ 4 ============ -->
+<section class="slide">
+  <h2>3 · Mode pipeline — apa saja yang boleh jalan di user</h2>
+  <table>
+    <tr><th>Mode</th><th>Isi pipeline</th><th>Gate backend</th><th>UI</th></tr>
+    <tr><td><b>text</b></td><td>chat + agent browsing (mode inti)</td><td><code>POST /api/chat</code></td><td>default</td></tr>
+    <tr><td><b>image</b></td><td><code>generate_image</code> → poster SVG offline atau gateway images (OpenAI-compatible)</td><td>tool gate + arah mode</td><td>chip 🖼️ Gambar</td></tr>
+    <tr><td><b>diagram</b></td><td><code>create_diagram</code> → kanvas interaktif</td><td>tool gate + arah mode</td><td>chip 🔀 Diagram</td></tr>
+    <tr><td><b>ppt</b></td><td><code>generate_ppt</code> → deck .pptx (python-pptx)</td><td>tool gate + arah mode</td><td>chip 📊 PPT</td></tr>
+    <tr><td><b>rag</b></td><td>upload PDF → parse → chunk → embed → retrieve → generate</td><td><code>/api/rag/*</code></td><td>chip 📚 RAG + panel upload</td></tr>
+    <tr><td><b>research</b></td><td>deep research multi-query</td><td><code>/api/deep-research</code></td><td>tombol Deep Research</td></tr>
+  </table>
+  <div class="cols" style="margin-top:18px">
+    <div class="card"><h3>Tool yang bisa dinyalakan/dimatikan</h3><ul>
+      <li><code>web_search</code>, <code>fetch_url</code> — bukti web (wajib sitasi).</li>
+      <li><code>create_diagram</code>, <code>calculator</code> — generatif/deterministik.</li>
+      <li><code>generate_image</code>, <code>generate_ppt</code> — mode baru.</li>
+      <li><code>save_memory</code> — AI menulis memori (dapat dimatikan terpisah).</li>
+    </ul></div>
+    <div class="card"><h3>Dua lapis penolakan</h3><ul>
+      <li><b>Tidak diiklankan</b>: schema tool tidak dikirim ke model → kebanyakan model tidak akan memanggilnya.</li>
+      <li><b>Tetap ditolak</b>: bila model meng-hallusinate nama tool, loop menolak mengeksekusi, merecord event
+          <code>policy</code>, dan memberi tahu model untuk lanjut tanpa tool itu.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 5 ============ -->
+<section class="slide">
+  <h2>4 · Pipeline manajemen memori</h2>
+  <div class="flow">
+    <div class="node"><b>Admin menulis</b><small>/admin → Memori<br/><code>POST /api/admin/memories</code></small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>AI menulis</b><small>tool <code>save_memory</code><br/>(butuh izin <code>allow_ai_write</code>)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Feedback menulis</b><small>👎+komentar → pedoman<br/>(source=feedback)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Tabel memories</b><small>scope · key · content<br/>source · enabled</small></div>
+    <div class="arrow">→</div>
+    <div class="gate"><b>Injection</b><small>tiap run: blok MEMORI +<br/>PEDOMAN FEEDBACK → system prompt</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Perilaku berubah</b><small>tanpa restart, tanpa redeploy<br/>terrecord di meta trace</small></div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div class="card"><h3>Bentuk blok di prompt</h3>
+<pre><span class="y">MEMORI JANGKA PANJANG</span> (atur dari halaman admin):
+- [tone] Selalu jawab ringkas dan santun (kebijakan admin)
+- User pakai bahasa Indonesia (dicatat agent)
+<span class="y">PEDOMAN DARI FEEDBACK USER</span>:
+- Perbaikan dari feedback user (👎): …</pre></div>
+    <div class="card"><h3>Aturan main</h3><ul>
+      <li><code>memory.enabled=false</code> → injection berhenti total.</li>
+      <li><code>allow_ai_write=false</code> → <code>save_memory</code> ditolak gate
+          (penolakan terecord).</li>
+      <li>Memori nonaktif tetap tersimpan — bisa diaktifkan kapan saja.</li>
+      <li>Batas: 24 item / 4.000 karakter per run supaya prompt ramping.</li>
+      <li>Asal memori selalu terlihat: badge admin / AI / feedback di /admin.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 6 ============ -->
+<section class="slide">
+  <h2>5 · Pipeline feedback 👍/👎 → mengatur ulang behaviour</h2>
+  <div class="flow">
+    <div class="node"><b>1 · User menilai</b><small>👍 / 👎 (+ komentar)<br/>di bawah jawaban</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>2 · Record</b><small>POST /api/feedback — rating, komentar, message_id, mode, tools, cuplikan jawaban</small></div>
+    <div class="arrow">→</div>
+    <div class="gate"><b>3 · Auto-guidance</b><small>👎 + komentar &amp; policy on →<br/>langsung jadi pedoman</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>4 · Review admin</b><small>/admin → Feedback:<br/>“Jadikan pedoman” / abaikan</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>5 · Memory feedback</b><small>memori source=feedback<br/>(badge amber, bisa dimatikan)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>6 · Run berikutnya</b><small>system prompt memuat pedoman →<br/>behaviour bergeser</small></div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div class="card"><h3>Yang terekcord per feedback</h3>
+<pre>{
+  <span class="k">"rating"</span>: <span class="g">"down"</span>, <span class="k">"comment"</span>: <span class="g">"terlalu bertele-tele"</span>,
+  <span class="k">"context"</span>: {
+    <span class="k">"mode"</span>: <span class="g">"text"</span>, <span class="k">"tools_used"</span>: [<span class="g">"web_search"</span>],
+    <span class="k">"answer_snippet"</span>: <span class="g">"Berikut ringkasan saya…"</span>,
+    <span class="k">"model"</span>: <span class="g">"mock-agent"</span>, <span class="k">"provider"</span>: <span class="g">"mock"</span>
+  },
+  <span class="k">"status"</span>: <span class="g">"applied"</span>, <span class="k">"guidance_memory_id"</span>: <span class="g">"…"</span>
+}</pre></div>
+    <div class="card"><h3>Kontrol admin</h3><ul>
+      <li><code>feedback.enabled</code> — matikan tombol sepenuhnya (403 di API).</li>
+      <li><code>feedback.auto_guidance</code> — pedoman otomatis atau lewat review manual.</li>
+      <li><code>max_guidance</code> — berapa banyak pedoman terbaru yang di-inject.</li>
+      <li>Statistik rasio 👍/👎 tampil di dashboard + tab Feedback.</li>
+      <li>Pedoman = memori biasa → bisa diaudit/dimatikan dari tab Memori.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 7 ============ -->
+<section class="slide">
+  <h2>6 · Pipeline penyimpanan artifact</h2>
+  <div class="flow">
+    <div class="node"><b>Tool generatif</b><small>generate_image / generate_ppt<br/>(diagram tetap di meta pesan)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>register_artifact()</b><small>file → <code>data/artifacts/&lt;id&gt;_&lt;nama&gt;</code><br/>row → tabel artifacts</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Event + meta</b><small>event <code>artifact</code> di interpreter,<br/>kartu unduh di chat (live &amp; riwayat)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Download</b><small>GET /api/artifacts/{id}/download<br/>(mime + filename asli)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Admin</b><small>/admin → Artifact:<br/>filter kind, buka, hapus</small></div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div class="card"><h3>Dua generator gambar, jujur soal asal</h3><ul>
+      <li><b>openai-images</b> — bila provider <code>openai</code> + key ada: POST
+          <code>{base}/images/generations</code> (b64/url).</li>
+      <li><b>poster-v1 (offline)</b> — fallback deterministik: poster SVG dari hash
+          prompt (gradient + geometri + teks). Selalu berhasil, cocok untuk demo
+          tanpa jaringan.</li>
+      <li>Meta artifact selalu menyimpan <code>generator</code> — tidak ada
+          keluaran yang menyembunyikan asalnya.</li>
+    </ul></div>
+    <div class="card"><h3>Retensi &amp; audit</h3><ul>
+      <li><code>artifacts.max_artifacts</code> — registry dipangkas FIFO.</li>
+      <li>Setiap row: conversation_id + run_id → bisa ditelusuri ke jejak
+          interpreter.</li>
+      <li>PPTX dibangun python-pptx dari outline terstruktur model → hasil
+          deterministik &amp; bisa dibaca ulang (outline di meta).</li>
+      <li>Hapus artifact = file + row ikut terhapus.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 8 ============ -->
+<section class="slide">
+  <h2>7 · Pipeline RAG (a) — ingest: upload PDF otomatis</h2>
+  <div class="flow">
+    <div class="node"><b>Upload</b><small>POST /api/rag/upload<br/>(multipart, hanya .pdf, batas MB)</small></div>
+    <div class="arrow">→</div>
+    <div class="gate"><b>Policy gate</b><small>mode rag aktif?<br/>ukuran ≤ max_upload_mb?</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>1 · Parsing</b><small><b>pypdf</b> — teks per halaman;<br/>halaman rusak dilewati, bukan gagal</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>2 · Chunking</b><small>sliding window per halaman<br/>(chunk_size 1200, overlap 150)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>3 · Embedding</b><small><b>hashing-v1</b>: unigram 1.0 + bigram 0.5<br/>→ vektor 384-dim L2-normalized</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>4 · Index</b><small>tabel rag_chunks<br/>(embedding JSON, tanpa server vektor)</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>Siap</b><small>status=ready + timings<br/>(parse/chunk/embed ms)</small></div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div class="card"><h3>Status dokumen = progres pipeline yang terlihat</h3>
+<pre>uploaded → parsing → chunking → embedding → <span class="g">ready</span>
+                                  ↘ <span class="r">error (+pesan)</span></pre>
+      <ul>
+        <li>Panel RAG menampilkan stage berjalan &amp; jumlah chunk/halaman.</li>
+        <li>Status &amp; <code>timings</code> tersimpan per dokumen (audit).</li>
+      </ul></div>
+    <div class="card"><h3>Kenapa embedding hashing?</h3><ul>
+      <li><b>Deterministik</b> — index tetap valid kapan pun di-query.</li>
+      <li><b>Tanpa server/model</b> — RAG jalan di CPU paling lemah pun.</li>
+      <li>Retrieval leksikal yang jujur (cosine); antarmuka <code>Embedder</code>
+          siap ditukar sentence-transformers/API tanpa mengubah pipeline.</li>
+      <li>Chunk tidak memotong halaman → sitasi selalu sebut halaman benar.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 9 ============ -->
+<section class="slide">
+  <h2>7 · Pipeline RAG (b) — query: retrieve → generate</h2>
+  <div class="flow">
+    <div class="node"><b>Pertanyaan</b><small>POST /api/rag/query (SSE)<br/>mode rag harus aktif</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>1 · Embed query</b><small>hashing-v1 384-dim<br/>event: <code>rag_stage</code></small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>2 · Retrieve</b><small>cosine vs semua chunk siap<br/>top-k + skor → event <code>rag_retrieve</code></small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>3 · Context</b><small>potongan bernomor [1..k]<br/>+ register sumber <code>rag://…</code></small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>4 · Generate</b><small>streaming provider<br/>RAG_SYSTEM_PROMPT: jawab hanya dari konteks</small></div>
+    <div class="arrow">→</div>
+    <div class="node"><b>5 · Sitasi</b><small>marker [n] diverifikasi<br/>+ bar sumber di UI</small></div>
+  </div>
+  <div class="cols" style="margin-top:22px">
+    <div class="card"><h3>Event yang dilihat user di interpreter</h3>
+<pre><span class="c"># timeline (persis seperti yang di-stream)</span>
+rag.embed       <span class="c">Query di-embed (hashing-v1, 384 dim)</span>
+rag.retrieve    <span class="c">2 potongan (top_k=4) · teratas handbook.pdf hal.1 @0.29</span>
+prompt.assemble <span class="c">3 messages · 0 tools</span>
+request #4 → stream → response #4 → usage
+citations       <span class="c">status · cited/uncited</span></pre></div>
+    <div class="card"><h3>Jaminan</h3><ul>
+      <li>Tanpa tool — jejak bersih: klaim ↔ potongan dokumen.</li>
+      <li>0 potongan cocok → diakui eksplisit, tidak mengarang.</li>
+      <li>Percakapan RAG tersimpan seperti chat biasa (riwayat + replay).</li>
+      <li><code>rag.top_k</code> &amp; parameter chunking diatur dari tab Pipeline.</li>
+    </ul></div>
+  </div>
+</section>
+
+<!-- ============ 10 ============ -->
+<section class="slide">
+  <h2>8 · Mechanistic Interpreter — selalu jalan, semuanya terecord</h2>
+  <div class="cols">
+    <div class="card"><h3>Yang direcord (SQLite trace_events)</h3><ul>
+      <li><code>meta</code> — provider, model, sampling, <b>mode</b>, snapshot policy, daftar memori, interpreter flags.</li>
+      <li><code>prompt</code> — system prompt final (memori + pedoman + arah mode) &amp; messages persis.</li>
+      <li><code>llm_request/llm_response</code> — payload, thinking, tool_calls, durasi.</li>
+      <li><code>thinking/delta/logprobs/usage</code> — token-per-token.</li>
+      <li><code>tool_call/tool_result</code> — argumen mentah + payload + status + durasi.</li>
+      <li><b>Baru:</b> <code>rag_stage</code>, <code>rag_retrieve</code>,
+          <code>artifact</code>, <code>policy</code> (keputusan governance).</li>
+    </ul></div>
+    <div class="card"><h3>Mengapa “selalu-on”?</h3><ul>
+      <li>Janji produk: setiap jawaban bisa <b>ditanya kenapa</b>.</li>
+      <li><code>interpreter.always_on</code> dikunci <code>True</code> di
+          <code>governance.policy()</code> — PUT dengan <code>false</code> diabaikan.</li>
+      <li>Admin tetap mengatur detail: <code>record_logprobs</code>,
+          <code>record_tool_payloads</code>.</li>
+      <li>UI: tab Log (timeline), LLM, Prompt, Tokens, Metrics, Sources — live
+          saat run &amp; replay dari riwayat.</li>
+    </ul></div>
+  </div>
+  <div class="ok" style="margin-top:20px">
+    Event governance juga masuk log: bila tool diblokir admin, user bisa melihat
+    baris <code>policy · tool_blocked</code> — transparansi berlaku juga untuk kebijakan itu sendiri.
+  </div>
+</section>
+
+<!-- ============ 11 ============ -->
+<section class="slide">
+  <h2>9 · Peta API (publik vs admin)</h2>
+  <div class="cols">
+    <div class="card"><h3>Publik (dipakai UI user)</h3>
+<pre>GET  /api/policy            <span class="c"># proyeksi policy untuk gating UI</span>
+POST /api/chat              <span class="c"># {message, conversation_id, mode}</span>
+POST /api/feedback          <span class="c"># 👍/👎 + komentar</span>
+POST /api/rag/upload        <span class="c"># multipart PDF → pipeline ingest</span>
+GET  /api/rag/documents     <span class="c"># daftar dokumen + status</span>
+DELETE /api/rag/documents/… <span class="c"># hapus dokumen + index</span>
+POST /api/rag/query         <span class="c"># SSE retrieve → generate</span>
+GET  /api/artifacts/…/download
+POST /api/deep-research     <span class="c"># gate mode research</span>
+GET  /api/health · /api/settings · /api/conversations</pre></div>
+    <div class="card"><h3>Admin (<code>X-Admin-Token</code> bila diset)</h3>
+<pre>GET  /api/admin/overview    <span class="c"># counters + stats + policy</span>
+GET  /api/admin/policy
+PUT  /api/admin/policy      <span class="c"># deep-merge per section</span>
+GET/POST/PATCH/DELETE
+     /api/admin/memories…
+GET/DELETE /api/admin/artifacts…
+GET  /api/admin/feedback
+PATCH      /api/admin/feedback/…   <span class="c"># status</span>
+POST       /api/admin/feedback/…/apply
+DELETE     /api/admin/feedback/…</pre></div>
+  </div>
+</section>
+
+<!-- ============ 12 ============ -->
+<section class="slide">
+  <h2>10 · Paket yang digunakan — backend (Python)</h2>
+  <table>
+    <tr><th>Paket</th><th>Peran</th><th>Dipakai di</th></tr>
+    <tr><td><code>fastapi</code> + <code>uvicorn[standard]</code></td><td>HTTP + SSE streaming monolith</td><td>seluruh API</td></tr>
+    <tr><td><code>pydantic</code> / <code>pydantic-settings</code></td><td>validasi body + settings env <code>ASK_*</code></td><td>routes, config</td></tr>
+    <tr><td><code>httpx</code></td><td>klien provider/search + test transport</td><td>providers, tools</td></tr>
+    <tr><td><code>beautifulsoup4</code></td><td>parse hasil browsing</td><td>web_search</td></tr>
+    <tr><td><code>pypdf</code> <span class="tag">baru</span></td><td>parsing PDF per halaman (pure-python)</td><td>RAG ingest</td></tr>
+    <tr><td><code>python-multipart</code> <span class="tag">baru</span></td><td>endpoint upload multipart</td><td>/api/rag/upload</td></tr>
+    <tr><td><code>python-pptx</code> <span class="tag">baru</span></td><td>rakit deck .pptx dari outline</td><td>generate_ppt</td></tr>
+    <tr><td><code>pytest</code> + <code>pytest-asyncio</code></td><td>185+ test (governance, memory, feedback, RAG, artifacts, API)</td><td>backend/tests</td></tr>
+    <tr><td><code>torch / transformers / accelerate</code> <span class="tag">opsional</span></td><td>inference HuggingFace lokal (requirements-local.txt)</td><td>provider huggingface</td></tr>
+  </table>
+  <p class="sub" style="margin-top:14px">Embedding RAG &amp; poster gambar sengaja <b>tanpa dependensi baru</b>
+  (stdlib hashing + SVG) supaya pipeline jalan di mana pun.</p>
+</section>
+
+<!-- ============ 13 ============ -->
+<section class="slide">
+  <h2>11 · Paket yang digunakan — frontend (Node)</h2>
+  <table>
+    <tr><th>Paket</th><th>Peran</th></tr>
+    <tr><td><code>next</code> 16 + <code>react</code> 19</td><td>App Router; rewrites proxy ke backend (browser tak perlu tahu port API)</td></tr>
+    <tr><td><code>tailwindcss</code></td><td>design system light/indigo, aksen dapat diganti</td></tr>
+    <tr><td><code>mermaid</code></td><td>mode pembanding render diagram</td></tr>
+    <tr><td><code>vitest</code> + <code>@testing-library</code></td><td>161 test: reducer live, interpreter, admin console, feedback buttons</td></tr>
+  </table>
+  <div class="cols" style="margin-top:16px">
+    <div class="card"><h3>Komponen baru</h3><ul>
+      <li><code>app/admin/page.tsx</code> + <code>components/admin/*</code> — konsol (Ringkasan/Pipeline/Memori/Artifact/Feedback).</li>
+      <li><code>RagPanel</code> — upload + progres pipeline + daftar dokumen.</li>
+      <li><code>FeedbackButtons</code> — 👍/👎 + komentar di chat.</li>
+      <li><code>ArtifactCards</code> — kartu gambar/deck (live &amp; riwayat).</li>
+      <li><code>ModeChips</code> di Composer — chip mode dari policy (🔒 untuk yang mati).</li>
+    </ul></div>
+    <div class="card"><h3>Aliran data</h3>
+<pre>UI ← GET /api/policy → sembunyikan mode/tool
+UI → POST /api/chat {mode} → SSE events
+      └ reduceLive(): answer, tools, sources,
+        diagrams, <b>artifacts</b>
+UI → POST /api/feedback {rating, message_id}
+Admin → PUT /api/admin/policy (deep-merge)
+      → refresh dashboard</pre></div>
+  </div>
+</section>
+
+<!-- ============ 14 ============ -->
+<section class="slide">
+  <h2>12 · Menjalankan &amp; checklist produksi</h2>
+  <div class="cols">
+    <div class="card"><h3>Menjalankan lokal</h3>
+<pre><span class="c"># backend (mode demo offline)</span>
+cd backend
+pip install -r requirements.txt
+ASK_PROVIDER=mock uvicorn app.main:app --port 8000
+
+<span class="c"># frontend</span>
+cd frontend &amp;&amp; npm ci &amp;&amp; npm run dev
+<span class="c"># → http://localhost:3000 · /admin</span>
+
+<span class="c"># tes</span>
+pytest tests -q          <span class="c"># backend</span>
+npm run test &amp;&amp; npm run typecheck  <span class="c"># frontend</span></pre></div>
+    <div class="card"><h3>Sebelum dipublish ke user</h3><ul>
+      <li>Set <code>ASK_ADMIN_TOKEN</code> (wajib di deployment publik).</li>
+      <li>Review tab Pipeline: matikan mode/tool yang belum diinginkan.</li>
+      <li>Isi memori dasar (tone, batasan produk).</li>
+      <li>Aktifkan feedback + auto-guidance, pantau rasio 👍/👎.</li>
+      <li>Upload dokumen RAG resmi (batas ukuran sudah di policy).</li>
+      <li>Interpreter: biarkan selalu-on — itu fitur auditnya.</li>
+    </ul></div>
+  </div>
+  <div class="warn" style="margin-top:18px">
+    Batas jujur: single-node SQLite (belum multi-tenant), embedding leksikal
+    (bukan semantic model), admin console satu peran (belum granular RBAC).
+    Semua sudah disiapkan antarmukanya untuk ditukar ke versi yang lebih besar.
+  </div>
+</section>
+
+<!-- ============ 15 ============ -->
+<section class="slide grid-bg">
+  <span class="pill">ringkasan</span>
+  <h1 style="font-size:38px">Pipeline yang layak publish = governance + transparansi + umpan balik</h1>
+  <ul style="margin-top:20px;font-size:15.5px">
+    <li><b>Satu policy</b> di server mengatur 6 mode &amp; 7 tool — UI dan API tunduk sama.</li>
+    <li><b>Memori + feedback</b> = dua jalur mengubah perilaku tanpa sentuh kode; asal-usul pedoman selalu terlihat.</li>
+    <li><b>Artifact</b> (gambar, PPT) teregistry, ter-label generator, bisa diaudit.</li>
+    <li><b>RAG</b> upload-and-go: parsing → chunking → embedding → retrieval → generate, semua tahap terlihat.</li>
+    <li><b>Interpreter selalu-on</b> — semua event, termasuk keputusan policy, terecord &amp; bisa di-replay.</li>
+    <li><b>Diuji</b>: 185+ tes backend + 161 tes frontend, termasuk gate governance &amp; pipeline RAG end-to-end.</li>
+  </ul>
+  <p class="sub" style="margin-top:24px">Slide terkait: <code>docs/slides-cara-kerja.html</code> (agent &amp; sitasi) ·
+  <code>docs/slides-rag-agent.html</code> · halaman <code>/panduan</code> &amp; <code>/developer</code>.</p>
+</section>
+
+</main>
+<footer>
+  <span id="ctr">1 / 15</span>
+  <span>Ask Anything · FastAPI + Next.js · 2026</span>
+  <span><button onclick="nav(-1)">←</button> <button onclick="nav(1)">→</button></span>
+</footer>
+</div>
+<script>
+const slides=[...document.querySelectorAll(".slide")];
+let i=0;
+function show(n){
+  i=Math.max(0,Math.min(slides.length-1,n));
+  slides.forEach((s,k)=>s.classList.toggle("active",k===i));
+  document.getElementById("ctr").textContent=(i+1)+" / "+slides.length;
+  document.getElementById("bar").style.width=((i+1)/slides.length*100)+"%";
+}
+function nav(d){show(i+d)}
+addEventListener("keydown",e=>{
+  if(e.key==="ArrowRight"||e.key===" "||e.key==="PageDown")nav(1);
+  if(e.key==="ArrowLeft"||e.key==="PageUp")nav(-1);
+  if(e.key==="Home")show(0); if(e.key==="End")show(slides.length-1);
+  if(e.key==="f"||e.key==="F"){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+});
+show(0);
+</script>
+</body>
+</html>

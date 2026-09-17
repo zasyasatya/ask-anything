@@ -98,15 +98,20 @@ def test_build_provider_covers_every_mode():
 
 
 async def test_mock_provider_tool_then_answer():
+    from app.tools import tool_schemas
+
     p = MockProvider()
+    tools = tool_schemas()
+    # Mock hanya memanggil tool yang diiklankan — kontrak yang sama dengan
+    # provider nyata (mode RAG mengiklankan tanpa tool).
     first = [e async for e in p.stream(
-        [{"role": "user", "content": "buatkan diagram alur x"}], [])]
+        [{"role": "user", "content": "buatkan diagram alur x"}], tools)]
     assert first[0].type == "thinking"
     tc = [e for e in first if e.type == "tool_calls"]
     assert tc and tc[0].data["calls"][0]["name"] == "create_diagram"
 
     second = [e async for e in p.stream(
         [{"role": "user", "content": "buatkan diagram alur x"},
-         {"role": "tool", "content": "{}"}], [])]
+         {"role": "tool", "content": "{}"}], tools)]
     assert any(e.type == "delta" for e in second)
     assert second[-1].type == "done"

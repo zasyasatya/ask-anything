@@ -10,9 +10,20 @@ from .base import (
 from .calculator import CALCULATOR
 from .diagrams import CREATE_DIAGRAM
 from .fetch_url import FETCH_URL
+from .generate_image import GENERATE_IMAGE
+from .generate_ppt import GENERATE_PPT
+from .save_memory import SAVE_MEMORY
 from .web_search import WEB_SEARCH
 
-ALL_TOOLS: list[Tool] = [WEB_SEARCH, FETCH_URL, CREATE_DIAGRAM, CALCULATOR]
+ALL_TOOLS: list[Tool] = [
+    WEB_SEARCH,
+    FETCH_URL,
+    CREATE_DIAGRAM,
+    CALCULATOR,
+    GENERATE_IMAGE,
+    GENERATE_PPT,
+    SAVE_MEMORY,
+]
 
 _BY_NAME = {t.name: t for t in ALL_TOOLS}
 

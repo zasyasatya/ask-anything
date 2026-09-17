@@ -4,5 +4,11 @@ httpx>=0.27
 pydantic>=2.7
 pydantic-settings>=2.3
 beautifulsoup4>=4.12
+# RAG pipeline (upload PDF → parsing → chunking → embedding → retrieval)
+pypdf>=4.2
+# Endpoint upload multipart (POST /api/rag/upload)
+python-multipart>=0.0.9
+# Mode PPT: generate deck .pptx dari outline (tool generate_ppt)
+python-pptx>=0.6.23
 pytest>=8.0
 pytest-asyncio>=0.24

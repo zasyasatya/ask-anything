@@ -110,8 +110,8 @@ export function buildLog(events: TraceEvent[]): LogLine[] {
       case "meta":
         push({
           tMs: t, step, durMs: null, level: "info", actor: "run",
-          action: "start", status: "n/a",
-          detail: `${String(e.provider ?? "?")} · ${String(e.model ?? "?")} · T=${String(e.temperature ?? "?")} · max_steps=${String(e.max_steps ?? "?")}`,
+          action: e.pipeline === "rag" ? "start (RAG)" : "start", status: "n/a",
+          detail: `${String(e.provider ?? "?")} · ${String(e.model ?? "?")}${e.mode ? ` · mode=${String(e.mode)}` : ""} · T=${String(e.temperature ?? "?")} · max_steps=${String(e.max_steps ?? "?")}${(e.memory as unknown[] | undefined)?.length ? ` · ${(e.memory as unknown[]).length} memori` : ""}`,
           raw: { ...e },
         });
         break;
@@ -183,6 +183,52 @@ export function buildLog(events: TraceEvent[]): LogLine[] {
           action: "sources", status: num(e.total) ? "ok" : "empty",
           detail: `${String(e.total ?? 0)} sumber terdaftar`,
           raw: { total: e.total, items: e.items },
+        });
+        break;
+      case "rag_stage": {
+        // Tahap pipeline RAG (embed query / assembly) — satu baris per tahap.
+        const ok = e.status !== "error";
+        push({
+          tMs: t, step, durMs: dur, level: ok ? "info" : "error",
+          actor: "rag", action: `rag.${String(e.stage ?? "?")}`,
+          status: ok ? "ok" : "failed",
+          detail: String(e.message ?? e.stage ?? ""),
+          raw: { ...e },
+        });
+        break;
+      }
+      case "rag_retrieve": {
+        const hits = (e.hits as Array<Record<string, unknown>>) || [];
+        const top = hits[0];
+        const ok = e.status !== "no-results" && e.status !== "error";
+        push({
+          tMs: t, step, durMs: dur, level: "info", actor: "rag",
+          action: "rag.retrieve", status: ok ? "ok" : "empty",
+          detail: hits.length
+            ? `${hits.length} potongan (top_k=${String(e.top_k ?? "?")}) · teratas ${
+                top ? `${String(top.doc_title)} hal.${String(top.page)} @${String(top.score)}` : "—"
+              }`
+            : `0 potongan cocok (top_k=${String(e.top_k ?? "?")})`,
+          raw: { top_k: e.top_k, hits },
+        });
+        break;
+      }
+      case "artifact":
+        push({
+          tMs: t, step, durMs: null, level: "tool", actor: String(e.tool ?? "tool"),
+          action: `artifact.${String(e.kind ?? "data")}`, status: "ok",
+          detail: `${String(e.title || e.id || "")} → ${String(e.url ?? "")}`,
+          raw: { ...e },
+        });
+        break;
+      case "policy":
+        // Keputusan governance (mis. tool diblokir admin) — wajib terlihat.
+        push({
+          tMs: t, step, durMs: null, level: "error", actor: "policy",
+          action: String(e.action ?? "enforce"),
+          status: e.status === "allowed" ? "ok" : "failed",
+          detail: String(e.message ?? ""),
+          raw: { ...e },
         });
         break;
       case "usage":

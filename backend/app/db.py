@@ -38,6 +38,70 @@ CREATE TABLE IF NOT EXISTS trace_events (
 );
 CREATE INDEX IF NOT EXISTS idx_messages_conv ON messages(conversation_id, ts);
 CREATE INDEX IF NOT EXISTS idx_trace_conv ON trace_events(conversation_id, id);
+
+-- ---- Admin / governance / RAG (fitur publikasi) --------------------------
+CREATE TABLE IF NOT EXISTS admin_policy (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT '{}'
+);
+CREATE TABLE IF NOT EXISTS memories (
+    id TEXT PRIMARY KEY,
+    scope TEXT NOT NULL DEFAULT 'global',
+    key TEXT NOT NULL DEFAULT '',
+    content TEXT NOT NULL,
+    source TEXT NOT NULL DEFAULT 'admin',
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS artifacts (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL DEFAULT '',
+    run_id TEXT NOT NULL DEFAULT '',
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL DEFAULT '',
+    filename TEXT NOT NULL DEFAULT '',
+    mime TEXT NOT NULL DEFAULT 'application/octet-stream',
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    meta TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS feedback (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL DEFAULT '',
+    message_id TEXT NOT NULL DEFAULT '',
+    rating TEXT NOT NULL,
+    comment TEXT NOT NULL DEFAULT '',
+    context TEXT NOT NULL DEFAULT '{}',
+    status TEXT NOT NULL DEFAULT 'new',
+    guidance_memory_id TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_feedback_conv ON feedback(conversation_id, created_at);
+CREATE TABLE IF NOT EXISTS rag_documents (
+    id TEXT PRIMARY KEY,
+    filename TEXT NOT NULL DEFAULT '',
+    title TEXT NOT NULL DEFAULT '',
+    size_bytes INTEGER NOT NULL DEFAULT 0,
+    pages INTEGER NOT NULL DEFAULT 0,
+    chunks INTEGER NOT NULL DEFAULT 0,
+    chars INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL DEFAULT 'uploaded',
+    error TEXT NOT NULL DEFAULT '',
+    embed_backend TEXT NOT NULL DEFAULT '',
+    timings TEXT NOT NULL DEFAULT '{}',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS rag_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    doc_id TEXT NOT NULL,
+    seq INTEGER NOT NULL,
+    page INTEGER NOT NULL DEFAULT 0,
+    text TEXT NOT NULL,
+    embedding TEXT NOT NULL DEFAULT '[]'
+);
+CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks(doc_id, seq);
 """
 
 
@@ -161,3 +225,59 @@ def list_trace(conversation_id: str) -> list[dict]:
         d.update(payload)
         out.append(d)
     return out
+
+
+# ---------------------------------------------------------------------------
+# Generic helpers for the feature modules (memory / artifacts / feedback /
+# rag / governance). Kept tiny on purpose: modules own their SQL, db.py only
+# owns the connection, the lock and commit semantics.
+# ---------------------------------------------------------------------------
+
+def execute(sql: str, params: tuple = ()) -> None:
+    """Run a write statement (INSERT/UPDATE/DELETE) and commit."""
+    with _lock:
+        _c().execute(sql, params)
+        _c().commit()
+
+
+def query_all(sql: str, params: tuple = ()) -> list[dict]:
+    rows = _c().execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_one(sql: str, params: tuple = ()) -> dict | None:
+    row = _c().execute(sql, params).fetchone()
+    return dict(row) if row else None
+
+
+def get_message(message_id: str) -> dict | None:
+    return query_one("SELECT * FROM messages WHERE id=?", (message_id,))
+
+
+def stats_counts() -> dict:
+    """Dashboard counters for the admin overview."""
+    def count(table: str) -> int:
+        row = _c().execute(f"SELECT COUNT(*) AS n FROM {table}").fetchone()
+        return int(row["n"]) if row else 0
+
+    up = _c().execute(
+        "SELECT COUNT(*) AS n FROM feedback WHERE rating='up'").fetchone()
+    down = _c().execute(
+        "SELECT COUNT(*) AS n FROM feedback WHERE rating='down'").fetchone()
+    artifact_bytes = _c().execute(
+        "SELECT COALESCE(SUM(size_bytes),0) AS n FROM artifacts").fetchone()
+    rag_ready = _c().execute(
+        "SELECT COUNT(*) AS n FROM rag_documents WHERE status='ready'").fetchone()
+    return {
+        "conversations": count("conversations"),
+        "messages": count("messages"),
+        "trace_events": count("trace_events"),
+        "memories": count("memories"),
+        "artifacts": count("artifacts"),
+        "artifact_bytes": int(artifact_bytes["n"]) if artifact_bytes else 0,
+        "feedback_total": int(up["n"] or 0) + int(down["n"] or 0),
+        "feedback_up": int(up["n"] or 0),
+        "feedback_down": int(down["n"] or 0),
+        "rag_documents": count("rag_documents"),
+        "rag_documents_ready": int(rag_ready["n"]) if rag_ready else 0,
+    }

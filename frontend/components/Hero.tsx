@@ -1,6 +1,8 @@
 "use client";
 import { useState } from "react";
 import Composer from "./Composer";
+import RagPanel from "./RagPanel";
+import type { PipelineMode, PolicyInfo } from "@/lib/types";
 
 const SAMPLES = [
   { label: "Browsing berita", cat: "Browsing", icon: "🌐", prompt: "Cari berita teknologi terkini minggu ini, rangkum 3 teratas lengkap dengan link sumber." },
@@ -22,6 +24,10 @@ export default function Hero({
   onAccent,
   deepResearch,
   onDeepResearch,
+  policy,
+  mode = "text",
+  onMode,
+  showRag,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -31,6 +37,10 @@ export default function Hero({
   onAccent: (a: string) => void;
   deepResearch?: boolean;
   onDeepResearch?: (v: boolean) => void;
+  policy?: PolicyInfo | null;
+  mode?: PipelineMode;
+  onMode?: (m: PipelineMode) => void;
+  showRag?: boolean;
 }) {
   const [tab, setTab] = useState("All");
   const shown = SAMPLES.filter((s) => tab === "All" || s.cat === tab);
@@ -60,8 +70,17 @@ export default function Hero({
             onAccent={onAccent}
             deepResearch={deepResearch}
             onDeepResearch={onDeepResearch}
+            policy={policy}
+            mode={mode}
+            onMode={onMode}
           />
         </div>
+
+        {showRag && (
+          <div className="mt-4 w-full max-w-xl">
+            <RagPanel maxUploadMb={policy?.rag?.max_upload_mb} />
+          </div>
+        )}
 
         <div className="mt-5 flex flex-wrap justify-center gap-2">
           {["Browsing →", "Diagram alir →", "Diagram graph →", "Rangkum URL →"].map((c, i) => (

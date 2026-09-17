@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from . import __version__, db, hf_hub
+from .api.admin import router as admin_router
 from .api.routes import router
 from .config import settings
 from .local_inference import dependencies as _deps, engine as llm_engine
@@ -97,6 +98,8 @@ app.add_middleware(
 )
 
 app.include_router(router)
+# Konsol admin: policy pipeline, memori, artifact, feedback (/api/admin/*).
+app.include_router(admin_router)
 
 # Serve docs/ (slides & metodologi) at /slides — frontend proxies /slides/*.
 _DOCS = Path(__file__).resolve().parents[2] / "docs"

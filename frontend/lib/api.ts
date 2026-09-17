@@ -207,14 +207,28 @@ export async function streamDeepResearch(
 export async function streamChat(
   message: string,
   conversationId: string | null,
+  onEvent: (ev: TraceEvent) => void,
+  mode: string = "text"
+): Promise<void> {
+  await streamSSE(
+    "/api/chat",
+    { message, conversation_id: conversationId, mode },
+    onEvent
+  );
+}
+
+/** POST + baca stream SSE (`data: {json}` per event) — dipakai chat & RAG. */
+export async function streamSSE(
+  url: string,
+  body: Record<string, unknown>,
   onEvent: (ev: TraceEvent) => void
 ): Promise<void> {
-  const res = await fetch("/api/chat", {
+  const res = await fetch(url, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message, conversation_id: conversationId }),
+    body: JSON.stringify(body),
   });
-  if (!res.ok || !res.body) throw new Error(`chat → HTTP ${res.status}`);
+  if (!res.ok || !res.body) throw new Error(`${url} → HTTP ${res.status}`);
 
   const reader = res.body.getReader();
   const decoder = new TextDecoder();
@@ -238,4 +252,208 @@ export async function streamChat(
       }
     }
   }
+}
+
+/** Mode RAG: pertanyaan dijawab dari dokumen yang sudah di-upload. */
+export async function streamRagQuery(
+  question: string,
+  conversationId: string | null,
+  onEvent: (ev: TraceEvent) => void,
+  documentIds?: string[]
+): Promise<void> {
+  await streamSSE(
+    "/api/rag/query",
+    {
+      question,
+      conversation_id: conversationId,
+      document_ids: documentIds && documentIds.length ? documentIds : undefined,
+    },
+    onEvent
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline governance: policy publik, feedback, RAG, dan API admin
+// ---------------------------------------------------------------------------
+
+import type {
+  AdminOverview,
+  ArtifactItem,
+  FeedbackItem,
+  FullPolicy,
+  MemoryItem,
+  PolicyInfo,
+  RagDocument,
+} from "./types";
+
+/** Policy publik untuk gating UI (bukan lapisan keamanan). */
+export async function getPolicy(): Promise<PolicyInfo> {
+  return fetchJson<PolicyInfo>("/api/policy");
+}
+
+/** 👍/👎 dari ruang chat — terecord + bisa jadi pedoman perilaku otomatis. */
+export async function sendFeedback(input: {
+  rating: "up" | "down";
+  conversation_id?: string;
+  message_id?: string;
+  comment?: string;
+}): Promise<{ feedback: FeedbackItem; auto_guidance: boolean }> {
+  return fetchJson("/api/feedback", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+}
+
+// --- RAG -------------------------------------------------------------------
+
+export async function ragUploadPdf(
+  file: File
+): Promise<{ document: RagDocument }> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await fetch("/api/rag/upload", { method: "POST", body: fd });
+  if (!res.ok) {
+    let detail = `HTTP ${res.status}`;
+    try {
+      detail = (await res.json())?.detail || detail;
+    } catch {
+      /* keep status */
+    }
+    throw new Error(detail);
+  }
+  return (await res.json()) as { document: RagDocument };
+}
+
+export async function ragDocuments(): Promise<{ documents: RagDocument[] }> {
+  return fetchJson("/api/rag/documents");
+}
+
+export async function ragDeleteDocument(id: string): Promise<{ ok: boolean }> {
+  return fetchJson(`/api/rag/documents/${id}`, { method: "DELETE" });
+}
+
+// --- Admin (dilindungi ASK_ADMIN_TOKEN bila diset di backend) --------------
+
+export function adminHeaders(token: string): Record<string, string> {
+  return token ? { "X-Admin-Token": token } : {};
+}
+
+async function adminFetch<T>(
+  token: string,
+  url: string,
+  init?: RequestInit
+): Promise<T> {
+  return fetchJson<T>(url, {
+    ...init,
+    headers: { ...adminHeaders(token), ...(init?.headers || {}) },
+  });
+}
+
+export async function adminOverview(
+  token: string
+): Promise<AdminOverview> {
+  return adminFetch(token, "/api/admin/overview");
+}
+
+export async function adminGetPolicy(token: string): Promise<FullPolicy> {
+  return (await adminFetch<{ policy: FullPolicy }>(
+    token,
+    "/api/admin/policy"
+  )).policy;
+}
+
+export async function adminUpdatePolicy(
+  token: string,
+  patch: Record<string, Record<string, unknown>>
+): Promise<FullPolicy> {
+  return (await adminFetch<{ policy: FullPolicy }>(token, "/api/admin/policy", {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  })).policy;
+}
+
+export async function adminMemories(token: string): Promise<MemoryItem[]> {
+  return (await adminFetch<{ memories: MemoryItem[] }>(
+    token,
+    "/api/admin/memories"
+  )).memories;
+}
+
+export async function adminCreateMemory(
+  token: string,
+  item: { scope: string; key: string; content: string; enabled: boolean }
+): Promise<MemoryItem> {
+  return adminFetch(token, "/api/admin/memories", {
+    method: "POST",
+    body: JSON.stringify(item),
+  });
+}
+
+export async function adminUpdateMemory(
+  token: string,
+  id: string,
+  patch: Partial<Pick<MemoryItem, "content" | "key" | "enabled" | "scope">>
+): Promise<MemoryItem> {
+  return adminFetch(token, `/api/admin/memories/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function adminDeleteMemory(
+  token: string,
+  id: string
+): Promise<void> {
+  await adminFetch(token, `/api/admin/memories/${id}`, { method: "DELETE" });
+}
+
+export async function adminArtifacts(
+  token: string,
+  kind?: string
+): Promise<ArtifactItem[]> {
+  const q = kind && kind !== "all" ? `&kind=${encodeURIComponent(kind)}` : "";
+  return (await adminFetch<{ artifacts: ArtifactItem[] }>(
+    token,
+    `/api/admin/artifacts?limit=300${q}`
+  )).artifacts;
+}
+
+export async function adminDeleteArtifact(
+  token: string,
+  id: string
+): Promise<void> {
+  await adminFetch(token, `/api/admin/artifacts/${id}`, { method: "DELETE" });
+}
+
+export async function adminFeedback(
+  token: string
+): Promise<{ feedback: FeedbackItem[]; stats: Record<string, unknown> }> {
+  return adminFetch(token, "/api/admin/feedback?limit=300");
+}
+
+export async function adminSetFeedbackStatus(
+  token: string,
+  id: string,
+  status: FeedbackItem["status"]
+): Promise<FeedbackItem> {
+  return adminFetch(token, `/api/admin/feedback/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function adminApplyFeedback(
+  token: string,
+  id: string
+): Promise<{ feedback: FeedbackItem; memory: MemoryItem }> {
+  return adminFetch(token, `/api/admin/feedback/${id}/apply`, {
+    method: "POST",
+  });
+}
+
+export async function adminDeleteFeedback(
+  token: string,
+  id: string
+): Promise<void> {
+  await adminFetch(token, `/api/admin/feedback/${id}`, { method: "DELETE" });
 }

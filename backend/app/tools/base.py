@@ -32,6 +32,9 @@ SOURCE_LABELS: dict[str, str] = {
 class ToolContext:
     settings: Settings
     http: Any = None  # httpx.AsyncClient, injected for testability
+    #: Asal run — dipakai tool generatif untuk melabeli artifact-nya.
+    conversation_id: str = ""
+    run_id: str = ""
 
 
 @dataclass

@@ -19,7 +19,9 @@ from typing import Any, Awaitable, Callable
 
 import httpx
 
-from .. import db
+from .. import db, feedback as feedback_store
+from .. import governance
+from .. import memory as memory_store
 from ..config import Settings
 from ..providers import BaseProvider
 from ..sources import SourceRegistry, finalize_answer
@@ -27,6 +29,24 @@ from ..tools import ToolContext, get_tool, tool_schemas, tool_source
 from .prompts import SYSTEM_PROMPT, TOOL_RESULT_HINT
 
 EmitFn = Callable[[dict[str, Any]], Awaitable[None]]
+
+#: Arah khusus per mode yang dipilih user di composer (mode text tanpa arah).
+MODE_DIRECTIVES: dict[str, str] = {
+    "image": (
+        "MODE: gambar. Pengguna meminta gambar — panggil tool `generate_image` "
+        "sekali dengan prompt deskriptif (turunkan dari permintaan user), lalu "
+        "jelaskan hasilnya singkat. Jangan menggambar dengan karakter teks."
+    ),
+    "diagram": (
+        "MODE: diagram. Prioritaskan tool `create_diagram` untuk struktur "
+        "(flowchart/graph) supaya tampil sebagai kanvas interaktif."
+    ),
+    "ppt": (
+        "MODE: PPT. Susun materi jadi outline lalu panggil tool `generate_ppt` "
+        "dengan {title, slides:[{title, bullets[]}]} — 3-10 slide, bullet "
+        "padat. Sebutkan tautan unduhan deck di jawaban."
+    ),
+}
 
 
 def _history_to_llm(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -79,12 +99,19 @@ async def run_agent(
     provider: BaseProvider,
     settings: Settings,
     emit: EmitFn,
+    mode: str = "text",
 ) -> dict[str, Any]:
     """Run one agentic turn. Returns a summary dict (answer text, steps...)."""
     run_id = uuid.uuid4().hex[:8]
     seq = 0
 
     t0 = time.time()
+
+    # ---- governance: policy dimuat sekali per run (konsisten selama run) ----
+    pol = governance.policy()
+    mode = (mode or "text").strip().lower()
+    if not governance.mode_allowed(mode):
+        mode = "text"
 
     async def trace(type_: str, payload: dict[str, Any], stream: bool = True) -> None:
         nonlocal seq
@@ -93,6 +120,8 @@ async def run_agent(
             "step": steps,
             **payload,
         }
+        # Interpreter selalu merecord — bagian dari kontrak produk
+        # (governance.interpreter.always_on dikunci True di governance.py).
         db.add_trace(conversation_id, run_id, seq, type_, payload)
         seq += 1
         if stream:
@@ -100,6 +129,26 @@ async def run_agent(
 
     steps = 0
     db.add_message(conversation_id, "user", user_message)
+
+    # ---- system prompt dinamis: dasar + memori + pedoman feedback + mode ----
+    mem_items = (
+        memory_store.enabled_memories() if pol["memory"]["enabled"] else []
+    )
+    mem_block = memory_store.prompt_block(pol["memory"])
+    fb_block = (
+        feedback_store.guidance_block(int(pol["feedback"]["max_guidance"]))
+        if pol["feedback"]["enabled"] else ""
+    )
+    mode_directive = MODE_DIRECTIVES.get(mode, "")
+    system_prompt = "\n\n".join(
+        b for b in (SYSTEM_PROMPT, mem_block, fb_block, mode_directive) if b
+    )
+
+    allowed_tool_names = set(governance.allowed_tools())
+    allowed_schemas = [
+        s for s in tool_schemas()
+        if s["function"]["name"] in allowed_tool_names
+    ]
 
     await trace(
         "meta",
@@ -113,11 +162,28 @@ async def run_agent(
             "top_logprobs": settings.top_logprobs,
             "thinking": settings.thinking if provider.name == "huggingface"
             else None,
-            "tools": [t["function"]["name"] for t in tool_schemas()],
+            "mode": mode,
+            "tools": [t["function"]["name"] for t in allowed_schemas],
+            "policy": {
+                "modes": pol["modes"],
+                "tools": pol["tools"],
+                "feedback": pol["feedback"],
+                "memory": pol["memory"],
+            },
+            "interpreter": {
+                "always_on": True,
+                "record_logprobs": pol["interpreter"]["record_logprobs"],
+                "record_tool_payloads": pol["interpreter"]["record_tool_payloads"],
+            },
+            "memory": [memory_store.meta_of(m) for m in mem_items],
         },
     )
 
-    llm_messages = _history_to_llm(history) + [
+    # System prompt ikut dikirim ke provider (sebelumnya hanya direcord di
+    # trace) — memori, pedoman feedback, dan arah mode tidak berfungsi bila
+    # model tidak pernah melihatnya.
+    llm_messages = ([{"role": "system", "content": system_prompt}] if system_prompt
+                    else []) + _history_to_llm(history) + [
         {"role": "user", "content": user_message}
     ]
     sources = SourceRegistry()
@@ -127,20 +193,23 @@ async def run_agent(
     await trace(
         "prompt",
         {
-            "system": SYSTEM_PROMPT,
+            "system": system_prompt,
             "messages": llm_messages,
-            "tools": tool_schemas(),
+            "tools": allowed_schemas,
             "message_count": len(llm_messages),
         },
     )
 
-    tool_ctx = ToolContext(settings=settings)
+    tool_ctx = ToolContext(settings=settings, conversation_id=conversation_id, run_id=run_id)
     answer_parts: list[str] = []
     thinking_parts: list[str] = []
     usage: dict[str, Any] = {}
     final_events: list[dict[str, Any]] = []
     collected_calls: list[dict[str, Any]] | None = None
     diagram_titles: list[str] = []
+    #: Artefak (gambar/PPTX) dari tool generatif — ikut disimpan di meta pesan
+    #: supaya riwayat bisa menampilkan kartu unduhan yang sama seperti live.
+    artifacts_out: list[dict[str, Any]] = []
     #: Artefak diagram dari tool create_diagram. Disimpan di meta pesan
     #: assistant supaya riwayat bisa merender kartu diagram yang sama seperti
     #: saat run berlangsung — tanpa bergantung pada model menyalin sumber
@@ -161,7 +230,7 @@ async def run_agent(
                 {
                     "messages": llm_messages,
                     "message_count": len(llm_messages),
-                    "tools": [t["function"]["name"] for t in tool_schemas()],
+                    "tools": [t["function"]["name"] for t in allowed_schemas],
                     "sampling": {
                         "temperature": settings.temperature,
                         "max_tokens": settings.max_tokens,
@@ -173,7 +242,7 @@ async def run_agent(
 
             async for ev in provider.stream(
                 llm_messages,
-                tool_schemas(),
+                allowed_schemas,
                 temperature=settings.temperature,
                 max_tokens=settings.max_tokens,
                 logprobs=settings.logprobs,
@@ -288,6 +357,29 @@ async def run_agent(
                          "content": "Error: unknown tool"}
                     )
                     continue
+                # ---- governance gate: tool yang tidak diizinkan admin ----
+                # tidak pernah dieksekusi; penolakan terecord & terlihat model.
+                if not governance.tool_allowed(tool.name):
+                    reason = (f"tool {tool.name} diblokir oleh kebijakan "
+                              "admin (halaman Admin → Pipeline)")
+                    await trace(
+                        "policy",
+                        {"action": "tool_blocked", "tool": tool.name,
+                         "message": reason, "status": "blocked"},
+                    )
+                    await trace(
+                        "tool_result",
+                        {"id": call["id"], "name": tool.name,
+                         "source": tool.source, "label": tool.label,
+                         "summary": reason, "ok": False, "hits": None,
+                         "error": "blocked by policy", "duration_ms": 0.0,
+                         "data": {"error": reason}},
+                    )
+                    llm_messages.append(
+                        {"role": "tool", "tool_call_id": call["id"],
+                         "content": f"Error: {reason}. Lanjutkan tanpa tool ini."}
+                    )
+                    continue
                 tasks.append((call, tool))
 
             for call, tool in tasks:
@@ -334,6 +426,31 @@ async def run_agent(
                         "data": data,
                     },
                 )
+                # Artefak (gambar/PPTX) dari tool generatif → event tersendiri
+                # supaya timeline interpreter & registry admin merekam asalnya.
+                artifact_info = (
+                    payload.get("artifact")
+                    if isinstance(payload, dict) else None
+                )
+                if isinstance(artifact_info, dict) and artifact_info.get("id"):
+                    await trace(
+                        "artifact",
+                        {"id": artifact_info.get("id"),
+                         "kind": artifact_info.get("kind", "data"),
+                         "title": artifact_info.get("title", ""),
+                         "url": artifact_info.get("url", ""),
+                         "tool": tool.name,
+                         "summary": summary},
+                    )
+                    artifacts_out.append({
+                        "id": artifact_info.get("id"),
+                        "kind": artifact_info.get("kind", "data"),
+                        "title": artifact_info.get("title", ""),
+                        "url": artifact_info.get("url", ""),
+                        "tool": tool.name,
+                    })
+                    if isinstance(data, dict):
+                        data["artifact"] = artifact_info
                 if tool.evidence and hits == 0:
                     await trace(
                         "note",
@@ -422,7 +539,7 @@ async def run_agent(
     await trace("done", {"answer": answer, "stopped_reason": stopped_reason,
                          **usage})
 
-    db.add_message(
+    assistant_msg = db.add_message(
         conversation_id,
         "assistant",
         answer,
@@ -443,12 +560,15 @@ async def run_agent(
             #: membuat diagram tetap ada walau model tidak menulis fence
             #: ```mermaid di jawabannya.
             "diagrams": diagrams,
+            "artifacts": artifacts_out,
+            "mode": mode,
         },
     )
     return {"answer": answer, "steps": steps, "usage": usage,
             "run_id": run_id, "citations": citations,
+            "message_id": assistant_msg["id"],
             "sources": sources.to_dicts(), "diagrams": diagrams,
-            "error": None}
+            "artifacts": artifacts_out, "error": None}
 
 
 def _cap(data: dict[str, Any], limit: int = 12000) -> dict[str, Any]:

@@ -1,5 +1,71 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import type { PolicyInfo, PipelineMode } from "@/lib/types";
+
+/** Chip mode pipeline — hanya mode yang diizinkan admin yang aktif. */
+export const MODE_ICONS: Record<PipelineMode, string> = {
+  text: "💬",
+  image: "🖼️",
+  diagram: "🔀",
+  ppt: "📊",
+  rag: "📚",
+  research: "🔭",
+};
+
+export function ModeChips({
+  policy,
+  mode,
+  onMode,
+  disabled,
+}: {
+  policy: PolicyInfo | null;
+  mode: PipelineMode;
+  onMode: (m: PipelineMode) => void;
+  disabled?: boolean;
+}) {
+  if (!policy) return null;
+  const modes: PipelineMode[] = ["text", "image", "diagram", "ppt", "rag"];
+  return (
+    <div
+      className="flex items-center gap-1"
+      data-testid="mode-chips"
+      role="radiogroup"
+      aria-label="Mode pipeline"
+    >
+      {modes.map((m) => {
+        const allowed = policy.modes?.[m] !== false;
+        const active = mode === m;
+        const label = policy.labels?.[m] || m;
+        return (
+          <button
+            key={m}
+            role="radio"
+            aria-checked={active}
+            disabled={disabled}
+            onClick={() => allowed && onMode(m)}
+            title={
+              allowed
+                ? `Mode ${label}`
+                : `Mode ${label} dimatikan admin (halaman Admin → Pipeline)`
+            }
+            className={`flex items-center gap-1 rounded-lg border px-2 py-1.5 text-xs font-medium transition ${
+              !allowed
+                ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-300"
+                : active
+                ? "border-accent bg-accent-soft text-accent"
+                : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50"
+            }`}
+          >
+            <span>{MODE_ICONS[m]}</span>
+            <span className={m === "text" ? "hidden sm:inline" : ""}>
+              {allowed ? label : `🔒 ${label}`}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 export const ACCENTS: Record<string, { accent: string; soft: string; ring: string }> = {
   indigo: { accent: "#6366f1", soft: "#eef2ff", ring: "#c7d2fe" },
@@ -18,6 +84,9 @@ export default function Composer({
   compact,
   deepResearch,
   onDeepResearch,
+  policy,
+  mode = "text",
+  onMode,
 }: {
   value: string;
   onChange: (v: string) => void;
@@ -28,6 +97,9 @@ export default function Composer({
   compact?: boolean;
   deepResearch?: boolean;
   onDeepResearch?: (v: boolean) => void;
+  policy?: PolicyInfo | null;
+  mode?: PipelineMode;
+  onMode?: (m: PipelineMode) => void;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
 
@@ -55,22 +127,40 @@ export default function Composer({
         placeholder={
           deepResearch
             ? "Masukkan topik untuk riset mendalam (mis: artificial intelligence, quantum computing)…"
+            : mode === "rag"
+            ? "Tanyakan apa pun tentang dokumen yang sudah di-upload …"
+            : mode === "image"
+            ? "Deskripsikan gambar yang ingin dibuat …"
+            : mode === "ppt"
+            ? "Sebutkan topik deck PPT (mis: rencana rilis produk) …"
             : compact
             ? "Lanjutkan percakapan …"
             : "Tanyakan apa pun — browsing, diagram, analisis …"
         }
         className="w-full resize-none bg-transparent text-[15px] leading-6 text-zinc-800 placeholder-zinc-400 outline-none"
       />
+      {onMode && (
+        <div className="mt-2.5">
+          <ModeChips policy={policy ?? null} mode={mode} onMode={onMode} disabled={disabled} />
+        </div>
+      )}
       <div className="mt-2 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <span
-            title="Tools aktif: web_search, fetch_url, create_diagram, calculator"
+            title={
+              policy
+                ? `Tools diizinkan admin: ${Object.entries(policy.tools)
+                    .filter(([, on]) => on)
+                    .map(([n]) => n)
+                    .join(", ") || "(tidak ada)"}`
+                : "Tools aktif: web_search, fetch_url, create_diagram, calculator"
+            }
             className="flex cursor-help items-center gap-1.5 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-xs text-zinc-500"
           >
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L4 17v3h3l5.3-5.3a4 4 0 0 0 5.4-5.4l-2.9 2.9-2.1-2.1 2.9-2.9z" />
             </svg>
-            4 tools
+            {policy ? Object.values(policy.tools).filter(Boolean).length : 4} tools
           </span>
           {onDeepResearch && (
             <button

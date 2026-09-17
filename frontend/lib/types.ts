@@ -191,3 +191,140 @@ export interface HFSearchResponse {
   models: HFSearchHit[];
   error: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// Pipeline governance (halaman Admin) + mode + RAG + feedback
+// ---------------------------------------------------------------------------
+
+export type PipelineMode =
+  | "text"
+  | "image"
+  | "diagram"
+  | "ppt"
+  | "rag"
+  | "research";
+
+export interface PolicyInfo {
+  modes: Record<PipelineMode, boolean>;
+  tools: Record<string, boolean>;
+  memory: { enabled: boolean; allow_ai_write: boolean };
+  rag: { top_k: number; max_upload_mb: number };
+  feedback: { enabled: boolean; auto_guidance: boolean; max_guidance: number };
+  interpreter: {
+    always_on: boolean;
+    record_logprobs: boolean;
+    record_tool_payloads: boolean;
+  };
+  labels?: Record<string, string>;
+}
+
+export type FullPolicy = {
+  modes: Record<string, boolean>;
+  tools: Record<string, boolean>;
+  memory: { enabled: boolean; allow_ai_write: boolean };
+  rag: {
+    chunk_size: number;
+    chunk_overlap: number;
+    top_k: number;
+    max_upload_mb: number;
+  };
+  feedback: { enabled: boolean; auto_guidance: boolean; max_guidance: number };
+  interpreter: {
+    always_on: boolean;
+    record_logprobs: boolean;
+    record_tool_payloads: boolean;
+  };
+  artifacts: { max_artifacts: number; retention_days: number };
+};
+
+export interface MemoryItem {
+  id: string;
+  scope: string;
+  key: string;
+  content: string;
+  source: "admin" | "ai" | "feedback" | "user";
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface ArtifactItem {
+  id: string;
+  conversation_id: string;
+  run_id: string;
+  kind: "image" | "pptx" | "diagram" | "document" | "data" | string;
+  title: string;
+  filename: string;
+  mime: string;
+  size_bytes: number;
+  meta: Record<string, unknown>;
+  created_at: number;
+  url: string;
+}
+
+export interface FeedbackItem {
+  id: string;
+  conversation_id: string;
+  message_id: string;
+  rating: "up" | "down";
+  comment: string;
+  context: {
+    model?: string;
+    provider?: string;
+    mode?: string;
+    answer_snippet?: string;
+    tools_used?: string[];
+  };
+  status: "new" | "reviewed" | "applied" | "dismissed";
+  guidance_memory_id: string;
+  created_at: number;
+}
+
+export interface RagDocument {
+  id: string;
+  filename: string;
+  title: string;
+  size_bytes: number;
+  pages: number;
+  chunks: number;
+  chars: number;
+  status:
+    | "uploaded"
+    | "parsing"
+    | "chunking"
+    | "embedding"
+    | "ready"
+    | "error";
+  error: string;
+  embed_backend: string;
+  timings: Record<string, number>;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface AdminOverview {
+  counts: {
+    conversations: number;
+    messages: number;
+    trace_events: number;
+    memories: number;
+    artifacts: number;
+    artifact_bytes: number;
+    feedback_total: number;
+    feedback_up: number;
+    feedback_down: number;
+    rag_documents: number;
+    rag_documents_ready: number;
+  };
+  feedback: {
+    total: number;
+    up: number;
+    down: number;
+    ratio_up: number | null;
+    by_status: Record<string, number>;
+  };
+  policy: FullPolicy;
+  provider: string;
+  model: string;
+  admin_protected: boolean;
+}

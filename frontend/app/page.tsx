@@ -9,21 +9,30 @@ import SettingsModal from "@/components/SettingsModal";
 import { AppSplash, BusyOverlay, Spinner } from "@/components/LoadingScreen";
 import { ACCENTS } from "@/components/Composer";
 import {
+  getPolicy,
   getSettings,
   health,
   listConversations,
   loadConversation,
   streamChat,
   streamDeepResearch,
+  streamRagQuery,
   updateSettings,
 } from "@/lib/api";
+import RagPanel from "@/components/RagPanel";
 import DeepResearchCanvas, {
   type ResearchState,
   type ResearchProgress,
 } from "@/components/DeepResearchCanvas";
 import Composer from "@/components/Composer";
 import { EMPTY_LIVE, reduceLive } from "@/lib/live";
-import type { Conversation, SettingsInfo, TraceEvent } from "@/lib/types";
+import type {
+  Conversation,
+  PipelineMode,
+  PolicyInfo,
+  SettingsInfo,
+  TraceEvent,
+} from "@/lib/types";
 
 /**
  * Riwayat → tampilan.
@@ -81,6 +90,9 @@ export default function Page() {
   const [llm, setLlm] = useState<boolean | null>(null);
   const [localState, setLocalState] = useState<string | null>(null);
   const [accent, setAccent] = useState("indigo");
+  // ---- pipeline governance (policy publik) + mode aktif ----
+  const [policy, setPolicy] = useState<PolicyInfo | null>(null);
+  const [mode, setMode] = useState<PipelineMode>("text");
   // ---- deep research mode ----
   const [deepResearch, setDeepResearch] = useState(false);
   const [researchState, setResearchState] = useState<ResearchState | null>(null);
@@ -92,11 +104,17 @@ export default function Page() {
   const [openingId, setOpeningId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
-    const [cs, st, h] = await Promise.all([listConversations(), getSettings(), health()]);
+    const [cs, st, h, pol] = await Promise.all([
+      listConversations(),
+      getSettings(),
+      health(),
+      getPolicy().catch(() => null),
+    ]);
     setConversations(cs);
     setSettings(st);
     setLlm(Boolean(h.llm_reachable));
     setLocalState(String(h.local_llm_state || "idle"));
+    if (pol) setPolicy(pol);
   }, []);
 
   useEffect(() => {
@@ -163,8 +181,13 @@ export default function Page() {
     let cid: string | null = activeId;
 
     const collected: TraceEvent[] = [];
+    const useRag = mode === "rag";
     try {
-      await streamChat(text, cid, (ev) => {
+      const stream = useRag
+        ? streamRagQuery(text, cid, (ev) => handler(ev))
+        : streamChat(text, cid, (ev) => handler(ev), mode);
+
+      function handler(ev: TraceEvent) {
         collected.push(ev);
         setTrace((t) => [...t, ev]);
         if (ev.type === "start") {
@@ -175,7 +198,9 @@ export default function Page() {
           // termasuk sumber bernomor dan artefak diagram dari tool.
           setLive((l) => reduceLive(l, ev));
         }
-      });
+      }
+
+      await stream;
     } catch (e) {
       const failure = { type: "error", message: String(e) };
       collected.push(failure);
@@ -522,18 +547,31 @@ export default function Page() {
               </div>
             </div>
           ) : (
-          <ChatView
-            messages={messages}
-            live={live}
-            streaming={streaming}
-            input={input}
-            setInput={setInput}
-            onSend={() => send()}
-            accent={accent}
-            onAccent={setAccent}
-            deepResearch={deepResearch}
-            onDeepResearch={setDeepResearch}
-          />
+          <>
+            {mode === "rag" && policy?.modes?.rag !== false && (
+              <div className="shrink-0 px-4 md:px-6 pt-3">
+                <RagPanel maxUploadMb={policy?.rag?.max_upload_mb} />
+              </div>
+            )}
+            <ChatView
+              messages={messages}
+              live={live}
+              streaming={streaming}
+              input={input}
+              setInput={setInput}
+              onSend={() => send()}
+              accent={accent}
+              onAccent={setAccent}
+              deepResearch={deepResearch}
+              onDeepResearch={setDeepResearch}
+              policy={policy}
+              mode={mode}
+              onMode={setMode}
+              ragMode={mode === "rag"}
+              conversationId={activeId}
+              feedbackEnabled={policy?.feedback?.enabled !== false}
+            />
+          </>
           )
         ) : (
           <Hero
@@ -551,6 +589,10 @@ export default function Page() {
             onAccent={setAccent}
             deepResearch={deepResearch}
             onDeepResearch={setDeepResearch}
+            policy={policy}
+            mode={mode}
+            onMode={setMode}
+            showRag={mode === "rag" && policy?.modes?.rag !== false}
           />
         )}
       </main>

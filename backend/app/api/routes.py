@@ -6,13 +6,16 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
+from fastapi import HTTPException, UploadFile
+
 import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
-from .. import db, hf_hub
+from .. import artifacts, db, feedback, governance, hf_hub, rag
 from ..agent.loop import run_agent
+from ..agent.rag_loop import run_rag_query
 from ..config import HF_MODES, settings, update_settings
 from ..local_inference import dependencies, engine
 from ..providers import build_provider
@@ -32,6 +35,8 @@ HUB_TRANSPORT: httpx.AsyncBaseTransport | None = None
 class ChatRequest(BaseModel):
     message: str
     conversation_id: str | None = None
+    #: mode pipeline yang dipilih user di composer (gate oleh policy admin).
+    mode: str = "text"
 
 
 class DeepResearchRequest(BaseModel):
@@ -119,6 +124,10 @@ KEEPALIVE_S = 10.0
 
 @router.post("/chat")
 async def chat(req: ChatRequest):
+    mode = (req.mode or "text").strip().lower()
+    if not governance.mode_allowed(mode):
+        return _sse_error_response(
+            f"Mode '{mode}' dimatikan oleh admin (halaman Admin → Pipeline).")
     conv = None
     if req.conversation_id:
         conv = db.get_conversation(req.conversation_id)
@@ -142,11 +151,13 @@ async def chat(req: ChatRequest):
                 provider=provider,
                 settings=settings,
                 emit=emit,
+                mode=mode,
             )
             # Snapshot akhir (bukan hanya teks): UI memakai ini untuk menyegarkan
             # kartu diagram + bar sitasi tanpa harus menunggu reload riwayat.
             await queue.put({"type": "agent_done", "conversation_id": cid,
                              "answer": result.get("answer", ""),
+                             "message_id": result.get("message_id", ""),
                              "sources": result.get("sources") or [],
                              "citations": result.get("citations") or {},
                              "diagrams": result.get("diagrams") or [],
@@ -186,6 +197,10 @@ async def deep_research(req: DeepResearchRequest):
     """Run deep research on a topic, streaming nodes for the canvas."""
     from ..deep_research import run_deep_research
 
+    if not governance.mode_allowed("research"):
+        return _sse({"type": "error",
+                     "message": "Mode deep research dimatikan oleh admin "
+                                "(halaman Admin → Pipeline)."})
     topic = (req.topic or "").strip()
     if not topic:
         return {"error": "topic tidak boleh kosong"}
@@ -521,3 +536,203 @@ async def health():
         "local_llm": engine.ready(),
         "local_llm_state": engine.status()["state"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Pipeline governance (publik): UI membaca ini untuk menampilkan/menyembunyikan
+# mode & tombol. Penegakan tetap server-side — endpoint ini bukan lapisan
+# keamanan, hanya proyeksi policy yang aman untuk browser.
+# ---------------------------------------------------------------------------
+
+@router.get("/policy")
+async def public_policy() -> dict:
+    return governance.public_policy()
+
+
+def _sse_error_response(message: str) -> StreamingResponse:
+    """Chat-like endpoint menolak via SSE `error` event (bukan HTTP 4xx)
+    supaya UI menampilkannya di dalam ruang chat, bukan sebagai fetch error."""
+    async def gen() -> AsyncIterator[str]:
+        yield _sse({"type": "error", "message": message})
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+# ---------------------------------------------------------------------------
+# Feedback 👍/👎 — terecord penuh, bisa menjadi pedoman perilaku (auto/apply)
+# ---------------------------------------------------------------------------
+
+class FeedbackIn(BaseModel):
+    rating: str                 # "up" | "down"
+    conversation_id: str = ""
+    message_id: str = ""
+    comment: str = ""
+
+    @field_validator("rating")
+    @classmethod
+    def _known_rating(cls, v: str) -> str:
+        v = (v or "").strip().lower()
+        if v not in feedback.RATINGS:
+            raise ValueError("rating harus 'up' atau 'down'")
+        return v
+
+
+@router.post("/feedback")
+async def post_feedback(item: FeedbackIn) -> dict:
+    pol = governance.policy()
+    if not pol["feedback"]["enabled"]:
+        raise HTTPException(403, "Feedback dimatikan oleh admin")
+    # Konteks run ikut direcord supaya feedback bisa dianalisis & dipelajari.
+    context: dict[str, Any] = {
+        "model": settings.active_model_label(),
+        "provider": settings.provider,
+    }
+    if item.message_id:
+        msg = db.get_message(item.message_id)
+        if msg is not None:
+            context["answer_snippet"] = (msg.get("content") or "")[:400]
+            meta = {}
+            try:
+                import json as _json
+                meta = _json.loads(msg.get("meta") or "{}")
+            except Exception:  # noqa: BLE001
+                meta = {}
+            context["mode"] = meta.get("mode", "text")
+            tools_used = sorted({
+                (t.get("name") or "") for t in (meta.get("tool_calls") or [])
+                if t.get("name")
+            })
+            if tools_used:
+                context["tools_used"] = tools_used
+    fb = feedback.add_feedback(
+        rating=item.rating, conversation_id=item.conversation_id,
+        message_id=item.message_id, comment=item.comment, context=context,
+    )
+    applied = feedback.maybe_auto_apply(fb["id"], pol["feedback"])
+    return {"feedback": fb,
+            "auto_guidance": bool(applied),
+            "guidance": (applied or {}).get("memory")}
+
+
+# ---------------------------------------------------------------------------
+# Artifact download (publik read — file dibuat oleh pipeline, bukan upload user)
+# ---------------------------------------------------------------------------
+
+@router.get("/artifacts/{aid}/download")
+async def download_artifact(aid: str):
+    from starlette.responses import Response
+
+    found = artifacts.read_artifact(aid, settings=settings)
+    if not found:
+        raise HTTPException(404, "artifact tidak ditemukan")
+    art, data = found
+    return Response(
+        content=data, media_type=art["mime"],
+        headers={"Content-Disposition":
+                 f'attachment; filename="{art["filename"]}"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# RAG: upload PDF → parsing → chunking → embedding → index, lalu query
+# ---------------------------------------------------------------------------
+
+class RagQuery(BaseModel):
+    question: str
+    conversation_id: str | None = None
+    document_ids: list[str] | None = None
+
+
+@router.post("/rag/upload")
+async def rag_upload(file: UploadFile) -> dict:
+    pol = governance.policy()
+    if not governance.mode_allowed("rag"):
+        raise HTTPException(403, "Mode RAG dimatikan oleh admin")
+    data = await file.read()
+    max_bytes = int(pol["rag"]["max_upload_mb"]) * 1024 * 1024
+    if len(data) > max_bytes:
+        raise HTTPException(413, f"PDF melebihi batas "
+                                 f"{pol['rag']['max_upload_mb']} MB")
+    name = file.filename or "dokumen.pdf"
+    if not name.lower().endswith(".pdf"):
+        raise HTTPException(415, "Hanya file .pdf yang didukung saat ini")
+    doc = rag.ingest_pdf(settings=settings, filename=name, data=data)
+    return {"document": doc}
+
+
+@router.get("/rag/documents")
+async def rag_documents() -> dict:
+    return {"documents": rag.list_documents()}
+
+
+@router.delete("/rag/documents/{doc_id}")
+async def rag_delete_document(doc_id: str) -> dict:
+    if not rag.delete_document(doc_id, settings=settings):
+        raise HTTPException(404, "dokumen tidak ditemukan")
+    return {"ok": True}
+
+
+@router.post("/rag/query")
+async def rag_query(req: RagQuery):
+    question = (req.question or "").strip()
+    if not question:
+        raise HTTPException(422, "question wajib diisi")
+    if not governance.mode_allowed("rag"):
+        return _sse_error_response(
+            "Mode RAG dimatikan oleh admin (halaman Admin → Pipeline).")
+    ready = [d for d in rag.list_documents() if d["status"] == "ready"]
+    if not ready:
+        return _sse_error_response(
+            "Belum ada dokumen RAG yang siap — upload PDF dulu di panel RAG.")
+    conv = None
+    if req.conversation_id:
+        conv = db.get_conversation(req.conversation_id)
+    if conv is None:
+        conv = db.new_conversation(title=f"RAG: {question[:56]}")
+    cid = conv["id"]
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def emit(ev: dict[str, Any]) -> None:
+        await queue.put(ev)
+
+    async def runner() -> None:
+        try:
+            provider = build_provider(settings)
+            result = await run_rag_query(
+                conversation_id=cid, question=question, provider=provider,
+                settings=settings, emit=emit,
+                document_ids=req.document_ids or None,
+            )
+            await queue.put({"type": "agent_done", "conversation_id": cid,
+                             "answer": result.get("answer", ""),
+                             "message_id": result.get("message_id", ""),
+                             "pipeline": "rag",
+                             "sources": result.get("sources") or [],
+                             "citations": result.get("citations") or {},
+                             "diagrams": [], "error": result.get("error")})
+            db.touch_conversation(cid)
+        except Exception as exc:  # noqa: BLE001
+            await queue.put({"type": "error", "message": str(exc)})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(runner())
+
+    async def gen() -> AsyncIterator[str]:
+        try:
+            yield _sse({"type": "start", "conversation_id": cid,
+                        "pipeline": "rag"})
+            while True:
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_S)
+                except asyncio.TimeoutError:
+                    yield KEEPALIVE
+                    continue
+                if ev is None:
+                    break
+                yield _sse(ev)
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
