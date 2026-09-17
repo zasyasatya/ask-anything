@@ -246,6 +246,8 @@ export default function ChatView({
   onSend,
   accent,
   onAccent,
+  deepResearch,
+  onDeepResearch,
 }: {
   messages: DispMsg[];
   live: LiveState;
@@ -255,6 +257,8 @@ export default function ChatView({
   onSend: () => void;
   accent: string;
   onAccent: (a: string) => void;
+  deepResearch?: boolean;
+  onDeepResearch?: (v: boolean) => void;
 }) {
   const bottomRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -363,6 +367,8 @@ export default function ChatView({
             disabled={streaming}
             accent={accent}
             onAccent={onAccent}
+            deepResearch={deepResearch}
+            onDeepResearch={onDeepResearch}
           />
         </div>
       </div>

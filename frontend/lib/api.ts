@@ -162,6 +162,47 @@ export async function hfEngineStatus(): Promise<HFModelsResponse["engine"]> {
   return fetchJson<HFModelsResponse["engine"]>("/api/hf/runtime");
 }
 
+/** Streams deep research on a topic; events deliver nodes incrementally. */
+export async function streamDeepResearch(
+  topic: string,
+  onEvent: (ev: Record<string, unknown>) => void,
+  opts: { maxQueries?: number; maxResultsPerQuery?: number } = {}
+): Promise<void> {
+  const res = await fetch("/api/deep-research", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      topic,
+      max_queries: opts.maxQueries || null,
+      max_results_per_query: opts.maxResultsPerQuery || null,
+    }),
+  });
+  if (!res.ok || !res.body) throw new Error(`deep-research → HTTP ${res.status}`);
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buf = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buf += decoder.decode(value, { stream: true });
+    let idx: number;
+    while ((idx = buf.indexOf("\n\n")) >= 0) {
+      const chunk = buf.slice(0, idx);
+      buf = buf.slice(idx + 2);
+      for (const line of chunk.split("\n")) {
+        if (line.startsWith("data: ")) {
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch {
+            /* ignore malformed */
+          }
+        }
+      }
+    }
+  }
+}
+
 /** Streams one agentic turn; every interpreter event is delivered to onEvent. */
 export async function streamChat(
   message: string,

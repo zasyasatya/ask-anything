@@ -18,7 +18,12 @@ HF_MODES = ("local", "server")
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="ASK_", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_prefix="ASK_",
+        extra="ignore",
+        env_file=str(PROJECT_ROOT / ".env"),
+        env_file_encoding="utf-8",
+    )
 
     # ---- LLM provider selection: "huggingface" | "openai" | "mock" ----
     provider: str = "huggingface"
@@ -70,6 +75,10 @@ class Settings(BaseSettings):
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
         "(KHTML, like Gecko) Chrome/126.0 Safari/537.36 AskAnythingAgent/0.1"
     )
+
+    # ---- deep research ----
+    deep_research_max_queries: int = 6
+    deep_research_max_results_per_query: int = 8
 
     # ---- storage ----
     db_path: str = "data/ask_anything.db"

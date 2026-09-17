@@ -20,6 +20,8 @@ export default function Hero({
   streaming,
   accent,
   onAccent,
+  deepResearch,
+  onDeepResearch,
 }: {
   input: string;
   setInput: (v: string) => void;
@@ -27,6 +29,8 @@ export default function Hero({
   streaming: boolean;
   accent: string;
   onAccent: (a: string) => void;
+  deepResearch?: boolean;
+  onDeepResearch?: (v: boolean) => void;
 }) {
   const [tab, setTab] = useState("All");
   const shown = SAMPLES.filter((s) => tab === "All" || s.cat === tab);
@@ -54,6 +58,8 @@ export default function Hero({
             disabled={streaming}
             accent={accent}
             onAccent={onAccent}
+            deepResearch={deepResearch}
+            onDeepResearch={onDeepResearch}
           />
         </div>
 

@@ -34,6 +34,12 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
 
 
+class DeepResearchRequest(BaseModel):
+    topic: str
+    max_queries: int | None = None
+    max_results_per_query: int | None = None
+
+
 class ModelsProbe(BaseModel):
     """Probe an endpoint's model list *before* the settings are saved.
 
@@ -163,6 +169,67 @@ async def chat(req: ChatRequest):
                     # SSE comment (bukan `data:`) → diabaikan klien, tetapi
                     # menjaga proxy (Next rewrite, nginx, Coolify) tidak menutup
                     # koneksi yang diam sementara LLM masih berpikir.
+                    yield KEEPALIVE
+                    continue
+                if ev is None:
+                    break
+                yield _sse(ev)
+        finally:
+            if not task.done():
+                task.cancel()
+
+    return StreamingResponse(gen(), media_type="text/event-stream")
+
+
+@router.post("/deep-research")
+async def deep_research(req: DeepResearchRequest):
+    """Run deep research on a topic, streaming nodes for the canvas."""
+    from ..deep_research import run_deep_research
+
+    topic = (req.topic or "").strip()
+    if not topic:
+        return {"error": "topic tidak boleh kosong"}
+
+    # Apply per-request overrides without mutating the global settings.
+    research_settings = settings
+    if req.max_queries or req.max_results_per_query:
+        # Shallow copy of settings for this request only.
+        import copy
+        research_settings = copy.copy(settings)
+        if req.max_queries:
+            research_settings.deep_research_max_queries = req.max_queries
+        if req.max_results_per_query:
+            research_settings.deep_research_max_results_per_query = (
+                req.max_results_per_query
+            )
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def emit(ev: dict[str, Any]) -> None:
+        await queue.put(ev)
+
+    async def runner() -> None:
+        try:
+            result = await run_deep_research(
+                topic=topic,
+                settings=research_settings,
+                emit=emit,
+            )
+            # run_deep_research already emits research_done internally
+        except Exception as exc:  # noqa: BLE001
+            await queue.put({"type": "error", "message": str(exc)})
+        finally:
+            await queue.put(None)
+
+    task = asyncio.create_task(runner())
+
+    async def gen() -> AsyncIterator[str]:
+        try:
+            yield _sse({"type": "start", "topic": topic})
+            while True:
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=KEEPALIVE_S)
+                except asyncio.TimeoutError:
                     yield KEEPALIVE
                     continue
                 if ev is None:
