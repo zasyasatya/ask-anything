@@ -37,6 +37,21 @@ def _fake_model_folder(root, name="org/TinyModel", complete=True,
     return path
 
 
+@pytest.fixture()
+def torch_ready(monkeypatch):
+    """Autoload diuji tanpa memerlukan torch sungguhan di mesin ini.
+
+    Produksi: `_deps()` melaporkan ketersediaan torch/transformers. Di sini
+    dilaporkan "siap" supaya logika pemilihan model (prioritas folder, model
+    terakhir dipakai, `.active.json`) tetap teruji walau torch tak ter-install.
+    """
+    import app.main as main
+
+    monkeypatch.setattr(main, "_deps", lambda: {
+        "available": True, "torch": "test", "transformers": "test",
+        "device": "cpu", "install_hint": None})
+
+
 class _RecordingEngine:
     def __init__(self):
         self.calls = []
@@ -53,7 +68,8 @@ class _BoomEngine:
 # ---------------------------------------------------------------------------
 # auto-load di startup (app.main._autoload_local_model)
 # ---------------------------------------------------------------------------
-def test_autoload_picks_newest_model_in_models_dir(monkeypatch, tmp_path):
+def test_autoload_picks_newest_model_in_models_dir(monkeypatch, tmp_path,
+                                                   torch_ready):
     monkeypatch.setattr(settings, "provider", "huggingface")
     monkeypatch.setattr(settings, "hf_mode", "local")
     monkeypatch.setattr(settings, "hf_model", "")
@@ -75,7 +91,8 @@ def test_autoload_picks_newest_model_in_models_dir(monkeypatch, tmp_path):
     assert settings.hf_model == "org/New"
 
 
-def test_autoload_restores_active_model_outside_models_dir(monkeypatch, tmp_path):
+def test_autoload_restores_active_model_outside_models_dir(monkeypatch,
+                                                           tmp_path, torch_ready):
     """Model dari folder DI LUAR models/ (via /api/hf/models/load) tetap
     di-muat-ulang otomatis setelah restart — lewat models/.active.json."""
     monkeypatch.setattr(settings, "provider", "huggingface")
@@ -98,7 +115,8 @@ def test_autoload_restores_active_model_outside_models_dir(monkeypatch, tmp_path
     assert settings.hf_model == "org/MyModel"
 
 
-def test_autoload_does_nothing_for_other_providers(monkeypatch, tmp_path):
+def test_autoload_does_nothing_for_other_providers(monkeypatch, tmp_path,
+                                                   torch_ready):
     monkeypatch.setattr(settings, "provider", "mock")
     monkeypatch.setattr(settings, "hf_mode", "local")
     monkeypatch.setattr(settings, "models_dir", str(tmp_path / "models"))

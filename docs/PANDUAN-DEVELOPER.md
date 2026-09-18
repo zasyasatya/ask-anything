@@ -21,7 +21,8 @@
 10. [Pipeline screenshot docs](#10-pipeline-screenshot-docs)
 11. [Referensi env](#11-referensi-env-prefix-ask_)
 12. [Sitasi & provenance tool](#12-sitasi--provenance-tool)
-13. [Troubleshooting dev](#13-troubleshooting-dev)
+13. [Task management & konvensi branch](#13-task-management--konvensi-branch)
+14. [Troubleshooting dev](#14-troubleshooting-dev)
 
 > **Butuh detail per paket & cara kerjanya?** Baca
 > [`TEKNIS.md`](TEKNIS.md) — inventaris setiap dependency (versi, alasan
@@ -390,6 +391,8 @@ python3 scripts/capture_screenshots.py pages
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+ key masing-masing) |
 | `ASK_SEARCH_DDG_URL` | `https://lite.duckduckgo.com/lite/` | Endpoint pencarian gaya lite — bisa ke gateway internal/self-host atau `scripts/fake_search_server.py` untuk uji E2E tanpa internet |
 | `ASK_DB_PATH` | `data/ask_anything.db` | Lokasi SQLite |
+| `ASK_TASKS_AUTOSEED` | `true` | Isi papan `/tasks` dengan rencana RAG saat tabel task kosong |
+| `ASK_REPO_DIR` | root proyek | Folder repo git untuk sinkronisasi branch/commit task |
 
 Semua juga bisa diubah runtime via `POST /api/settings` (dialog Settings).
 
@@ -451,7 +454,28 @@ dan `frontend/lib/{sources,log}.test.ts` (23 test) untuk sisi UI-nya.
 
 ---
 
-## 13. Troubleshooting dev
+## 13. Task management & konvensi branch
+
+Halaman **`/tasks`** memetakan seluruh rencana RAG jadi papan kerja
+(`backend/app/tasks_plan.py` → tabel `tasks`/`task_comments` → API
+`/api/tasks/*` → `frontend/components/tasks/*`). Aturan yang penting diingat:
+
+* **Id task = nama branch.** `ASK-012` → `feat/ASK-012-halaman-task-management…`.
+  Prefiks mengikuti label (`bug`→`fix/`, `docs`→`docs/`, `test`→`test/`,
+  `performance`→`perf/`, default `feat/`). Jangan mengubah id yang sudah dipakai
+  branch; buat id baru untuk task baru.
+* **Sync git** (`POST /api/tasks/sync`) menaikkan status dari bukti nyata:
+  berkas `evidence` ada → minimal *Review*; branch memuat `ASK-NNN` → *In progress*;
+  commit menyebut `ASK-NNN` disimpan shanya, dan kata `close`/`fix`/`selesai`
+  menutup task jadi *Done*. Status **tidak pernah turun otomatis**.
+* **Seed idempoten**: `POST /api/tasks/seed` tidak menimpa task yang sudah ada;
+  `?reset=true` menghapus hanya task hasil seed lalu membuatnya ulang.
+* Komentar & perpindahan status tercatat sebagai aktivitas di panel detail, jadi
+  kronologi pekerjaan bisa diaudit tanpa membuka riwayat GitLab.
+
+Detail lengkap: [`TASK-MANAGEMENT.md`](TASK-MANAGEMENT.md).
+
+## 14. Troubleshooting dev
 
 | Masalah | Penyebab | Fix |
 |---|---|---|
@@ -464,3 +488,7 @@ dan `frontend/lib/{sources,log}.test.ts` (23 test) untuk sisi UI-nya.
 | `Memori tidak cukup` saat memuat model | Model terlalu besar untuk RAM/VRAM. | Pilih model lebih kecil, atau `ASK_HF_DEVICE=cpu` + `ASK_HF_DTYPE=bfloat16`. |
 | Container (Docker) restart terus | `wait -n` di entrypoint: begitu uvicorn **atau** `next start` mati, seluruh container dimatikan agar orchestrator me-restart bersih. | Cari baris `[ask-anything] proses anak berhenti (exit N)` di log untuk tahu proses mana yang gagal. |
 | `/api/*` 404 di container produksi | Target rewrite Next (`BACKEND_URL`) di-bake saat `next build`. | Jangan ubah `BACKEND_PORT` tanpa rebuild `--build-arg BACKEND_PORT=…`. |
+| `[FAIL] backend did not become healthy` | Dulu: sub-sistem opsional (torch rusak, `python-multipart` hilang) melempar saat startup sehingga uvicorn mati sebelum membuka port. | Sekarang tidak lagi mematikan server — lihat `GET /api/health` → `warnings`. `run.py` melakukan preflight `import app.main`, mencetak ekor `data/backend.log`, dan menyebut perbaikan konkret. |
+| `python-multipart` tidak ada | Endpoint upload PDF butuh paket itu; FastAPI memvalidasinya saat *dekorasi route*. | `pip install python-multipart` (atau `python run.py --install-only`). Tanpa paket itu backend tetap jalan; `POST /api/rag/upload` membalas 503 berisi petunjuk. |
+| `/api/health` memuat `warnings` | Ada sub-sistem opsional yang gagal disiapkan (mis. `OSError WinError 1114` pada `c10.dll`). | Ikuti hint di catatan itu (`python run.py --install-local` untuk torch). Chat sendiri tetap jalan lewat provider `openai`/`mock`. |
+| `Address already in use` / port 8000 dipakai | Instance lama masih hidup. | Hentikan proses lama, atau `python run.py --backend-port 8010`. |

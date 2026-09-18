@@ -156,6 +156,21 @@ export default function Sidebar({
         </button>
       </div>
 
+      {/* task management */}
+      <div className={collapsed ? "px-2 pt-3" : "px-4 pt-3"}>
+        <a
+          href="/tasks"
+          title="Task management: papan rencana RAG, id task = nama branch GitLab"
+          className={`flex items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 ${collapsed ? "h-9 w-9" : "w-full"}`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M9 11l3 3L22 4" />
+            <path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11" />
+          </svg>
+          {!collapsed && "Tasks"}
+        </a>
+      </div>
+
       {/* admin console */}
       <div className={collapsed ? "px-2 pt-3" : "px-4 pt-3"}>
         <a

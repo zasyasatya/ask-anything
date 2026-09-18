@@ -16,9 +16,11 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
+import textwrap
 import time
 import urllib.request
 from pathlib import Path
@@ -64,6 +66,24 @@ def wait_url(url: str, timeout: float = 60.0) -> bool:
     return False
 
 
+def health_warnings(url: str) -> list[str]:
+    """Catatan dari /api/health (mis. model lokal rusak) — supaya terlihat di run.py."""
+    import json
+
+    try:
+        with urllib.request.urlopen(url, timeout=5) as r:
+            data = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception:
+        return []
+    out = []
+    for note in (data.get("warnings") or [])[:6]:
+        message = str(note.get("message") or "")
+        hint = str(note.get("hint") or "")
+        if message:
+            out.append(f"{message}{(' → ' + hint) if hint else ''}")
+    return out
+
+
 def check_core_deps() -> None:
     print("== Checking core dependencies ==")
     if sys.version_info < (3, 10):
@@ -83,6 +103,131 @@ def check_core_deps() -> None:
     ok(f"npm {npm_v.stdout.strip()}")
 
 
+#: Modul → paket pip. Dipakai saat preflight menemukan impor yang hilang
+#: (khas: `python-multipart` membuat endpoint upload gagal *saat import route*).
+PIP_FOR_MODULE = {
+    "multipart": "python-multipart",
+    "pptx": "python-pptx",
+    "bs4": "beautifulsoup4",
+    "pydantic_settings": "pydantic-settings",
+    "pypdf": "pypdf",
+    "docx": "python-docx",
+    "PIL": "pillow",
+    "httpx": "httpx",
+    "fastapi": "fastapi",
+    "uvicorn": "uvicorn[standard]",
+    "pytest": "pytest",
+}
+_MISSING_MODULE = re.compile(r"No module named '([^'.]+)")
+
+
+def app_probe_env() -> dict:
+    """Env minimal untuk preflight import (tanpa menyentuh DB/model asli)."""
+    env = os.environ.copy()
+    env["ASK_PROVIDER"] = "mock"
+    env["ASK_TASKS_AUTOSEED"] = "0"
+    env["PYTHONUTF8"] = "1"
+    return env
+
+
+def probe_backend_app(py: Path) -> subprocess.CompletedProcess:
+    """Import penuh `app.main` — menangkap masalah yang tak terlihat oleh
+    `import fastapi` (mis. python-multipart absen, route bentrok, syntax error).
+
+    Inilah pemeriksaan yang membuat run.py berhenti melaporkan "backend did not
+    become healthy" tanpa sebab: aplikasi harus bisa di-import sebelum dijalankan.
+    """
+    return subprocess.run([str(py), "-c", "import app.main"],
+                          cwd=BACKEND, capture_output=True, text=True,
+                          env=app_probe_env(), timeout=180)
+
+
+def ensure_backend_imports(py: Path) -> None:
+    """Pastikan `app.main` bisa di-import, perbaiki paket yang hilang otomatis."""
+    probe = probe_backend_app(py)
+    if probe.returncode == 0:
+        ok("backend app importable (app.main)")
+        return
+
+    for _ in range(3):
+        missing = _MISSING_MODULE.search(probe.stderr or "")
+        if not missing:
+            break
+        module = missing.group(1)
+        package = PIP_FOR_MODULE.get(module, module)
+        print(f"  modul '{module}' hilang → pip install {package} …")
+        subprocess.run([str(py), "-m", "pip", "install", "--no-cache-dir",
+                        package], check=False)
+        probe = probe_backend_app(py)
+        if probe.returncode == 0:
+            ok("backend app importable setelah perbaikan paket")
+            return
+
+    detail = (probe.stderr or probe.stdout or "").strip()
+    tail = "\n".join(detail.splitlines()[-25:])
+    print("  [ !! ] backend gagal di-import — inilah sebab sebenarnya:\n")
+    print(textwrap.indent(tail or "(tanpa output)", "        "))
+    fail(
+        "backend tidak bisa di-import, jadi uvicorn pasti gagal start.\n"
+        "  Perbaikan yang biasanya menyelesaikan:\n"
+        f"    {py} -m pip install -r {BACKEND / 'requirements.txt'}\n"
+        f"    {py} -c \"import app.main\"   # uji ulang\n"
+        "  Bila pesannya menyebut 'python-multipart' → pip install python-multipart\n"
+        "  Bila menyebut DLL/torch (WinError 1114) → python run.py --install-local\n"
+        "  Bila menyebut 'address already in use' → port 8000 dipakai proses lain,\n"
+        "  jalankan: python run.py --backend-port 8010"
+    )
+
+
+#: Modul yang dipakai fitur inti (bukan sekadar impor app). Bila salah satunya
+#: hilang, fitur terkait hanya ter-degradasi (mis. upload PDF → 503) sehingga
+#: backend tetap "sehat" dan masalahnya mudah terlewat. Jadi diperiksa eksplisit.
+CORE_MODULES = ("fastapi", "uvicorn", "httpx", "bs4", "pypdf", "pptx",
+                "multipart", "pydantic_settings")
+
+def missing_core_modules_probe(modules: tuple[str, ...] | None = None) -> str:
+    """Skrip satu-baris: cetak modul yang tidak terpasang di environment itu."""
+    mods = tuple(modules or CORE_MODULES)
+    return ("import importlib.util as u\n"
+            f"mods = {mods!r}\n"
+            "print(' '.join(m for m in mods if u.find_spec(m) is None))\n")
+
+
+def missing_core_modules(py: Path) -> list[str]:
+    """Modul fitur inti yang belum ada ([] → semua tersedia)."""
+    try:
+        proc = subprocess.run(
+            [str(py), "-c", missing_core_modules_probe(CORE_MODULES)],
+            capture_output=True, text=True, timeout=120,
+            env=app_probe_env())
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    return [m for m in (proc.stdout or "").split() if m]
+
+
+def ensure_backend_features(py: Path) -> None:
+    """Pasang paket fitur yang hilang (upload PDF, PPTX, scraping)."""
+    missing = missing_core_modules(py)
+    if not missing:
+        ok("backend features complete (upload PDF, PPTX, scraping)")
+        return
+    for module in missing:
+        package = PIP_FOR_MODULE.get(module, module)
+        print(f"  modul '{module}' belum ada → pip install {package} …")
+        subprocess.run([str(py), "-m", "pip", "install", "--no-cache-dir",
+                        package], check=False)
+    still = missing_core_modules(py)
+    if still:
+        warn("sebagian paket fitur belum terpasang: "
+             + ", ".join(PIP_FOR_MODULE.get(m, m) for m in still)
+             + " — fitur terkait akan membalas 503 dengan petunjuk, "
+               "backend tetap jalan.")
+    else:
+        ok("backend features lengkap setelah pemasangan")
+
+
 def ensure_backend_deps() -> Path:
     print("== Backend (FastAPI) ==")
     py = venv_python()
@@ -90,9 +235,16 @@ def ensure_backend_deps() -> Path:
         print("  creating virtualenv …")
         subprocess.run([sys.executable, "-m", "venv", str(ROOT / ".venv")],
                        check=True)
-    probe = subprocess.run(
-        [str(py), "-c", "import fastapi, uvicorn, httpx, bs4"],
-        capture_output=True)
+
+    def _run(args: list[str]) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run([str(py), *args], capture_output=True,
+                                  text=True, timeout=180)
+        except OSError as exc:  # venv rusak / path aneh (mis. Python di-uninstall)
+            fail(f"python venv tidak bisa dijalankan ({py}): {exc}\n"
+                 "  Hapus folder .venv lalu jalankan lagi: python run.py")
+
+    probe = _run(["-c", "import fastapi, uvicorn, httpx, bs4"])
     if probe.returncode != 0:
         print("  installing backend requirements …")
         subprocess.run(
@@ -100,6 +252,12 @@ def ensure_backend_deps() -> Path:
              str(BACKEND / "requirements.txt")],
             check=True)
     ok("backend dependencies available (fastapi/uvicorn/httpx/bs4)")
+
+    # Paket inti ada ≠ aplikasi bisa dijalankan (mis. paket opsional hilang),
+    # dan aplikasi bisa di-import ≠ semua fitur siap (upload PDF butuh
+    # python-multipart: tanpa itu endpoint-nya 503, backend tetap sehat).
+    ensure_backend_imports(py)
+    ensure_backend_features(py)
     return py
 
 
@@ -225,6 +383,44 @@ def start(proc_name: str, cmd: list[str], cwd: Path, env: dict) -> subprocess.Po
                             shell=IS_WIN)
 
 
+def log_tail(proc_name: str, lines: int = 25) -> str:
+    """Ekor log proses (data/<name>.log) — supaya kegagalan tidak buta."""
+    path = ROOT / "data" / f"{proc_name}.log"
+    try:
+        content = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return f"(log {path} belum ada)"
+    tail = [ln for ln in content.strip().splitlines()[-lines:]]
+    return "\n".join(tail) if tail else "(log kosong)"
+
+
+def show_failure(proc_name: str, note: str) -> None:
+    print(f"\n----- {proc_name}: {note} -----")
+    print(textwrap.indent(log_tail(proc_name), "  "))
+    print(f"----- (log lengkap: {ROOT / 'data' / f'{proc_name}.log'}) -----\n")
+
+
+def backend_start_failure_hint(port: int) -> str:
+    """Terjemahkan isi log backend menjadi langkah perbaikan yang konkret."""
+    log = log_tail("backend", 200).lower()
+    hints: list[str] = []
+    if "python-multipart" in log or "form data requires" in log:
+        hints.append("Paket upload hilang → python run.py --install-only")
+    if "address already in use" in log or "errno 10048" in log:
+        hints.append(f"Port {port} sudah dipakai proses lain → hentikan proses itu "
+                     f"atau jalankan: python run.py --backend-port {port + 1}")
+    if "winerror 1114" in log or "c10.dll" in log:
+        hints.append("PyTorch rusak (DLL) — bukan penyebab backend mati, tapi "
+                     "jalankan: python run.py --install-local bila butuh model lokal")
+    if "no module named" in log:
+        hints.append("Ada paket backend yang belum ter-install → "
+                     "python run.py --install-only")
+    if "locked" in log or "permission" in log or "winerror 32" in log:
+        hints.append("Berkas DB terkunci (OneDrive/antivirus) → tutup instance lain, "
+                     "atau set ASK_DB_PATH=data/ask_anything2.db")
+    return "\n".join(f"    • {h}" for h in hints)
+
+
 def model_cli(py: Path, args: list[str], capture: bool = False
               ) -> subprocess.CompletedProcess:
     return subprocess.run([str(py), str(ROOT / "scripts" / "download_model.py"),
@@ -313,6 +509,10 @@ def main() -> None:
     if args.no_thinking:
         env["ASK_THINKING"] = "0"
     env["BACKEND_URL"] = f"http://127.0.0.1:{args.backend_port}"
+    # Windows: paksa UTF-8 supaya emoji/aksen di log tidak melempar
+    # UnicodeEncodeError di tengah startup.
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
 
     procs: list[tuple[str, subprocess.Popen]] = []
     try:
@@ -344,13 +544,38 @@ def main() -> None:
 
         # ---- backend ----
         print("== Starting backend ==")
+        health_url = f"http://127.0.0.1:{args.backend_port}/api/health"
+        if url_alive(health_url):
+            warn(f"port {args.backend_port} sudah melayani /api/health — kemungkinan "
+                 f"instance lama masih hidup. Proses baru tidak akan bisa mengikat "
+                 f"port ini; hentikan instance lama atau pakai "
+                 f"--backend-port {args.backend_port + 1}.")
+
         bp = start("backend", [str(py), "-m", "uvicorn", "app.main:app",
                                "--host", "0.0.0.0", "--port",
                                str(args.backend_port)], BACKEND, env)
         procs.append(("backend", bp))
-        if not wait_url(f"http://127.0.0.1:{args.backend_port}/api/health", 30):
-            fail("backend did not become healthy; see data/backend.log")
-        ok(f"backend healthy at http://127.0.0.1:{args.backend_port}")
+        # 30 detik terlalu pendek di Windows (Defender + import torch/transformers
+        # bisa makan waktu): tunggu lebih lama, tapi laporkan sebab bila gagal.
+        if not wait_url(health_url, 120):
+            show_failure("backend", "gagal sehat dalam 120 detik")
+            hint = backend_start_failure_hint(args.backend_port)
+            fail("backend did not become healthy.\n"
+                 "  Sebab yang paling mungkin (dari data/backend.log di atas):\n"
+                 + (hint or "    • lihat pesan error pada log di atas") +
+                 "\n  Backend kini TIDAK mematikan sub-sistem opsional: kerusakan\n"
+                 "  PyTorch/model lokal hanya jadi peringatan di /api/health.")
+        if bp.poll() is not None:
+            # Port dijawab proses lain sementara proses baru sudah mati.
+            show_failure("backend", f"proses keluar dengan kode {bp.returncode}")
+            fail(f"backend exited (code {bp.returncode}); port "
+                 f"{args.backend_port} kemungkinan dipakai proses lain.\n"
+                 f"  Jalankan: python run.py --backend-port "
+                 f"{args.backend_port + 1}")
+        warnings = health_warnings(health_url)
+        ok(f"backend healthy at {health_url}")
+        for note in warnings:
+            warn(f"backend catatan: {note}")
 
         # ---- frontend ----
         if not args.skip_frontend:

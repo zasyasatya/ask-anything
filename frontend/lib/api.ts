@@ -338,6 +338,29 @@ export function adminHeaders(token: string): Record<string, string> {
   return token ? { "X-Admin-Token": token } : {};
 }
 
+/** Token konsol admin disimpan di localStorage browser ini saja (tidak pernah
+ *  dikirim ke mana pun selain header X-Admin-Token ke backend sendiri). */
+export const ADMIN_TOKEN_KEY = "ask-admin-token";
+
+export function readAdminToken(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return window.localStorage.getItem(ADMIN_TOKEN_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+export function writeAdminToken(token: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    if (token) window.localStorage.setItem(ADMIN_TOKEN_KEY, token);
+    else window.localStorage.removeItem(ADMIN_TOKEN_KEY);
+  } catch {
+    /* mode privat / storage penuh — abaikan */
+  }
+}
+
 async function adminFetch<T>(
   token: string,
   url: string,

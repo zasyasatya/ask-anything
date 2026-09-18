@@ -108,6 +108,15 @@ sitasi karangan.
 
 ## Quick start (satu perintah)
 
+> **Backend selalu hidup.** `run.py` melakukan preflight `import app.main`
+> sebelum menjalankan uvicorn: paket yang hilang dipasang otomatis, dan bila
+> aplikasi tetap tidak bisa di-import penyebab aslinya dicetak (beserta
+> perbaikannya). Sub-sistem opsional — model lokal (torch), upload PDF
+> (python-multipart) — tidak lagi mematikan server: masalahnya muncul sebagai
+> catatan di `GET /api/health` (`warnings`) dan dicetak `run.py`. Bila health
+> check gagal, ekor `data/backend.log` langsung ditampilkan.
+
+
 Prasyarat: **Python ≥ 3.10**, **Node ≥ 18** (+npm). Sisanya diurus launcher:
 cek dependensi → install yang kurang → jalankan backend+frontend → health check.
 
@@ -406,6 +415,46 @@ ada di slide **`docs/slides-admin-pipeline.html`** — buka juga dari halaman
 Admin → “Docs cara kerja” (diserve di `/slides/…`), tersedia versi
 `docs/slides-admin-pipeline.pptx`.
 
+## Halaman Task Management — papan rencana RAG (`/tasks`)
+
+Papan kerja developer untuk **seluruh rencana RAG × AI Agent**: kanban
+drag & drop (Backlog → To do → In progress → Review → Done), daftar tabel,
+filter (fase/status/assignee/prioritas/label/pencarian), detail task dengan
+checklist kriteria selesai + komentar + riwayat aktivitas, statistik progres,
+dan sinkronisasi otomatis dengan git.
+
+Kuncinya: **id task (`ASK-NNN`) dipakai apa adanya di nama branch GitLab**,
+jadi riwayat repo dan papan saling terhubung tanpa tabel pemetaan:
+
+```text
+ASK-012  →  feat/ASK-012-halaman-task-management-papan-kanban-list
+```
+
+* Papan terisi otomatis saat backend pertama dijalankan (54 task dari
+  `backend/app/tasks_plan.py`: 6 fase — Platform & Governance, Ingest, Retrieval,
+  Agent × RAG, Visual Web, Polish/Demo) — termasuk semua item rencana: tab
+  Pipeline/Memori/Artifact/Feedback, mode Gambar & PPT, pipeline RAG, interpreter
+  selalu-on, sampai kriteria sukses & demo scenario slide.
+* Tombol **⟳ Sync git** menyelaraskan status: berkas `evidence` yang ada →
+  *Review*; branch yang memuat `ASK-NNN` → *In progress* + nama branch tersimpan;
+  commit yang menyebut `ASK-NNN` disimpan shanya (kata `close`/`fix`/`selesai`
+  menutup task menjadi *Done*). Status tidak pernah turun otomatis.
+* Detail task menampilkan perintah `git checkout -b …` siap salin dan kolom URL
+  merge request GitLab.
+
+```text
+GET/POST      /api/tasks                 daftar (filter) & buat task
+GET/PATCH/DEL /api/tasks/{id}            detail / ubah / hapus
+POST          /api/tasks/{id}/move       drag & drop antar kolom
+POST          /api/tasks/{id}/comments   komentar + aktivitas
+POST          /api/tasks/{id}/acceptance checklist kriteria selesai
+POST          /api/tasks/seed|sync       muat ulang rencana · selaras dengan git
+── dilindungi X-Admin-Token bila ASK_ADMIN_TOKEN diset ──
+```
+
+Panduan lengkap (alur kerja, aturan sync, struktur kode, cara menambah task):
+**`docs/TASK-MANAGEMENT.md`**.
+
 ## Konfigurasi (env, prefix `ASK_`)
 
 | Variabel | Default | Keterangan |
@@ -427,6 +476,8 @@ Admin → “Docs cara kerja” (diserve di `/slides/…`), tersedia versi
 | `ASK_DB_PATH` | `data/ask_anything.db` | SQLite (di container: `/app/data/ask_anything.db`) |
 | `ASK_ADMIN_TOKEN` | – (terbuka) | Bila diset, semua `/api/admin/*` wajib header `X-Admin-Token` |
 | `ASK_ARTIFACTS_DIR` / `ASK_RAG_DIR` | `data/artifacts` / `data/rag` | Penyimpanan file artifact & arsip PDF RAG |
+| `ASK_TASKS_AUTOSEED` | `true` | Isi papan `/tasks` dengan rencana RAG saat tabel masih kosong |
+| `ASK_REPO_DIR` | root proyek | Folder repo git yang dipakai sinkronisasi branch/commit task |
 
 Semua juga bisa diubah runtime dari UI → *Settings provider*.
 

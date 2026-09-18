@@ -83,17 +83,26 @@ backend/
   app/
     main.py                  # FastAPI app + mount /slides & /docs-images
     config.py                # pydantic-settings (prefix ASK_*)
-    db.py                    # SQLite: conversations, messages, trace_events
+    db.py                    # SQLite: conversations, messages, trace_events, tasks
+    startup.py               # catatan startup (muncul di /api/health → warnings)
+    governance.py            # policy pipeline (mode/tool/RAG/feedback/interpreter)
+    memory.py/artifacts.py   # memori (injeksi prompt) & registry artifact
+    feedback.py/rag.py       # 👍/👎 → pedoman · pipeline RAG (upload → sitasi)
+    tasks_plan.py / tasks.py # rencana RAG (54 task) + logika papan /tasks
     providers/               # base / openai / huggingface / mock
-    tools/                   # web_search, fetch_url, diagrams, calculator
-    agent/                   # loop.py (agent+tracing), prompts.py
+    tools/                   # web_search, fetch_url, diagrams, calculator, image/ppt
+    agent/                   # loop.py (agent+tracing), prompts.py, rag_loop.py
     api/routes.py            # /api/chat (SSE), conversations, settings, health
+    api/admin.py, api/tasks.py  # konsol admin (/api/admin/*) & papan (/api/tasks/*)
   tests/                     # pytest: provider SSE parser, agent, tools, API
 scripts/
   fake_llama_server.py       # server OpenAI-compatible tiruan (--demo & testing)
   capture_screenshots.py     # generator screenshot docs (Playwright)
 docs/                        # METODOLOGI.md, slides, PANDUAN-*, images/
-frontend/                    # Next.js 16: sidebar, hero, chat, interpreter, docs`}</Code>
+frontend/                    # Next.js 16: sidebar, hero, chat, interpreter, docs
+  app/tasks/page.tsx         # halaman /tasks (papan kanban + daftar)
+  components/tasks/          # TasksConsole, TaskBoard, TaskCard, TaskDetail, TaskForm
+  lib/tasks.ts               # tipe + API /api/tasks/* + helper branch/`}</Code>
       </section>
 
       <section className="space-y-4">
@@ -140,7 +149,10 @@ python3 run.py --demo                          # E2E live (emulator LLM)`}</Code
             ["GET", "/api/conversations/{id}", "Messages + trace lengkap (replay Interpreter)."],
             ["DELETE", "/api/conversations/{id}", "Hapus percakapan."],
             ["GET/POST", "/api/settings", "Baca/ubah runtime settings (provider, base url, model, temperature)."],
-            ["GET", "/api/health", "Status backend + llm_reachable (untuk banner & indikator sidebar)."],
+            ["GET", "/api/health", "Status backend + llm_reachable, `warnings` (sub-sistem opsional gagal) & `autoload` model lokal."],
+            ["GET/POST", "/api/tasks", "Papan task: daftar (filter fase/status/q…) · buat task baru (id ASK-NNN)."],
+            ["POST", "/api/tasks/{id}/move", "Pindah kolom (drag & drop); posisi kolom ditulis ulang di server."],
+            ["POST", "/api/tasks/sync", "Selaraskan status dari berkas evidence + branch/commit git yang menyebut ASK-NNN."],
             ["GET", "/docs (backend)", "Swagger UI FastAPI; /slides/* & /docs-images/* static mount."],
           ]}
         />
@@ -425,6 +437,10 @@ class ToolResult:
             ["web_search error di sandbox offline", "Egress diblokir.", "Diharapkan: agent menangani error graceful; gunakan Serper/Tavily bila punya akses, atau ASK_SEARCH_DDG_URL ke gateway yang terjangkau."],
             ["Semua jawaban berlabel “belum ada hasil browser”", "Tool browser memang mengembalikan 0 (bukan bug sitasi).", "Cek chip tool: 0 hasil = kosong, gagal = error. Registry sengaja tidak mengarang nomor."],
             ["Diagram tidak membesar saat navbar di-collapse", "Refit tidak terjadwal (ResizeObserver tidak ada).", "GraphView memasang observer + fitSignal; pastikan height disusul '100%' saat fill."],
+            ["[FAIL] backend did not become healthy", "Dulu sub-sistem opsional (torch rusak / python-multipart hilang) melempar saat startup → uvicorn mati sebelum port terbuka.", "Kini startup tahan gagal: lihat GET /api/health → warnings. run.py preflight import app.main, mencetak ekor data/backend.log + perbaikan konkret."],
+            ["Upload PDF membalas 503", "paket python-multipart belum ter-install (backend tetap jalan).", "pip install python-multipart atau python run.py --install-only."],
+            ["Task tidak muncul di papan", "Tabel task kosong dan autoseed dimatikan.", "ASK_TASKS_AUTOSEED=1 (default) atau POST /api/tasks/seed."],
+            ["Sync git tidak menemukan branch ASK-NNN", "Folder kerja bukan repo git, atau branch belum dibuat dari nama yang disarankan.", "Cek `repo` di header /tasks; salin perintah branch dari detail task (git checkout -b feat/ASK-NNN-…)."],
           ]}
         />
       </section>

@@ -13,7 +13,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
-from .. import artifacts, db, feedback, governance, hf_hub, rag
+from .. import artifacts, db, feedback, governance, hf_hub, rag, startup
 from ..agent.loop import run_agent
 from ..agent.rag_loop import run_rag_query
 from ..config import HF_MODES, settings, update_settings
@@ -525,10 +525,16 @@ async def health():
         except Exception as exc:  # noqa: BLE001
             llm_error = str(exc)
 
+    from ..main import AUTOLOAD_STATE
+
     return {
         "status": "ok",
         "provider": settings.provider,
         "hf_mode": settings.hf_mode,
+        # Kenapa backend jalan dalam mode terbatas (model lokal rusak, paket
+        # opsional hilang, …). Dipakai run.py & UI agar sebabnya kelihatan.
+        "warnings": startup.notes(),
+        "autoload": dict(AUTOLOAD_STATE),
         "model": settings.active_model_label(),
         "llm_reachable": llm_reachable,
         "llm_status": llm_status,
@@ -642,21 +648,63 @@ class RagQuery(BaseModel):
     document_ids: list[str] | None = None
 
 
-@router.post("/rag/upload")
-async def rag_upload(file: UploadFile) -> dict:
-    pol = governance.policy()
-    if not governance.mode_allowed("rag"):
-        raise HTTPException(403, "Mode RAG dimatikan oleh admin")
-    data = await file.read()
-    max_bytes = int(pol["rag"]["max_upload_mb"]) * 1024 * 1024
-    if len(data) > max_bytes:
-        raise HTTPException(413, f"PDF melebihi batas "
-                                 f"{pol['rag']['max_upload_mb']} MB")
-    name = file.filename or "dokumen.pdf"
-    if not name.lower().endswith(".pdf"):
-        raise HTTPException(415, "Hanya file .pdf yang didukung saat ini")
-    doc = rag.ingest_pdf(settings=settings, filename=name, data=data)
-    return {"document": doc}
+#: Diisi bila `python-multipart` absen (lihat _register_rag_upload).
+MULTIPART_HINT = ""
+
+
+def _register_rag_upload() -> None:
+    """Daftarkan POST /api/rag/upload — aman walau `python-multipart` hilang.
+
+    FastAPI memvalidasi signature endpoint multipart saat *dekorasi route*
+    (`ensure_multipart_is_installed`) dan melempar RuntimeError. Dulu itu
+    terjadi saat import `app.api.routes`, sehingga seluruh backend gagal
+    start hanya karena satu paket opsional tidak ter-install — gejalanya di
+    `run.py` cuma "backend did not become healthy". Sekarang route-nya
+    diganti versi 503 yang menjelaskan cara memperbaikinya.
+    """
+    global MULTIPART_HINT
+    try:
+        @router.post("/rag/upload")
+        async def rag_upload(file: UploadFile) -> dict:
+            pol = governance.policy()
+            if not governance.mode_allowed("rag"):
+                raise HTTPException(403, "Mode RAG dimatikan oleh admin")
+            data = await file.read()
+            max_bytes = int(pol["rag"]["max_upload_mb"]) * 1024 * 1024
+            if len(data) > max_bytes:
+                raise HTTPException(413, f"PDF melebihi batas "
+                                         f"{pol['rag']['max_upload_mb']} MB")
+            name = file.filename or "dokumen.pdf"
+            if not name.lower().endswith(".pdf"):
+                raise HTTPException(415, "Hanya file .pdf yang didukung saat ini")
+            doc = rag.ingest_pdf(settings=settings, filename=name, data=data)
+            return {"document": doc}
+
+        return
+    except RuntimeError as exc:  # python-multipart tidak ter-install
+        MULTIPART_HINT = str(exc)
+
+    startup.add("multipart", "Mode RAG: upload PDF tidak aktif karena paket "
+                             "`python-multipart` tidak ter-install.",
+                hint="pip install python-multipart (atau jalankan: "
+                     "python run.py --install-only)",
+                detail=MULTIPART_HINT)
+
+    router.add_api_route("/rag/upload", rag_upload_unavailable,
+                         methods=["POST"])
+
+
+async def rag_upload_unavailable() -> dict:
+    """Fallback mode RAG saat `python-multipart` tidak ada (bukan crash 500)."""
+    raise HTTPException(
+        503,
+        "Upload PDF butuh paket `python-multipart` di environment backend. "
+        "Jalankan: pip install python-multipart — atau `python run.py "
+        "--install-only` dari root proyek.",
+    )
+
+
+_register_rag_upload()
 
 
 @router.get("/rag/documents")
