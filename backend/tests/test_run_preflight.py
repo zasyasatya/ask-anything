@@ -45,6 +45,27 @@ def test_probe_backend_app_accepts_real_app(run_mod):
     assert probe.returncode == 0, probe.stderr
 
 
+def test_core_module_probe_finds_missing_feature_package(run_mod, monkeypatch):
+    """Paket fitur (mis. python-multipart) terdeteksi walau app tetap importable."""
+    monkeypatch.setattr(run_mod, "CORE_MODULES",
+                        ("fastapi", "paket_yang_tidak_pernah_ada_xyz"))
+    missing = run_mod.missing_core_modules(run_mod.venv_python())
+    assert missing == ["paket_yang_tidak_pernah_ada_xyz"]
+
+
+def test_ensure_backend_features_reports_missing(run_mod, monkeypatch):
+    """Modul hilang → dicoba dipasang, lalu dilaporkan bila tetap tidak ada."""
+    calls: list[list[str]] = []
+
+    monkeypatch.setattr(run_mod, "missing_core_modules",
+                        lambda py: [] if calls else ["multipart"])
+    monkeypatch.setattr(run_mod.subprocess, "run",
+                        lambda cmd, *a, **kw: calls.append(list(cmd)))
+
+    run_mod.ensure_backend_features(run_mod.venv_python())
+    assert any("python-multipart" in " ".join(c) for c in calls)
+
+
 def test_log_tail_reads_last_lines(run_mod, tmp_path, monkeypatch):
     monkeypatch.setattr(run_mod, "ROOT", tmp_path)
     (tmp_path / "data").mkdir()

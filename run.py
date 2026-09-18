@@ -179,6 +179,55 @@ def ensure_backend_imports(py: Path) -> None:
     )
 
 
+#: Modul yang dipakai fitur inti (bukan sekadar impor app). Bila salah satunya
+#: hilang, fitur terkait hanya ter-degradasi (mis. upload PDF → 503) sehingga
+#: backend tetap "sehat" dan masalahnya mudah terlewat. Jadi diperiksa eksplisit.
+CORE_MODULES = ("fastapi", "uvicorn", "httpx", "bs4", "pypdf", "pptx",
+                "multipart", "pydantic_settings")
+
+def missing_core_modules_probe(modules: tuple[str, ...] | None = None) -> str:
+    """Skrip satu-baris: cetak modul yang tidak terpasang di environment itu."""
+    mods = tuple(modules or CORE_MODULES)
+    return ("import importlib.util as u\n"
+            f"mods = {mods!r}\n"
+            "print(' '.join(m for m in mods if u.find_spec(m) is None))\n")
+
+
+def missing_core_modules(py: Path) -> list[str]:
+    """Modul fitur inti yang belum ada ([] → semua tersedia)."""
+    try:
+        proc = subprocess.run(
+            [str(py), "-c", missing_core_modules_probe(CORE_MODULES)],
+            capture_output=True, text=True, timeout=120,
+            env=app_probe_env())
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    return [m for m in (proc.stdout or "").split() if m]
+
+
+def ensure_backend_features(py: Path) -> None:
+    """Pasang paket fitur yang hilang (upload PDF, PPTX, scraping)."""
+    missing = missing_core_modules(py)
+    if not missing:
+        ok("backend features complete (upload PDF, PPTX, scraping)")
+        return
+    for module in missing:
+        package = PIP_FOR_MODULE.get(module, module)
+        print(f"  modul '{module}' belum ada → pip install {package} …")
+        subprocess.run([str(py), "-m", "pip", "install", "--no-cache-dir",
+                        package], check=False)
+    still = missing_core_modules(py)
+    if still:
+        warn("sebagian paket fitur belum terpasang: "
+             + ", ".join(PIP_FOR_MODULE.get(m, m) for m in still)
+             + " — fitur terkait akan membalas 503 dengan petunjuk, "
+               "backend tetap jalan.")
+    else:
+        ok("backend features lengkap setelah pemasangan")
+
+
 def ensure_backend_deps() -> Path:
     print("== Backend (FastAPI) ==")
     py = venv_python()
@@ -204,8 +253,11 @@ def ensure_backend_deps() -> Path:
             check=True)
     ok("backend dependencies available (fastapi/uvicorn/httpx/bs4)")
 
-    # Paket inti ada ≠ aplikasi bisa dijalankan (mis. paket opsional hilang).
+    # Paket inti ada ≠ aplikasi bisa dijalankan (mis. paket opsional hilang),
+    # dan aplikasi bisa di-import ≠ semua fitur siap (upload PDF butuh
+    # python-multipart: tanpa itu endpoint-nya 503, backend tetap sehat).
     ensure_backend_imports(py)
+    ensure_backend_features(py)
     return py
 
 
