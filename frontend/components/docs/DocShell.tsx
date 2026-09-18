@@ -29,6 +29,7 @@ export function DocNav({ active }: { active: "panduan" | "developer" }) {
         <nav className="flex items-center gap-1">
           {item("/panduan", "Panduan Pengguna", active === "panduan")}
           {item("/developer", "Docs Developer", active === "developer")}
+          {item("/tasks", "Tasks", false)}
           <a
             href="/slides/slides-cara-kerja.html"
             target="_blank"

@@ -86,6 +86,12 @@ class Settings(BaseSettings):
     artifacts_dir: str = "data/artifacts"   # penyimpanan artifact (gambar/pptx)
     rag_dir: str = "data/rag"               # arsip PDF mentah mode RAG
 
+    # ---- task management (halaman /tasks) ----
+    #: Isi papan tugas dengan rencana RAG saat boot pertama (tabel kosong).
+    tasks_autoseed: bool = True
+    #: Folder repo git untuk sync branch/commit → status task (kosong = root proyek).
+    repo_dir: str = ""
+
     # ---- storage ----
     db_path: str = "data/ask_anything.db"
 

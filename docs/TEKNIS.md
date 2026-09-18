@@ -30,6 +30,8 @@ repo (bukan generik) — kalau sebuah paket hanya opsional, itu dikatakan.
 16. [Cara kerja: Interpreter sebagai pembaca log](#16-cara-kerja-interpreter-sebagai-pembaca-log)
 17. [Cara kerja: persistensi SQLite & replay](#17-cara-kerja-persistensi-sqlite--replay)
 18. [Ukuran, batas, dan keputusan teknis](#18-ukuran-batas-dan-keputusan-teknis)
+19. [Cara kerja: startup tahan gagal & catatan `/api/health`](#19-cara-kerja-startup-tahan-gagal--catatan-apihealth)
+20. [Cara kerja: task management & sinkronisasi git](#20-cara-kerja-task-management--sinkronisasi-git)
 
 ---
 
@@ -504,3 +506,61 @@ Backend tanpa `requirements-local.txt` hanya butuh 6 paket runtime
 *Lihat juga: [`PANDUAN-DEVELOPER.md`](PANDUAN-DEVELOPER.md) untuk API &
 panduan running, [`METODOLOGI.md`](METODOLOGI.md) untuk alasan desain,
 [`PENYESUAIAN-PROVIDER.md`](PENYESUAIAN-PROVIDER.md) untuk integrasi provider.*
+
+
+---
+
+## 19. Cara kerja: startup tahan gagal & catatan `/api/health`
+
+`lifespan` FastAPI (`backend/app/main.py`) sengaja tidak pernah melempar karena
+sub-sistem opsional:
+
+```text
+_init_storage()                 # SQLite (fatal → pesan actionable) + folder model
+                                # + seed rencana RAG ke papan /tasks
+_run_autoload_in_background()   # thread daemon: model lokal dimuat di latar
+```
+
+* `app/startup.py` menyimpan catatan masalah (`component`, `message`, `hint`,
+  `detail`, `ts`) dan mencetaknya ke stdout (masuk `data/backend.log`). Catatan
+  yang sama dikirim sebagai `warnings` pada `GET /api/health`, sehingga `run.py`
+  dan UI bisa menampilkan sebab yang sebenarnya — bukan sekadar
+  “backend did not become healthy”.
+* Model lokal: `local_inference.dependencies()` meng-import `torch`/`transformers`
+  dalam `try/except` (menangkap `OSError WinError 1114` pada Windows) dan
+  mengembalikan `install_hint`, bukan melempar. Autoload berjalan di thread
+  daemon supaya startup tidak tersandera.
+* Upload PDF: `api/routes._register_rag_upload()` membungkus dekorasi route
+  multipart — kalau `python-multipart` tidak ada, route diganti versi yang
+  membalas **503** berisi perintah pemasangan, bukan `RuntimeError` saat import
+  yang dulu mematikan seluruh backend.
+* Sisi launcher (`run.py`): preflight `import app.main` (dengan pemetaan
+  modul→paket pip, mis. `multipart → python-multipart`), deteksi port yang sudah
+  terpakai, tunggu health 120 detik, lalu bila gagal tampilkan ekor
+  `data/backend.log` + daftar perbaikan (`backend_start_failure_hint`).
+
+## 20. Cara kerja: task management & sinkronisasi git
+
+```text
+tasks_plan.py   54 task × 6 fase (rencana RAG + platform) — data murni, tanpa I/O
+     │
+tasks.seed_if_empty()  → tabel tasks (SQLite)   ← dipanggil saat lifespan
+     │
+tasks.sync()     evidence → Review · branch ASK-NNN → In progress · commit → sha (+Done)
+     │
+/api/tasks/*     router di bawah guard X-Admin-Token (sama seperti /api/admin/*)
+     │
+TasksConsole     papan kanban drag & drop / daftar / detail (React, tanpa dependensi baru)
+```
+
+* **Posisi kartu** dikelola kolom `position` per status; `move_task()` menulis
+  ulang posisi kolom tujuan setelah menyisipkan sebelum `before_id`.
+* **`branch_name()`** menurunkan prefiks dari label (`bug→fix`, `docs→docs`,
+  `test→test`, `performance→perf`, default `feat`) dan men-slug judul task —
+  id task tidak pernah diubah karena sudah dipakai di nama branch GitLab.
+* **`update_task()`** hanya menerima field yang dikenal; perpindahan status ke
+  `done` mengisi `completed_at`, dan setiap perubahan status dicatat sebagai
+  komentar `kind='activity'` sehingga kronologi papan bisa diaudit.
+* **Sync aman**: status hanya boleh naik (`_rank()`), commit disimpan maksimum
+  20 per task, dan bila folder bukan repo git hanya pemeriksaan `evidence` yang
+  berjalan (dilaporkan di `note`).

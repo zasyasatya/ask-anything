@@ -102,6 +102,41 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
     embedding TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks(doc_id, seq);
+
+-- ---- Task management (halaman /tasks; task id = kode branch GitLab) --------
+CREATE TABLE IF NOT EXISTS tasks (
+    id TEXT PRIMARY KEY,                 -- ASK-001 (dipakai di nama branch)
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    phase TEXT NOT NULL DEFAULT 'f0',
+    status TEXT NOT NULL DEFAULT 'todo',
+    priority TEXT NOT NULL DEFAULT 'medium',
+    assignee TEXT NOT NULL DEFAULT '',
+    estimate REAL NOT NULL DEFAULT 0,    -- estimasi hari kerja
+    labels TEXT NOT NULL DEFAULT '[]',
+    acceptance TEXT NOT NULL DEFAULT '[]',  -- [{text, done}]
+    depends_on TEXT NOT NULL DEFAULT '[]',  -- ["ASK-002", …]
+    evidence TEXT NOT NULL DEFAULT '[]',    -- file penanda implementasi
+    source TEXT NOT NULL DEFAULT '',        -- rujukan slide / tab admin
+    branch TEXT NOT NULL DEFAULT '',
+    mr_url TEXT NOT NULL DEFAULT '',
+    commits TEXT NOT NULL DEFAULT '[]',     -- [{sha, subject}]
+    position INTEGER NOT NULL DEFAULT 0,    -- urutan dalam kolom
+    seeded INTEGER NOT NULL DEFAULT 0,      -- 1 = berasal dari rencana RAG
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    completed_at REAL NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, position);
+CREATE TABLE IF NOT EXISTS task_comments (
+    id TEXT PRIMARY KEY,
+    task_id TEXT NOT NULL,
+    author TEXT NOT NULL DEFAULT 'dev',
+    kind TEXT NOT NULL DEFAULT 'comment',   -- comment | activity
+    body TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_task_comments ON task_comments(task_id, created_at);
 """
 
 
@@ -268,6 +303,8 @@ def stats_counts() -> dict:
         "SELECT COALESCE(SUM(size_bytes),0) AS n FROM artifacts").fetchone()
     rag_ready = _c().execute(
         "SELECT COUNT(*) AS n FROM rag_documents WHERE status='ready'").fetchone()
+    tasks_done = _c().execute(
+        "SELECT COUNT(*) AS n FROM tasks WHERE status='done'").fetchone()
     return {
         "conversations": count("conversations"),
         "messages": count("messages"),
@@ -280,4 +317,6 @@ def stats_counts() -> dict:
         "feedback_down": int(down["n"] or 0),
         "rag_documents": count("rag_documents"),
         "rag_documents_ready": int(rag_ready["n"]) if rag_ready else 0,
+        "tasks": count("tasks"),
+        "tasks_done": int(tasks_done["n"]) if tasks_done else 0,
     }

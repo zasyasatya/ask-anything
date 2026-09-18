@@ -129,11 +129,17 @@ export default function AdminConsole() {
               {t.label}
             </button>
           ))}
+          <Link
+            href="/tasks"
+            className="ml-auto rounded-lg px-3 py-1.5 text-[13px] font-medium text-zinc-500 hover:bg-zinc-100"
+          >
+            🗂️ Tasks
+          </Link>
           <a
             href="/slides/slides-admin-pipeline.html"
             target="_blank"
             rel="noreferrer"
-            className="ml-auto rounded-lg px-3 py-1.5 text-[13px] font-medium text-zinc-500 hover:bg-zinc-100"
+            className="rounded-lg px-3 py-1.5 text-[13px] font-medium text-zinc-500 hover:bg-zinc-100"
           >
             📊 Docs cara kerja ↗
           </a>
