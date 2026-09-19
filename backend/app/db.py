@@ -90,6 +90,13 @@ CREATE TABLE IF NOT EXISTS rag_documents (
     error TEXT NOT NULL DEFAULT '',
     embed_backend TEXT NOT NULL DEFAULT '',
     timings TEXT NOT NULL DEFAULT '{}',
+    -- OCR: dokumen hasil scan/gambar (lihat ocr.py). Disimpan terpisah dari
+    -- `timings` supaya bisa difilter & ditampilkan di dashboard admin.
+    kind TEXT NOT NULL DEFAULT 'pdf',        -- pdf | image
+    ocr_pages INTEGER NOT NULL DEFAULT 0,    -- halaman yang benar-benar di-OCR
+    ocr_engine TEXT NOT NULL DEFAULT '',
+    ocr_confidence REAL NOT NULL DEFAULT 0,
+    ocr_detail TEXT NOT NULL DEFAULT '{}',
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
@@ -102,6 +109,85 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
     embedding TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks(doc_id, seq);
+
+-- ---- Pipeline kuota token per end user ------------------------------------
+-- Periode dipakai sebagai kolom (day_key/week_key) supaya agregasi murah dan
+-- reset terjadi otomatis saat tanggal/pekan berganti — tanpa scheduler.
+CREATE TABLE IF NOT EXISTS usage_users (
+    user_key TEXT PRIMARY KEY,
+    label TEXT NOT NULL DEFAULT '',
+    first_seen REAL NOT NULL,
+    last_seen REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS token_usage (
+    id TEXT PRIMARY KEY,
+    user_key TEXT NOT NULL,
+    conversation_id TEXT NOT NULL DEFAULT '',
+    run_id TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT '',
+    provider TEXT NOT NULL DEFAULT '',
+    model TEXT NOT NULL DEFAULT '',
+    prompt_tokens INTEGER NOT NULL DEFAULT 0,
+    completion_tokens INTEGER NOT NULL DEFAULT 0,
+    total_tokens INTEGER NOT NULL DEFAULT 0,
+    day_key TEXT NOT NULL DEFAULT '',
+    week_key TEXT NOT NULL DEFAULT '',
+    ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_token_usage_day ON token_usage(day_key, user_key);
+CREATE INDEX IF NOT EXISTS idx_token_usage_week ON token_usage(week_key, user_key);
+-- Override per user: NULL = ikut policy, 0 = tanpa batas.
+CREATE TABLE IF NOT EXISTS usage_limits (
+    user_key TEXT PRIMARY KEY,
+    daily_tokens INTEGER,
+    weekly_tokens INTEGER,
+    daily_requests INTEGER,
+    note TEXT NOT NULL DEFAULT '',
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS quota_rejections (
+    id TEXT PRIMARY KEY,
+    user_key TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT '',
+    reason TEXT NOT NULL DEFAULT '',
+    day_key TEXT NOT NULL DEFAULT '',
+    ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_quota_rejections ON quota_rejections(day_key, ts);
+
+-- ---- Pipeline instruksi advanced (playbook domain + teori cara menjawab) ---
+CREATE TABLE IF NOT EXISTS instruction_playbooks (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    domain TEXT NOT NULL DEFAULT '',
+    persona TEXT NOT NULL DEFAULT '',        -- siapa AI saat playbook aktif
+    method TEXT NOT NULL DEFAULT '',         -- metode bebas (opsional)
+    theory TEXT NOT NULL DEFAULT '',         -- kunci katalog THEORIES
+    rules TEXT NOT NULL DEFAULT '',          -- batasan/larangan
+    output_format TEXT NOT NULL DEFAULT '',
+    triggers TEXT NOT NULL DEFAULT '[]',     -- kata pemicu (activation=keywords)
+    modes TEXT NOT NULL DEFAULT '[]',        -- [] = semua mode
+    activation TEXT NOT NULL DEFAULT 'keywords',  -- always | keywords | manual
+    priority INTEGER NOT NULL DEFAULT 100,
+    enabled INTEGER NOT NULL DEFAULT 1,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_playbooks_active
+    ON instruction_playbooks(enabled, priority);
+-- Playbook mana yang BENAR-BENAR dipakai per run (monitoring, bukan daftar).
+CREATE TABLE IF NOT EXISTS instruction_activations (
+    id TEXT PRIMARY KEY,
+    playbook_id TEXT NOT NULL,
+    playbook_name TEXT NOT NULL DEFAULT '',
+    conversation_id TEXT NOT NULL DEFAULT '',
+    run_id TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL DEFAULT '',
+    match_reason TEXT NOT NULL DEFAULT '',
+    ts REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_instruction_activations
+    ON instruction_activations(playbook_id, ts);
 
 -- ---- Task management (halaman /tasks; task id = kode branch GitLab) --------
 CREATE TABLE IF NOT EXISTS tasks (
@@ -147,7 +233,34 @@ def init_db(path: str) -> None:
     _conn.row_factory = sqlite3.Row
     with _lock:
         _conn.executescript(SCHEMA)
+        _migrate(_conn)
         _conn.commit()
+
+
+#: Kolom yang ditambahkan setelah tabel pertama kali dirilis.
+#: `CREATE TABLE IF NOT EXISTS` tidak menyentuh tabel yang sudah ada, jadi
+#: database lama harus di-ALTER — tanpa ini fitur baru gagal dengan
+#: "no such column" di instalasi yang sudah berjalan.
+_ADDED_COLUMNS: dict[str, dict[str, str]] = {
+    "rag_documents": {
+        "kind": "TEXT NOT NULL DEFAULT 'pdf'",
+        "ocr_pages": "INTEGER NOT NULL DEFAULT 0",
+        "ocr_engine": "TEXT NOT NULL DEFAULT ''",
+        "ocr_confidence": "REAL NOT NULL DEFAULT 0",
+        "ocr_detail": "TEXT NOT NULL DEFAULT '{}'",
+    },
+}
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, columns in _ADDED_COLUMNS.items():
+        existing = {row["name"] for row in
+                    conn.execute(f"PRAGMA table_info({table})").fetchall()}
+        if not existing:
+            continue  # tabel belum ada (schema baru sudah membuatnya)
+        for name, ddl in columns.items():
+            if name not in existing:
+                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
 
 
 def _c() -> sqlite3.Connection:
@@ -276,12 +389,19 @@ def execute(sql: str, params: tuple = ()) -> None:
 
 
 def query_all(sql: str, params: tuple = ()) -> list[dict]:
-    rows = _c().execute(sql, params).fetchall()
+    # Reads must serialise on the same lock as writes: a single sqlite3
+    # connection is shared across threads (check_same_thread=False), and the
+    # background RAG ingest worker writes concurrently with request threads
+    # that read. Using the connection from two threads at once raises
+    # "bad parameter or other API misuse"; the lock prevents that.
+    with _lock:
+        rows = _c().execute(sql, params).fetchall()
     return [dict(r) for r in rows]
 
 
 def query_one(sql: str, params: tuple = ()) -> dict | None:
-    row = _c().execute(sql, params).fetchone()
+    with _lock:
+        row = _c().execute(sql, params).fetchone()
     return dict(row) if row else None
 
 

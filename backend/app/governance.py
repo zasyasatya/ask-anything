@@ -14,6 +14,7 @@ Struktur policy (disimpan per-section sebagai JSON di tabel `admin_policy`):
   feedback    — thumbs up/down + auto-guidance
   interpreter — mechanistic interpreter (selalu aktif; dikunci di kode)
   artifacts   — penyimpanan artefak (retensi, jumlah maksimum)
+  quota       — batas token harian/mingguan per end user (lihat `quota.py`)
 
 `always_on` interpreter sengaja tidak bisa dimatikan lewat API: dokumentasi dan
 audit adalah janji produk ("semua langkah terecord"), bukan preferensi.
@@ -48,6 +49,19 @@ DEFAULT_POLICY: dict[str, dict[str, Any]] = {
         "chunk_overlap": 150,   # overlap antar chunk
         "top_k": 4,             # chunk yang diretrieval per pertanyaan
         "max_upload_mb": 25,    # batas ukuran PDF
+        # --- Kecerdasan retrieval (lihat `rag.retrieve`) ---
+        "retrieval_mode": "hybrid",   # hybrid | vector | lexical
+        "retrieval_candidates": 50,   # kandidat yang di-rerank sebelum MMR
+        "mmr_lambda": 0.7,            # 1.0 = murni relevansi, 0 = murni beragam
+        "min_score": 0.0,             # buang hit cosine di bawah ini
+        "context_neighbors": 0,       # sambung n chunk sebelum/sesudah (0 = mati)
+        # --- OCR (PDF hasil scan & berkas gambar) — lihat `ocr.py` ---
+        "ocr_enabled": True,
+        "ocr_engine": "auto",   # auto | rapidocr | tesseract
+        "ocr_min_chars": 80,    # halaman dgn teks < ini dianggap hasil scan
+        "ocr_dpi": 200,         # resolusi render halaman sebelum OCR
+        "ocr_max_pages": 40,    # pagar pengaman dokumen scan raksasa
+        "ocr_deskew": True,     # luruskan halaman miring sebelum OCR
     },
     "feedback": {
         "enabled": True,        # tombol 👍/👎 tampil & direcord
@@ -64,8 +78,24 @@ DEFAULT_POLICY: dict[str, dict[str, Any]] = {
         "max_artifacts": 500,   # registry dipangkas FIFO melewati batas ini
         "retention_days": 30,   # 0 = simpan selamanya (pembersihan manual)
     },
+    "quota": {
+        # Batas pemakaian token per END USER. 0 = tanpa batas untuk dimensi itu.
+        # Periode berbasis kalender (hari & pekan ISO) → reset otomatis.
+        "enabled": True,
+        "daily_tokens": 100_000,
+        "weekly_tokens": 500_000,
+        "daily_requests": 300,
+        # False = mode pemantauan: pemakaian tetap dicatat & dilaporkan, tapi
+        # request tidak diblokir (berguna saat menakar batas sebelum diberlakukan).
+        "block_on_exceed": True,
+    },
+    "instructions": {
+        # Playbook domain + teori cara menjawab (lihat `instructions.py`).
+        "enabled": True,
+        "max_active": 3,        # playbook yang boleh aktif bersamaan per run
+        "max_chars": 4000,      # batas panjang blok instruksi di system prompt
+    },
 }
-
 
 # ---------------------------------------------------------------------------
 # Store
@@ -142,6 +172,15 @@ def public_policy() -> dict[str, Any]:
         "rag": {
             "top_k": pol["rag"]["top_k"],
             "max_upload_mb": pol["rag"]["max_upload_mb"],
+        },
+        # Cukup untuk UI menampilkan sisa kuota; angka pemakaian nyata per user
+        # diambil dari GET /api/quota/me (butuh identitas pemanggil).
+        "quota": {
+            "enabled": pol["quota"]["enabled"],
+            "daily_tokens": pol["quota"]["daily_tokens"],
+            "weekly_tokens": pol["quota"]["weekly_tokens"],
+            "daily_requests": pol["quota"]["daily_requests"],
+            "block_on_exceed": pol["quota"]["block_on_exceed"],
         },
         "labels": {
             "text": "Teks", "image": "Gambar", "diagram": "Diagram",

@@ -1,0 +1,24 @@
+# OCR untuk pipeline RAG — membaca PDF hasil scan & berkas gambar.
+#
+# Dipisah dari requirements.txt karena ukurannya besar (onnxruntime + opencv
+# ±150 MB) dan tidak semua deployment memproses dokumen scan. Tanpa paket ini
+# backend tetap jalan: upload PDF teks normal berfungsi, sedangkan dokumen
+# scan/gambar dilaporkan sebagai "OCR belum aktif" beserta cara memasangnya
+# (lihat GET /api/rag/ocr dan GET /api/health → "ocr").
+#
+# Install:  .venv/bin/pip install -r backend/requirements-ocr.txt
+
+# Render halaman PDF → bitmap. Wheel murni pip, TANPA binary sistem
+# (berbeda dari pdf2image yang membutuhkan poppler).
+pypdfium2>=4.30
+
+# Mesin OCR PP-OCRv4 di atas onnxruntime — juga tanpa binary sistem.
+# Membawa model deteksi+pengenalan di dalam wheel, jadi bisa jalan offline.
+rapidocr-onnxruntime>=1.2.3
+
+# Pillow dipakai untuk membuka/mempraproses gambar (sudah ikut python-pptx,
+# dicantumkan eksplisit karena `ocr.py` memakainya langsung).
+Pillow>=10.0
+
+# Alternatif mesin OCR (opsional, butuh binary Tesseract di sistem):
+# pytesseract>=0.3.10

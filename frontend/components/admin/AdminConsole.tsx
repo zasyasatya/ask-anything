@@ -10,24 +10,34 @@ import { useCallback, useEffect, useState } from "react";
 import {
   adminArtifacts,
   adminFeedback,
+  adminInstructions,
   adminMemories,
   adminOverview,
+  adminQuota,
+  ocrStatus,
 } from "@/lib/api";
 import type {
   ArtifactItem,
   FeedbackItem,
   FullPolicy,
+  InstructionDashboard,
   MemoryItem,
+  OcrStatus,
+  QuotaDashboard,
 } from "@/lib/types";
 import PipelineTab from "./PipelineTab";
 import MemoryTab from "./MemoryTab";
 import ArtifactTab from "./ArtifactTab";
 import FeedbackTab from "./FeedbackTab";
+import QuotaTab from "./QuotaTab";
+import InstructionsTab from "./InstructionsTab";
 import { Card, Stat, fmtBytes } from "./ui";
 
 const TABS = [
   { id: "overview", label: "Ringkasan" },
   { id: "pipeline", label: "Pipeline" },
+  { id: "quota", label: "Kuota token" },
+  { id: "instructions", label: "Instruksi" },
   { id: "memory", label: "Memori" },
   { id: "artifacts", label: "Artifact" },
   { id: "feedback", label: "Feedback" },
@@ -52,23 +62,44 @@ export default function AdminConsole() {
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [quota, setQuota] = useState<QuotaDashboard | null>(null);
+  const [instructions, setInstructions] = useState<InstructionDashboard | null>(
+    null
+  );
+  const [ocr, setOcr] = useState<OcrStatus | null>(null);
 
   const refreshAll = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [ov, mem, art, fb] = await Promise.all([
+      // `allSettled`: satu pipeline yang bermasalah tidak boleh mengosongkan
+      // seluruh dashboard — kegagalannya dilaporkan, sisanya tetap tampil.
+      const [ov, mem, art, fb, qt, ins, oc] = await Promise.allSettled([
         adminOverview(""),
         adminMemories(""),
         adminArtifacts(""),
         adminFeedback(""),
+        adminQuota(""),
+        adminInstructions(""),
+        ocrStatus(),
       ]);
-      setOverview(ov);
-      setPolicy(ov.policy);
-      setMemories(mem);
-      setArtifacts(art);
-      setFeedback(fb.feedback);
-      setFbStats(fb.stats as typeof fbStats);
+      const problems: string[] = [];
+      if (ov.status === "fulfilled") {
+        setOverview(ov.value);
+        setPolicy(ov.value.policy);
+      } else problems.push(String(ov.reason));
+      if (mem.status === "fulfilled") setMemories(mem.value);
+      if (art.status === "fulfilled") setArtifacts(art.value);
+      if (fb.status === "fulfilled") {
+        setFeedback(fb.value.feedback);
+        setFbStats(fb.value.stats as typeof fbStats);
+      }
+      if (qt.status === "fulfilled") setQuota(qt.value);
+      else problems.push(String(qt.reason));
+      if (ins.status === "fulfilled") setInstructions(ins.value);
+      else problems.push(String(ins.reason));
+      if (oc.status === "fulfilled") setOcr(oc.value);
+      if (problems.length) setError(problems.join(" · "));
     } catch (e) {
       setError(String(e));
     } finally {
@@ -211,7 +242,129 @@ export default function AdminConsole() {
                 hint="dari 6 mode pipeline"
                 tone="green"
               />
+              <Stat
+                label="Token hari ini"
+                value={(quota?.overview.today.tokens ?? 0).toLocaleString(
+                  "id-ID"
+                )}
+                hint={`${quota?.overview.users ?? 0} end user · ${
+                  quota?.overview.blocked_today ?? 0
+                } ditolak`}
+                tone={
+                  (quota?.overview.blocked_today ?? 0) > 0 ? "amber" : "indigo"
+                }
+              />
+              <Stat
+                label="Playbook instruksi"
+                value={instructions?.stats.enabled ?? 0}
+                hint={`${
+                  instructions?.stats.activations_total ?? 0
+                } kali dipakai`}
+              />
+              <Stat
+                label="OCR"
+                value={ocr?.deps.available ? "siap" : "belum"}
+                hint={
+                  ocr?.deps.available
+                    ? `mesin: ${ocr.engine_selected ?? "-"}`
+                    : "PDF scan & gambar belum bisa dibaca"
+                }
+                tone={ocr?.deps.available ? "green" : "amber"}
+              />
             </div>
+
+            <Card
+              title="Status tiap pipeline"
+              subtitle="Satu baris per pipeline: apa yang aktif, seberapa terpakai, dan ke mana mengaturnya."
+            >
+              <ul className="space-y-2 text-[13px]">
+                <li className="flex flex-wrap items-baseline gap-2">
+                  <span className="w-40 font-medium text-zinc-700">
+                    Kuota token
+                  </span>
+                  <span className="text-zinc-500">
+                    {policy?.quota.enabled
+                      ? `aktif — ${policy.quota.daily_tokens.toLocaleString(
+                          "id-ID"
+                        )} token/hari, ${policy.quota.weekly_tokens.toLocaleString(
+                          "id-ID"
+                        )}/pekan${
+                          policy.quota.block_on_exceed
+                            ? ""
+                            : " (mode pemantauan, tidak memblokir)"
+                        }`
+                      : "nonaktif — tidak ada batas pemakaian"}
+                  </span>
+                  <button
+                    onClick={() => setTab("quota")}
+                    className="ml-auto rounded-lg border border-zinc-200 px-2 py-0.5 text-[11.5px] text-zinc-600 hover:bg-zinc-50"
+                  >
+                    Kelola →
+                  </button>
+                </li>
+                <li className="flex flex-wrap items-baseline gap-2">
+                  <span className="w-40 font-medium text-zinc-700">
+                    Instruksi advanced
+                  </span>
+                  <span className="text-zinc-500">
+                    {policy?.instructions.enabled
+                      ? `aktif — ${
+                          instructions?.stats.enabled ?? 0
+                        } playbook, maks ${
+                          policy.instructions.max_active
+                        } menyala bersamaan`
+                      : "nonaktif"}
+                    {(instructions?.stats.never_used?.length ?? 0) > 0 &&
+                      ` · ${instructions?.stats.never_used.length} belum pernah terpakai`}
+                  </span>
+                  <button
+                    onClick={() => setTab("instructions")}
+                    className="ml-auto rounded-lg border border-zinc-200 px-2 py-0.5 text-[11.5px] text-zinc-600 hover:bg-zinc-50"
+                  >
+                    Kelola →
+                  </button>
+                </li>
+                <li className="flex flex-wrap items-baseline gap-2">
+                  <span className="w-40 font-medium text-zinc-700">
+                    RAG &amp; OCR
+                  </span>
+                  <span className="text-zinc-500">
+                    retrieval {policy?.rag.retrieval_mode ?? "hybrid"} · top-k{" "}
+                    {policy?.rag.top_k ?? 4} · OCR{" "}
+                    {policy?.rag.ocr_enabled ? "aktif" : "nonaktif"}
+                    {ocr && !ocr.deps.available && " (mesin belum terpasang)"} ·{" "}
+                    {counts?.rag_documents_ready ?? 0} dokumen siap
+                  </span>
+                  <button
+                    onClick={() => setTab("pipeline")}
+                    className="ml-auto rounded-lg border border-zinc-200 px-2 py-0.5 text-[11.5px] text-zinc-600 hover:bg-zinc-50"
+                  >
+                    Kelola →
+                  </button>
+                </li>
+                <li className="flex flex-wrap items-baseline gap-2">
+                  <span className="w-40 font-medium text-zinc-700">
+                    Memori &amp; feedback
+                  </span>
+                  <span className="text-zinc-500">
+                    {counts?.memories ?? 0} memori ·{" "}
+                    {counts?.feedback_total ?? 0} feedback · auto-guidance{" "}
+                    {policy?.feedback.auto_guidance ? "aktif" : "nonaktif"}
+                  </span>
+                  <button
+                    onClick={() => setTab("memory")}
+                    className="ml-auto rounded-lg border border-zinc-200 px-2 py-0.5 text-[11.5px] text-zinc-600 hover:bg-zinc-50"
+                  >
+                    Kelola →
+                  </button>
+                </li>
+              </ul>
+              {ocr && !ocr.deps.available && ocr.deps.install_hint && (
+                <p className="mt-3 whitespace-pre-wrap rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] leading-5 text-amber-800">
+                  {ocr.deps.install_hint}
+                </p>
+              )}
+            </Card>
 
             <Card
               title="Siap publish? Checklist cepat"
@@ -249,6 +402,24 @@ export default function AdminConsole() {
 
         {tab === "pipeline" && policy && (
           <PipelineTab policy={policy} onPolicyChange={setPolicy} />
+        )}
+
+        {tab === "quota" && policy && (
+          <QuotaTab
+            data={quota}
+            policy={policy}
+            onPolicyChange={setPolicy}
+            onChanged={refreshAll}
+          />
+        )}
+
+        {tab === "instructions" && policy && (
+          <InstructionsTab
+            data={instructions}
+            policy={policy}
+            onPolicyChange={setPolicy}
+            onChanged={refreshAll}
+          />
         )}
 
         {tab === "memory" && (

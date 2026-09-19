@@ -9,6 +9,7 @@ dijalankan di background — health check tetap membalas walau model gagal.
 """
 from __future__ import annotations
 
+import asyncio
 import threading
 import traceback
 from contextlib import asynccontextmanager
@@ -149,6 +150,9 @@ def _init_storage() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     _init_storage()
+    # Autoload berjalan di thread daemon; ikat loop ini dulu supaya thread itu
+    # bisa menjadwalkan load model ke event loop aplikasi.
+    llm_engine.bind_loop(asyncio.get_running_loop())
     _run_autoload_in_background()
     try:
         yield

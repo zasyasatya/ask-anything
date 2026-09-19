@@ -52,12 +52,19 @@ def make_pdf(page_texts: list[str]) -> bytes:
 
 @pytest.fixture(autouse=True)
 def _clean_rag(client):
-    from app import db
+    from app import db, governance
+
+    # File uji di sini adalah PDF dengan teks tertanam: yang diuji adalah jalur
+    # parse → chunk → embed, bukan OCR. Halaman uji sengaja pendek (satu baris)
+    # sehingga lolos ambang `needs_ocr` dan akan memicu OCR sungguhan —
+    # melambatkan suite tanpa menambah cakupan. OCR diuji di test_ocr.py.
+    governance.update_policy({"rag": {"ocr_enabled": False}})
     for d in rag.list_documents():
         rag.delete_document(d["id"])
     yield
     for d in rag.list_documents():
         rag.delete_document(d["id"])
+    db.execute("DELETE FROM admin_policy WHERE key='rag'")
 
 
 def test_chunking_respects_size_and_pages():
@@ -117,7 +124,7 @@ def test_rag_upload_and_query_sse(client):
         "Produk A diluncurkan 2024 dengan harga Rp10.000.",
         "Produk B adalah varian premium dengan garansi tiga tahun.",
     ])
-    r = client.post("/api/rag/upload",
+    r = client.post("/api/rag/upload?wait=true",
                     files={"file": ("produk.pdf", pdf, "application/pdf")})
     assert r.status_code == 200, r.text
     doc = r.json()["document"]

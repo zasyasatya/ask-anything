@@ -70,6 +70,38 @@ sitasi karangan.
   **server-side**: tool yang dimatikan tidak diiklankan ke model dan panggilan
   liar ditolak + terecord. Konsol bisa dilindungi `ASK_ADMIN_TOKEN`
   (`X-Admin-Token`).
+- **Kuota token harian/mingguan per end user**: identitas dari header
+  `X-User-Id` (fallback IP), periode **berbasis kalender** sehingga reset
+  otomatis tiap tengah malam & Senin — tanpa scheduler. Batas berlapis:
+  kebijakan global + **override per user** (0 = tanpa batas). Ditegakkan
+  *sebelum* model dipanggil, dan `block_on_exceed=false` memberi **mode
+  pemantauan** untuk menakar batas sebelum diberlakukan. Tab **Kuota token**
+  di /admin menampilkan pemakaian per user, batas efektif, dan daftar request
+  yang benar-benar ditolak.
+- **Instruksi advanced (playbook domain + teori cara menjawab)**: satu playbook
+  = PERAN (domain) + **METODE** + BATASAN + FORMAT KELUARAN. Katalog 9 teori
+  siap pakai ditulis sebagai *prosedur* — IRAC (hukum), SOAP (klinis), Piramida
+  Minto (konsultan), Feynman, Socratic, hypothesis-driven, Toulmin, STAR,
+  penalaran bertahap+verifikasi. Aktivasi `always` / `keywords` (dicocokkan
+  sebagai kata utuh) / `manual`. Tombol **Uji pemicu** di /admin
+  memperlihatkan playbook mana yang menyala **tanpa memanggil model**, dan
+  statistiknya menandai playbook aktif yang belum pernah terpakai (pemicu
+  salah).
+- **OCR untuk dokumen hasil scan & gambar**: halaman PDF tanpa lapisan teks
+  dideteksi (`needs_ocr`), dirender `pypdfium2`, diluruskan bila miring, lalu
+  dibaca **rapidocr-onnxruntime** (PP-OCRv4 — wheel pip, tanpa binary sistem).
+  Upload gambar (`.png/.jpg/.webp/.bmp/.tif`) juga jadi dokumen RAG. Teks
+  tertanam **tidak pernah** ditimpa hasil OCR yang lebih miskin. Karena OCR
+  CPU-bound, ingest berjalan di latar belakang dengan status
+  `queued → ocr → chunking → embedding → ready`.
+  Install: `pip install -r backend/requirements-ocr.txt`.
+- **Retrieval RAG hibrida**: embedding (parafrasa) + **BM25** (istilah persis
+  seperti nomor pasal/kode produk), digabung **reciprocal-rank-fusion**, lalu
+  **MMR** membuang potongan yang saling duplikat. Terukur: pada dokumen dengan
+  paragraf boilerplate berulang, tanpa MMR keempat hasil `top_k` identik dan
+  informasi pentingnya hilang; dengan default `mmr_lambda=0.7` potongan pembawa
+  informasi ikut terangkat. Rincian skor (`vector`/`lexical`/`fused`) tampil di
+  Interpreter sehingga keputusan retrieval bisa diaudit.
 - **Mode Gambar & PPT**: `generate_image` (poster generatif offline atau
   gateway OpenAI-compatible) dan `generate_ppt` (deck `.pptx` via python-pptx)
   — hasilnya **artifact** teregistry: file + metadata + kartu unduh di chat +
@@ -280,6 +312,37 @@ Device dipilih otomatis (CUDA → MPS → CPU); bisa dipaksa lewat `ASK_HF_DEVIC
 dan `ASK_HF_DTYPE` (`auto`/`float16`/`bfloat16`/`float32`). Karena bobotnya
 penuh (bukan quant GGUF), pilih ukuran model sesuai RAM/VRAM yang tersedia.
 
+> ⚠️ **Windows + Anaconda: jangan bangun `.venv` dari interpreter conda.**
+> Distribusi Anaconda/Miniconda menaruh MSVC runtime-nya sendiri
+> (`MSVCP140.dll`, biasanya 14.29) di folder interpreter. Nama DLL unik per
+> proses, jadi begitu `python3xx.dll` conda memuat runtime lama itu, PyTorch
+> terpaksa memakainya juga dan `c10.dll` gagal di `DllMain`:
+>
+> ```
+> OSError: [WinError 1114] A dynamic link library (DLL) initialization
+> routine failed. Error loading ...\torch\lib\c10.dll
+> ```
+>
+> Ini **bukan** instalasi torch yang rusak — memasang ulang torch (versi apa
+> pun) tidak akan memperbaikinya, dan VC++ Redistributable terbaru pun sudah
+> ada di `System32`. Yang harus diganti adalah interpreter dasar venv-nya:
+>
+> ```bash
+> # buktikan dulu: runtime mana yang benar-benar di-resolve
+> .venv/Scripts/python -c "import ctypes,ctypes.wintypes as w; k=ctypes.WinDLL('kernel32'); k.LoadLibraryW.restype=w.HMODULE; h=k.LoadLibraryW('MSVCP140.dll'); b=ctypes.create_unicode_buffer(32768); k.GetModuleFileNameW(h,b,32768); print(b.value)"
+> # -> C:\WINDOWS\SYSTEM32\MSVCP140.dll  = sehat
+> # -> D:\...\Anaconda\MSVCP140.dll      = penyebab WinError 1114
+>
+> rename .venv .venv-conda-broken
+> "C:\Users\<user>\AppData\Local\Programs\Python\Python313\python.exe" -m venv .venv
+> python run.py --install-local
+> ```
+>
+> `run.py` kini menghindari jebakan ini sendiri: saat membuat `.venv` ia
+> menolak interpreter conda dan memilih Python non-conda (dari `py -0p`) bila
+> ada, dan bila torch tetap gagal ia mencetak path runtime yang bermasalah
+> alih-alih menyarankan pasang ulang yang sia-sia.
+
 ### OpenAI API & gateway OpenAI-compatible
 
 Set dari UI (tombol *Settings provider*) atau env:
@@ -387,8 +450,10 @@ Konsol untuk mengatur AI **sebelum dipublish ke user**. Satu sumber kebijakan
 
 | Tab | Isi |
 |---|---|
-| **Ringkasan** | Counter (percakapan, event interpreter, artifact, dokumen RAG siap, rasio feedback), status proteksi token, checklist publish |
-| **Pipeline** | Toggle 6 mode + 7 tool, parameter RAG (chunk/overlap/top-k/batas upload), memori, feedback/auto-guidance, interpreter (record logprobs & payload; *always-on* terkunci) |
+| **Ringkasan** | Counter (percakapan, event interpreter, artifact, dokumen RAG siap, rasio feedback, token hari ini, playbook aktif, kesiapan OCR), kartu **Status tiap pipeline** dengan tombol *Kelola →*, status proteksi token, checklist publish |
+| **Pipeline** | Toggle 6 mode + 7 tool, parameter RAG (chunk/overlap/top-k/batas upload), **kecerdasan retrieval** (hybrid/vector/lexical, kandidat, `mmr_lambda`, tetangga), **OCR** (aktif, deskew, ambang teks, DPI, batas halaman), memori, feedback/auto-guidance, interpreter (record logprobs & payload; *always-on* terkunci) |
+| **Kuota token** | Kebijakan global (token/hari, token/pekan, permintaan/hari, blokir vs mode pemantauan), agregat per provider & mode, tabel per end user (pemakaian + batas efektif + override + reset), daftar request yang ditolak |
+| **Instruksi** | CRUD playbook (peran domain, teori cara menjawab dari katalog, batasan, format keluaran, pemicu, prioritas), **Uji pemicu** tanpa memanggil model, statistik pemakaian nyata + playbook yang belum pernah terpakai |
 | **Memori** | CRUD memori (badge asal: admin / AI / feedback), aktif/nonaktif — ter-inject ke system prompt tiap run |
 | **Artifact** | Grid semua keluaran (gambar/deck/dokumen) dengan asal run, buka/unduh/hapus, filter kind |
 | **Feedback** | Daftar 👍/👎 + komentar + konteks run, statistik rasio, aksi **“Jadikan pedoman”** (feedback → memori → prompt) |
@@ -399,12 +464,19 @@ loop menolak mengeksekusi, merecord event `policy`, dan memberi tahu model.
 
 ```text
 GET  /api/policy                     proyeksi publik policy (gating UI)
+GET  /api/quota/me                   sisa kuota token pemanggil (X-User-Id)
+GET  /api/rag/ocr                    kesiapan mesin OCR + parameter berlaku
 POST /api/feedback                   👍/👎 + komentar (record + auto-guidance)
-POST /api/rag/upload|query           pipeline RAG (ingest & retrieve-generate)
+POST /api/rag/upload|query           pipeline RAG (ingest latar belakang & retrieve-generate)
 GET  /api/artifacts/{id}/download    unduh artifact
 ── dilindungi X-Admin-Token bila ASK_ADMIN_TOKEN diset ──
 GET/PUT   /api/admin/policy          baca / deep-merge kebijakan
-GET       /api/admin/overview        statistik dashboard
+GET       /api/admin/overview        statistik dashboard (+ kuota & instruksi)
+GET       /api/admin/quota           monitoring kuota: agregat, per user, penolakan
+PUT/DEL   /api/admin/quota/users/{user_key}        override batas per end user
+POST      /api/admin/quota/users/{user_key}/reset  reset periode berjalan
+CRUD      /api/admin/instructions    playbook domain + teori cara menjawab
+POST      /api/admin/instructions/preview          uji pemicu tanpa memanggil model
 CRUD      /api/admin/memories        manajemen memori
 CRUD      /api/admin/artifacts       registry artifact
 CRUD      /api/admin/feedback        review + POST …/apply (→ pedoman)

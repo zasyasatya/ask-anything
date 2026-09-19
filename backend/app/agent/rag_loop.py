@@ -17,7 +17,7 @@ from .. import db, rag
 from ..config import Settings
 from ..providers import BaseProvider
 from ..sources import SourceRegistry, finalize_answer
-from .loop import _preview
+from .loop import _accumulate_usage, _preview
 
 EmitFn = Any
 
@@ -30,6 +30,8 @@ async def run_rag_query(
     settings: Settings,
     emit: EmitFn,
     document_ids: list[str] | None = None,
+    #: Snapshot kuota token end user — ikut direkam di trace (lihat loop.py).
+    quota_status: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     from ..governance import policy
 
@@ -48,6 +50,9 @@ async def run_rag_query(
 
     steps = 0
     db.add_message(conversation_id, "user", question)
+
+    if quota_status:
+        await trace("quota", dict(quota_status))
 
     await trace("meta", {
         "provider": provider.name,
@@ -83,10 +88,21 @@ async def run_rag_query(
         "status": "ok" if hits else "no-results",
         "top_k": top_k,
         "document_filter": document_ids or [],
+        # Strategi retrieval ikut dibuka: pembaca Interpreter harus bisa tahu
+        # KENAPA sebuah potongan terpilih (cosine, BM25, atau gabungannya).
+        "strategy": {
+            "mode": pol["rag"].get("retrieval_mode", "hybrid"),
+            "candidates": pol["rag"].get("retrieval_candidates", 50),
+            "mmr_lambda": pol["rag"].get("mmr_lambda", 0.7),
+            "context_neighbors": pol["rag"].get("context_neighbors", 0),
+            "fusion": "reciprocal-rank-fusion",
+        },
         "hits": [{"doc_id": h["doc_id"], "doc_title": h["doc_title"],
                   "seq": h["seq"], "page": h["page"], "score": h["score"],
+                  "scores": h.get("scores", {}),
                   "preview": _preview(h["text"], 140)} for h in hits],
-        "message": (f"Retrieval: {len(hits)} potongan (top_k={top_k})"
+        "message": (f"Retrieval: {len(hits)} potongan (top_k={top_k}, "
+                    f"{pol['rag'].get('retrieval_mode', 'hybrid')})"
                     if hits else "Retrieval: 0 potongan cocok"),
         "duration_ms": round((time.time() - t_ret) * 1000, 1),
     })
@@ -140,7 +156,7 @@ async def run_rag_query(
         elif ev.type == "logprobs":
             await trace("logprobs", ev.data)
         elif ev.type == "usage":
-            usage.update(ev.data)
+            _accumulate_usage(usage, ev.data)
             await trace("usage", ev.data)
         elif ev.type == "error":
             await trace("error", ev.data)

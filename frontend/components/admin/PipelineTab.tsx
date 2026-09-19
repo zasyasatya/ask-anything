@@ -152,6 +152,121 @@ export default function PipelineTab({
         </div>
       </Card>
 
+      <Card
+        title="Kecerdasan retrieval"
+        subtitle="Hybrid = embedding (parafrasa) + BM25 (istilah persis), digabung reciprocal-rank-fusion, lalu MMR membuang potongan yang saling duplikat."
+      >
+        <div className="space-y-2">
+          <label className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-zinc-700">
+                Strategi retrieval
+              </span>
+              <span className="mt-0.5 block text-[11.5px] leading-4 text-zinc-400">
+                hybrid direkomendasikan; vector/lexical untuk membandingkan.
+              </span>
+            </span>
+            <select
+              value={policy.rag?.retrieval_mode ?? "hybrid"}
+              onChange={(e) => patch("rag", { retrieval_mode: e.target.value })}
+              className="rounded-lg border border-zinc-200 px-2 py-1 text-[13px] outline-none focus:border-indigo-300"
+            >
+              <option value="hybrid">hybrid</option>
+              <option value="vector">vector</option>
+              <option value="lexical">lexical</option>
+            </select>
+          </label>
+          <NumberField
+            label="Kandidat sebelum rerank"
+            value={policy.rag?.retrieval_candidates ?? 50}
+            min={5}
+            max={500}
+            onChange={(v) => patch("rag", { retrieval_candidates: v })}
+          />
+          <label className="flex items-center justify-between gap-3 rounded-xl border border-zinc-200 bg-white px-3 py-2.5">
+            <span className="min-w-0">
+              <span className="block text-[13px] font-medium text-zinc-700">
+                MMR lambda
+              </span>
+              <span className="mt-0.5 block text-[11.5px] leading-4 text-zinc-400">
+                1,0 = relevansi murni (boleh duplikat) · 0,7 default · makin
+                kecil makin beragam.
+              </span>
+            </span>
+            <input
+              type="number"
+              step={0.05}
+              min={0}
+              max={1}
+              value={policy.rag?.mmr_lambda ?? 0.7}
+              onChange={(e) =>
+                patch("rag", {
+                  mmr_lambda: Math.max(
+                    0,
+                    Math.min(1, Number(e.target.value) || 0)
+                  ),
+                })
+              }
+              className="w-24 rounded-lg border border-zinc-200 px-2 py-1 text-right text-[13px] outline-none focus:border-indigo-300"
+            />
+          </label>
+          <NumberField
+            label="Sambung n chunk tetangga (0 = mati)"
+            value={policy.rag?.context_neighbors ?? 0}
+            min={0}
+            max={3}
+            onChange={(v) => patch("rag", { context_neighbors: v })}
+          />
+        </div>
+      </Card>
+
+      <Card
+        title="OCR — dokumen hasil scan & gambar"
+        subtitle="Halaman PDF tanpa lapisan teks dan berkas gambar dibaca lewat OCR, lalu masuk index seperti teks biasa."
+      >
+        <div className="space-y-2">
+          <Toggle
+            label="Aktifkan OCR"
+            hint="Dimatikan = halaman scan masuk index sebagai halaman kosong dan tidak bisa dijawab."
+            checked={policy.rag?.ocr_enabled !== false}
+            onChange={(v) => patch("rag", { ocr_enabled: v })}
+          />
+          <Toggle
+            label="Luruskan halaman miring (deskew)"
+            hint="Hasil scan/foto yang miring 0,3°–15° diputar dulu sebelum dibaca."
+            checked={policy.rag?.ocr_deskew !== false}
+            onChange={(v) => patch("rag", { ocr_deskew: v })}
+          />
+          <NumberField
+            label="Ambang teks halaman scan (karakter)"
+            value={policy.rag?.ocr_min_chars ?? 80}
+            min={0}
+            max={2000}
+            onChange={(v) => patch("rag", { ocr_min_chars: v })}
+          />
+          <NumberField
+            label="Resolusi render halaman (DPI)"
+            value={policy.rag?.ocr_dpi ?? 200}
+            min={72}
+            max={400}
+            onChange={(v) => patch("rag", { ocr_dpi: v })}
+          />
+          <NumberField
+            label="Maks halaman di-OCR per dokumen"
+            value={policy.rag?.ocr_max_pages ?? 40}
+            min={1}
+            max={500}
+            onChange={(v) => patch("rag", { ocr_max_pages: v })}
+          />
+          <p className="px-1 text-[11.5px] leading-4 text-zinc-400">
+            OCR bersifat CPU-bound — hitungan puluhan detik per halaman A4.
+            Karena itu ingest berjalan di latar belakang: status dokumen
+            berpindah <code>queued → ocr → chunking → embedding → ready</code>{" "}
+            dan bisa dipantau di panel RAG.
+          </p>
+        </div>
+      </Card>
+
       <div className="space-y-4">
         <Card
           title="Memori"

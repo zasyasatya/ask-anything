@@ -183,7 +183,22 @@ class LocalInferenceEngine:
         self._lock: asyncio.Lock | None = None
         self._lock_loop: asyncio.AbstractEventLoop | None = None
         self._task: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
+        self._scheduled = False
         self._gen_lock = threading.Lock()
+
+    def bind_loop(self, loop: asyncio.AbstractEventLoop | None = None) -> None:
+        """Ingat event loop aplikasi agar `start_load` bisa dipanggil dari thread.
+
+        Autoload model sengaja berjalan di thread daemon (lihat
+        `main._run_autoload_in_background`) supaya startup tidak tersandera
+        pemindaian folder `models/`. Thread itu tidak punya event loop, jadi
+        `asyncio.create_task` di sana gagal dengan `RuntimeError: no running
+        event loop` — dulu itu membuat model lokal **tidak pernah** ter-autoload
+        (gejalanya tertutup oleh error DLL torch). Loop yang di-bind di
+        `lifespan` dipakai sebagai target penjadwalan.
+        """
+        self._loop = loop or asyncio.get_running_loop()
 
     def _mutex(self) -> asyncio.Lock:
         """`asyncio.Lock` is bound to the loop that first uses it — a reloaded
@@ -253,7 +268,10 @@ class LocalInferenceEngine:
         """
         if self._task is not None and not self._task.done():
             return self.status()
-        self._task = asyncio.create_task(self.load(model_path, device, dtype))
+        if self._scheduled:
+            return self.status()
+
+        coro = self.load(model_path, device, dtype)
 
         def _log_failure(task: asyncio.Task) -> None:
             # Kegagalan load sudah disimpan di `state`/`error` (UI mem-poll
@@ -265,13 +283,47 @@ class LocalInferenceEngine:
             if exc is not None:
                 print(f"[local-inference] load gagal: {exc}", flush=True)
 
-        self._task.add_done_callback(_log_failure)
+        def _spawn() -> None:
+            # Dijalankan **di dalam** loop target, jadi task-nya melekat pada
+            # loop yang sama dengan request handler — `wait_load()` bisa
+            # menunggunya tanpa "attached to a different loop".
+            self._scheduled = False
+            self._task = asyncio.create_task(coro)
+            self._task.add_done_callback(_log_failure)
+
+        try:
+            asyncio.get_running_loop()
+        except RuntimeError:
+            loop = self._loop
+            if loop is None or loop.is_closed():
+                coro.close()
+                raise RuntimeError(
+                    "engine belum terikat ke event loop: panggil "
+                    "engine.bind_loop() saat startup, atau jalankan "
+                    "start_load() dari dalam event loop."
+                ) from None
+            self._scheduled = True
+            self._set_state("loading", model_path=str(model_path), error=None)
+            loop.call_soon_threadsafe(_spawn)
+            return self.status()
+
+        _spawn()
         return self.status()
 
     async def wait_load(self, timeout: float | None = None) -> dict[str, Any]:
         """Await a background load (used by run.py / tests)."""
+        deadline = None if timeout is None else time.monotonic() + timeout
+        # `start_load()` dari thread lain menjadwalkan pembuatan task lewat
+        # `call_soon_threadsafe`, jadi sesaat `_task` masih None walau state
+        # sudah "loading" — tunggu task-nya muncul dulu.
+        while self._scheduled and self._task is None:
+            if deadline is not None and time.monotonic() >= deadline:
+                raise asyncio.TimeoutError
+            await asyncio.sleep(0.01)
         if self._task is not None:
-            await asyncio.wait_for(asyncio.shield(self._task), timeout)
+            remaining = None if deadline is None else max(
+                0.0, deadline - time.monotonic())
+            await asyncio.wait_for(asyncio.shield(self._task), remaining)
         return self.status()
 
     async def load(self, model_path: str | Path, device: str | None = None,
@@ -520,7 +572,18 @@ class LocalInferenceEngine:
         def _tokenize(truncate_to: int | None) -> Any:
             args: dict[str, Any] = {"return_tensors": "pt"}
             if truncate_to and truncate_to > 0:
-                args.update({"truncation": "left", "max_length": truncate_to})
+                # `truncation` hanya menerima TruncationStrategy
+                # (`longest_first`/`only_first`/…); sisi pemangkasan diatur
+                # lewat `truncation_side`. Mengirim `truncation="left"`
+                # membuat transformers melempar ValueError sehingga chat
+                # gagal total begitu prompt melewati batas konteks.
+                previous_side = getattr(self.tokenizer, "truncation_side", "right")
+                try:
+                    self.tokenizer.truncation_side = "left"  # buang riwayat terlama
+                    args.update({"truncation": True, "max_length": truncate_to})
+                    return self.tokenizer(prompt, **args)
+                finally:
+                    self.tokenizer.truncation_side = previous_side
             return self.tokenizer(prompt, **args)
 
         try:

@@ -8,13 +8,18 @@
 #
 # Tanpa paket ini backend tetap jalan; UI menampilkan petunjuk install dan mode
 # openai/mock tetap bisa dipakai.
+# torch>=2.2
+# transformers>=4.46
+# accelerate>=1.0
+# safetensors>=0.45
+# sentencepiece>=0.2
+# huggingface_hub>=0.25
+
 torch>=2.2
 transformers>=4.46
 accelerate>=1.0
-# Catatan: versi stabil PyPI untuk safetensors berhenti di 0.8.x — constraint
-# >=0.45 membuat `pip install -r` gagal total (tidak ada versi yang cocok),
-# sehingga torch/transformers tidak pernah terpasang dan model lokal tak bisa
-# dimuat. Batas rendah sengaja, hanya API-nya yang dibutuhkan.
-safetensors>=0.4
+safetensors==0.8.0
 sentencepiece>=0.2
 huggingface_hub>=0.25
+
+

@@ -36,6 +36,66 @@ def venv_python() -> Path:
         "Scripts" if IS_WIN else "bin") / ("python.exe" if IS_WIN else "python")
 
 
+def _is_conda_python(exe: Path) -> bool:
+    """Interpreter dari Anaconda/Miniconda?
+
+    Penting di Windows: distribusi conda menaruh MSVC runtime-nya **sendiri**
+    (`MSVCP140.dll`, sering versi 14.29) di folder interpreter. Nama DLL unik
+    per proses, jadi begitu `python3xx.dll` conda memuat runtime lama itu,
+    `torch` terpaksa memakainya juga — `c10.dll` gagal di `DllMain` dengan
+    `OSError [WinError 1114]`. Pasang ulang torch tidak pernah memperbaikinya;
+    yang perlu diganti adalah interpreter dasar venv-nya.
+    """
+    prefix = exe.parent
+    return ((prefix / "conda-meta").is_dir()
+            or (prefix / "_conda.exe").exists()
+            or (IS_WIN and (prefix / "MSVCP140.dll").exists()))
+
+
+def _clean_base_interpreter() -> Path | None:
+    """Cari interpreter non-conda (≥3.10) lewat `py -0p` — Windows saja."""
+    if not IS_WIN:
+        return None
+    try:
+        out = subprocess.run(["py", "-0p"], capture_output=True, text=True,
+                             timeout=20).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    best: tuple[tuple[int, int], Path] | None = None
+    for line in out.splitlines():
+        # format: " -V:3.13 *        C:\...\python.exe"
+        match = re.search(r"-V:(\d+)\.(\d+)\S*\s+\*?\s*(.+?python\.exe)\s*$",
+                          line.strip())
+        if not match:
+            continue
+        version = (int(match.group(1)), int(match.group(2)))
+        exe = Path(match.group(3).strip())
+        if version < (3, 10) or not exe.exists() or _is_conda_python(exe):
+            continue
+        if best is None or version > best[0]:
+            best = (version, exe)
+    return None if best is None else best[1]
+
+
+def _base_interpreter_for_venv() -> tuple[str, str]:
+    """Interpreter untuk membuat `.venv` + alasannya (untuk dicetak)."""
+    current = Path(sys.executable)
+    if not _is_conda_python(current):
+        return str(current), ""
+    alternative = _clean_base_interpreter()
+    if alternative is None:
+        return str(current), (
+            "interpreter saat ini berasal dari Anaconda/conda; model lokal "
+            "(torch) kemungkinan gagal dengan WinError 1114. Pasang Python "
+            "dari python.org lalu hapus .venv dan jalankan ulang bila itu terjadi."
+        )
+    return str(alternative), (
+        f"interpreter saat ini ({current}) berasal dari Anaconda/conda yang "
+        f"membawa MSVC runtime lama dan membuat torch gagal (WinError 1114) — "
+        f"memakai {alternative} untuk .venv."
+    )
+
+
 def ok(msg: str) -> None:
     print(f"  [ OK ] {msg}")
 
@@ -232,8 +292,11 @@ def ensure_backend_deps() -> Path:
     print("== Backend (FastAPI) ==")
     py = venv_python()
     if not py.exists():
+        base, reason = _base_interpreter_for_venv()
+        if reason:
+            warn(reason)
         print("  creating virtualenv …")
-        subprocess.run([sys.executable, "-m", "venv", str(ROOT / ".venv")],
+        subprocess.run([base, "-m", "venv", str(ROOT / ".venv")],
                        check=True)
 
     def _run(args: list[str]) -> subprocess.CompletedProcess:
@@ -289,12 +352,65 @@ def _last_error(proc: subprocess.CompletedProcess) -> str:
     return "error tidak dikenal"
 
 
+#: Laporkan MSVC runtime yang benar-benar di-resolve proses. Penyebab paling
+#: sering `WinError 1114` di Windows bukan file torch yang rusak, melainkan
+#: `MSVCP140.dll` versi lama yang dibawa Anaconda: nama DLL unik per proses,
+#: jadi torch terpaksa memakai runtime itu dan `c10.dll` gagal di `DllMain`.
+MSVC_PROBE_CODE = (
+    "import ctypes, sys, os\n"
+    "from ctypes import wintypes\n"
+    "k = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+    "k.LoadLibraryW.restype = wintypes.HMODULE\n"
+    "k.LoadLibraryW.argtypes = [wintypes.LPCWSTR]\n"
+    "k.GetModuleFileNameW.restype = wintypes.DWORD\n"
+    "k.GetModuleFileNameW.argtypes = [wintypes.HMODULE, wintypes.LPWSTR,"
+    " wintypes.DWORD]\n"
+    "h = k.LoadLibraryW('MSVCP140.dll')\n"
+    "buf = ctypes.create_unicode_buffer(32768)\n"
+    "k.GetModuleFileNameW(h, buf, 32768) if h else None\n"
+    "print(buf.value if h else 'tidak bisa dimuat')\n"
+)
+
+
+def _msvc_runtime_path(py: Path) -> str:
+    if not IS_WIN:
+        return ""
+    try:
+        out = subprocess.run([str(py), "-c", MSVC_PROBE_CODE],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return ""
+    return (out.stdout or "").strip()
+
+
 def _torch_broken_help(py: Path, last_err: str) -> str:
     """Panduan manual bila torch rusak dan pasang ulang otomatis tak berkesudahan."""
+    runtime = _msvc_runtime_path(py)
+    conda_runtime = bool(runtime) and not runtime.upper().startswith(
+        ("C:\\WINDOWS\\SYSTEM32", "C:\\WINDOWS\\SYSWOW64"))
+    diagnosis = ""
+    if conda_runtime:
+        clean = _clean_base_interpreter()
+        diagnosis = (
+            f"  Diagnosis: proses memuat MSVC runtime dari\n"
+            f"    {runtime}\n"
+            f"  (bukan dari C:\\Windows\\System32). Itu khas Anaconda/conda dan "
+            f"biasanya versi 14.29 —\n"
+            f"  terlalu lama untuk torch modern, sehingga c10.dll gagal di "
+            f"DllMain. Pasang ulang torch\n"
+            f"  TIDAK akan memperbaikinya: venv harus dibangun di atas "
+            f"interpreter non-conda.\n\n"
+            f"  Perbaikan:\n"
+            f"    1. rename/hapus folder .venv\n"
+            f"    2. buat ulang dengan Python dari python.org:\n"
+            f"       {clean or 'C:\\Path\\ke\\python.org\\python.exe'} -m venv .venv\n"
+            f"    3. python run.py --install-local\n\n"
+        )
     return (
         "torch ada di pip tapi rusak, dan pasang ulang otomatis tidak "
         "membuahkan hasil.\n"
         f"  Error terakhir: {last_err}\n\n"
+        + diagnosis +
         "Coba manual, berurutan:\n"
         "  1. Pasang Visual C++ Redistributable 2015-2022 (x64) bila belum ada:\n"
         "     https://aka.ms/vs/17/release/vc_redist.x64.exe\n"

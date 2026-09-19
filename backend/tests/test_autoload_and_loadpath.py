@@ -11,6 +11,7 @@ Dua jaminan yang diuji di sini:
 """
 import json
 import time
+from pathlib import Path
 
 import pytest
 
@@ -87,7 +88,9 @@ def test_autoload_picks_newest_model_in_models_dir(monkeypatch, tmp_path,
     main._autoload_local_model()
 
     assert len(rec.calls) == 1
-    assert rec.calls[0].endswith("org/New")
+    # Windows memakai `\` sebagai pemisah path, jadi bandingkan sebagai Path
+    # (bukan `endswith("org/New")` yang hanya benar di POSIX).
+    assert Path(rec.calls[0]).parts[-2:] == ("org", "New")
     assert settings.hf_model == "org/New"
 
 
@@ -171,7 +174,7 @@ async def test_load_endpoint_registers_and_loads_any_folder(client, tiny_model,
                 break
             time.sleep(0.2)
         assert st["state"] == "ready", st
-        assert st["model_path"].endswith("outside/TinyLlama-Test")
+        assert Path(st["model_path"]).parts[-2:] == ("outside", "TinyLlama-Test")
     finally:
         settings.provider, settings.hf_mode, settings.hf_model = saved
         await engine.unload()  # bersihkan engine untuk test berikutnya

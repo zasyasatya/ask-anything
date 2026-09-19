@@ -265,7 +265,11 @@ async def test_chat_endpoint_streams_from_the_local_model(client, loaded):
                   if line.startswith("data: ")]
 
     types = [e["type"] for e in events]
-    assert "start" in types and "meta" in types and "done" in types
+    # Tampilkan payload `error` di pesan assertion: tanpa ini kegagalan hanya
+    # terlihat sebagai "'done' not in [... 'error' ...]" tanpa sebabnya.
+    problems = [e for e in events if e["type"] == "error"]
+    assert "start" in types and "meta" in types and "done" in types, \
+        f"types={types} errors={problems}"
     assert "delta" in types, types
     meta = next(e for e in events if e["type"] == "meta")
     assert meta["provider"] == "huggingface"

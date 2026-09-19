@@ -21,6 +21,7 @@ import httpx
 
 from .. import db, feedback as feedback_store
 from .. import governance
+from .. import instructions as instruction_store
 from .. import memory as memory_store
 from ..config import Settings
 from ..providers import BaseProvider
@@ -91,6 +92,39 @@ def _preview(text: str, limit: int = 160) -> str:
     return text if len(text) <= limit else text[:limit] + "…"
 
 
+#: Field usage yang harus DIJUMLAH antar panggilan LLM, bukan ditimpa.
+_TOKEN_FIELDS = ("prompt_tokens", "completion_tokens", "total_tokens")
+
+
+def _accumulate_usage(total: dict[str, Any], event: dict[str, Any]) -> None:
+    """Gabungkan usage dari beberapa panggilan LLM dalam satu run.
+
+    Satu run ReAct memanggil model beberapa kali (reason → tool → observe →
+    answer). `usage.update()` dulu menimpa hitungan sebelumnya, sehingga run
+    dengan 2 panggilan hanya melaporkan panggilan terakhir — pemakaian token
+    terlihat jauh lebih kecil dari kenyataan dan kuota per user jadi salah.
+    Token dijumlahkan; field non-token (device, dll.) tetap ditimpa nilai
+    terbaru.
+    """
+    for key, value in (event or {}).items():
+        if key in _TOKEN_FIELDS:
+            try:
+                addition = int(value or 0)
+            except (TypeError, ValueError):
+                continue
+            total[key] = int(total.get(key) or 0) + addition
+        else:
+            total[key] = value
+    # `total_tokens` tidak selalu dikirim provider — turunkan bila perlu.
+    if not total.get("total_tokens"):
+        derived = int(total.get("prompt_tokens") or 0) + int(
+            total.get("completion_tokens") or 0)
+        if derived:
+            total["total_tokens"] = derived
+    # Jumlah panggilan LLM: berguna di Interpreter & dashboard kuota.
+    total["llm_calls"] = int(total.get("llm_calls") or 0) + 1
+
+
 async def run_agent(
     *,
     conversation_id: str,
@@ -100,6 +134,13 @@ async def run_agent(
     settings: Settings,
     emit: EmitFn,
     mode: str = "text",
+    #: Snapshot kuota token end user (dari `quota.check`). Disertakan agar
+    #: keputusan kuota ikut terekam di trace & bisa di-replay, sama seperti
+    #: event LLM/tool — bukan hanya dikirim sekilas ke UI.
+    quota_status: dict[str, Any] | None = None,
+    #: Playbook instruksi advanced yang dipilih user secara eksplisit
+    #: (activation="manual" hanya menyala lewat jalur ini).
+    playbook_ids: list[str] | None = None,
 ) -> dict[str, Any]:
     """Run one agentic turn. Returns a summary dict (answer text, steps...)."""
     run_id = uuid.uuid4().hex[:8]
@@ -130,6 +171,20 @@ async def run_agent(
     steps = 0
     db.add_message(conversation_id, "user", user_message)
 
+    # Kuota dilaporkan sebagai event pertama run: Interpreter menampilkan sisa
+    # token sebelum run ini, dan angkanya ikut tersimpan untuk replay.
+    if quota_status:
+        await trace("quota", {
+            "user_key": quota_status.get("user_key"),
+            "enabled": quota_status.get("enabled"),
+            "limits": quota_status.get("limits"),
+            "used": quota_status.get("used"),
+            "remaining": quota_status.get("remaining"),
+            "period": quota_status.get("period"),
+            "over_limit": bool(quota_status.get("over_limit")),
+            "note": quota_status.get("note") or "",
+        })
+
     # ---- system prompt dinamis: dasar + memori + pedoman feedback + mode ----
     mem_items = (
         memory_store.enabled_memories() if pol["memory"]["enabled"] else []
@@ -140,9 +195,27 @@ async def run_agent(
         if pol["feedback"]["enabled"] else ""
     )
     mode_directive = MODE_DIRECTIVES.get(mode, "")
-    system_prompt = "\n\n".join(
-        b for b in (SYSTEM_PROMPT, mem_block, fb_block, mode_directive) if b
+    # ---- instruksi advanced: playbook domain + teori cara menjawab ---------
+    # Ditaruh SETELAH memori/feedback tapi SEBELUM arah mode: playbook
+    # menentukan metode menjawab, sedangkan arah mode hanya soal bentuk
+    # keluaran (diagram/PPT) sehingga tidak boleh tertimpa.
+    instruction_block, active_playbooks = instruction_store.prompt_block(
+        user_message, mode=mode, policy_instructions=pol["instructions"],
+        playbook_ids=playbook_ids,
     )
+    system_prompt = "\n\n".join(
+        b for b in (SYSTEM_PROMPT, mem_block, fb_block, instruction_block,
+                    mode_directive) if b
+    )
+    if active_playbooks:
+        instruction_store.record_activation(
+            active_playbooks, conversation_id=conversation_id, run_id=run_id,
+            mode=mode)
+    # Selalu di-trace (walau kosong): interpreter harus bisa menunjukkan bahwa
+    # tidak ada playbook yang menyala, bukan diam tanpa jejak.
+    await trace("instructions",
+                instruction_store.trace_payload(active_playbooks,
+                                                instruction_block))
 
     allowed_tool_names = set(governance.allowed_tools())
     allowed_schemas = [
@@ -259,7 +332,7 @@ async def run_agent(
                 elif ev.type == "logprobs":
                     await trace("logprobs", ev.data)
                 elif ev.type == "usage":
-                    usage.update(ev.data)
+                    _accumulate_usage(usage, ev.data)
                     await trace("usage", ev.data)
                 elif ev.type == "tool_calls":
                     collected_calls = ev.data["calls"]
@@ -562,6 +635,13 @@ async def run_agent(
             "diagrams": diagrams,
             "artifacts": artifacts_out,
             "mode": mode,
+            #: Playbook instruksi yang membentuk jawaban ini — riwayat harus
+            #: bisa menjelaskan MENGAPA gaya/metodenya seperti itu.
+            "instructions": [
+                {"id": p["id"], "name": p["name"], "theory": p["theory"],
+                 "match_reason": p.get("match_reason", "")}
+                for p in active_playbooks
+            ],
         },
     )
     return {"answer": answer, "steps": steps, "usage": usage,

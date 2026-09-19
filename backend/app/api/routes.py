@@ -6,14 +6,15 @@ import json
 from pathlib import Path
 from typing import Any, AsyncIterator
 
-from fastapi import HTTPException, UploadFile
+from fastapi import HTTPException, Request, UploadFile
 
 import httpx
 from fastapi import APIRouter
 from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
-from .. import artifacts, db, feedback, governance, hf_hub, rag, startup
+from .. import (artifacts, db, feedback, governance, hf_hub, ocr, quota, rag,
+                startup)
 from ..agent.loop import run_agent
 from ..agent.rag_loop import run_rag_query
 from ..config import HF_MODES, settings, update_settings
@@ -37,6 +38,9 @@ class ChatRequest(BaseModel):
     conversation_id: str | None = None
     #: mode pipeline yang dipilih user di composer (gate oleh policy admin).
     mode: str = "text"
+    #: playbook instruksi advanced yang dipilih eksplisit (opsional) —
+    #: playbook `activation="manual"` hanya menyala lewat jalur ini.
+    playbook_ids: list[str] | None = None
 
 
 class DeepResearchRequest(BaseModel):
@@ -116,6 +120,41 @@ def _sse(obj: dict[str, Any]) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
+def _user_key(request: Request) -> str:
+    """Identitas end user untuk kuota token.
+
+    Aplikasi belum punya login, jadi frontend mengirim header `X-User-Id`
+    (id perangkat/akun). Bila absen, dipakai IP klien supaya pemanggil anonim
+    tetap terkena batas — lebih baik daripada tanpa batas sama sekali.
+    """
+    client_ip = request.client.host if request.client else ""
+    return quota.normalise_user(request.headers.get(quota.USER_HEADER),
+                                fallback_ip=client_ip)
+
+
+def _quota_event(verdict: dict[str, Any], user_key: str) -> dict[str, Any]:
+    """Payload event `quota` untuk Mechanistic Interpreter."""
+    snapshot = verdict.get("status") or {}
+    return {
+        "user_key": user_key,
+        "enabled": snapshot.get("enabled"),
+        "limits": snapshot.get("limits"),
+        "used": snapshot.get("used"),
+        "remaining": snapshot.get("remaining"),
+        "period": snapshot.get("period"),
+        "over_limit": bool(verdict.get("over_limit")),
+        "note": verdict.get("reason") or "",
+    }
+
+
+@router.get("/quota/me")
+async def quota_me(request: Request) -> dict:
+    """Sisa kuota pemanggil — dipakai UI untuk menampilkan indikator kuota."""
+    user_key = _user_key(request)
+    quota.touch_user(user_key)
+    return quota.status(user_key)
+
+
 # SSE keep-alive: a comment frame, ignored by clients but enough to stop
 # proxies from closing a stream that is silent while the LLM thinks.
 KEEPALIVE = ": keep-alive\n\n"
@@ -123,11 +162,19 @@ KEEPALIVE_S = 10.0
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest):
+async def chat(req: ChatRequest, request: Request):
     mode = (req.mode or "text").strip().lower()
     if not governance.mode_allowed(mode):
         return _sse_error_response(
             f"Mode '{mode}' dimatikan oleh admin (halaman Admin → Pipeline).")
+
+    # --- gate kuota token per end user (sebelum model disentuh) -------------
+    user_key = _user_key(request)
+    verdict = quota.check(user_key)
+    if not verdict["allowed"]:
+        quota.record_rejection(user_key, verdict["reason"], mode=mode)
+        return _sse_error_response(verdict["reason"])
+
     conv = None
     if req.conversation_id:
         conv = db.get_conversation(req.conversation_id)
@@ -152,6 +199,15 @@ async def chat(req: ChatRequest):
                 settings=settings,
                 emit=emit,
                 mode=mode,
+                quota_status=_quota_event(verdict, user_key),
+                playbook_ids=req.playbook_ids or None,
+            )
+            # Catat pemakaian nyata; kuota harian/mingguan memakai angka ini.
+            snapshot = quota.record(
+                user_key, result.get("usage"),
+                conversation_id=cid, run_id=result.get("run_id", ""),
+                mode=mode, provider=settings.provider,
+                model=settings.active_model_label(),
             )
             # Snapshot akhir (bukan hanya teks): UI memakai ini untuk menyegarkan
             # kartu diagram + bar sitasi tanpa harus menunggu reload riwayat.
@@ -161,6 +217,7 @@ async def chat(req: ChatRequest):
                              "sources": result.get("sources") or [],
                              "citations": result.get("citations") or {},
                              "diagrams": result.get("diagrams") or [],
+                             "quota": snapshot,
                              "error": result.get("error")})
             db.touch_conversation(cid)
         except Exception as exc:  # noqa: BLE001
@@ -541,6 +598,23 @@ async def health():
         "llm_error": llm_error,
         "local_llm": engine.ready(),
         "local_llm_state": engine.status()["state"],
+        # Kesiapan OCR ikut dilaporkan: mode RAG untuk dokumen scan bergantung
+        # padanya, dan UI harus bisa mengatakan "belum aktif" alih-alih
+        # menghasilkan index kosong tanpa penjelasan.
+        "ocr": ocr.dependencies(),
+    }
+
+
+@router.get("/rag/ocr")
+async def rag_ocr_status() -> dict:
+    """Status mesin OCR + parameter yang sedang berlaku (panel RAG & admin)."""
+    pol = governance.policy()["rag"]
+    deps = ocr.dependencies()
+    return {
+        "deps": deps,
+        "engine_selected": ocr.pick_engine(str(pol.get("ocr_engine") or "auto")),
+        "policy": {k: v for k, v in pol.items() if k.startswith("ocr_")},
+        "accepts": [".pdf", *rag.IMAGE_EXTENSIONS],
     }
 
 
@@ -665,7 +739,7 @@ def _register_rag_upload() -> None:
     global MULTIPART_HINT
     try:
         @router.post("/rag/upload")
-        async def rag_upload(file: UploadFile) -> dict:
+        async def rag_upload(file: UploadFile, wait: bool = False) -> dict:
             pol = governance.policy()
             if not governance.mode_allowed("rag"):
                 raise HTTPException(403, "Mode RAG dimatikan oleh admin")
@@ -675,9 +749,27 @@ def _register_rag_upload() -> None:
                 raise HTTPException(413, f"PDF melebihi batas "
                                          f"{pol['rag']['max_upload_mb']} MB")
             name = file.filename or "dokumen.pdf"
-            if not name.lower().endswith(".pdf"):
-                raise HTTPException(415, "Hanya file .pdf yang didukung saat ini")
-            doc = rag.ingest_pdf(settings=settings, filename=name, data=data)
+            lowered = name.lower()
+            allowed = (".pdf",) + rag.IMAGE_EXTENSIONS
+            if not lowered.endswith(allowed):
+                raise HTTPException(
+                    415, "Format tidak didukung. Terima: PDF dan gambar ("
+                         + ", ".join(e.lstrip('.') for e in rag.IMAGE_EXTENSIONS)
+                         + ") — gambar & PDF hasil scan dibaca lewat OCR.")
+            if lowered.endswith(rag.IMAGE_EXTENSIONS) and not ocr.available():
+                raise HTTPException(
+                    503, "Upload gambar butuh mesin OCR. " + ocr.INSTALL_HINT)
+            # Default: proses di background. OCR halaman scan bisa memakan
+            # puluhan detik per halaman, jadi memprosesnya inline membuat
+            # request (dan proxy di depannya) timeout untuk dokumen tebal.
+            # Klien memantau lewat GET /api/rag/documents — statusnya sudah
+            # ditampilkan panel RAG per tahap.
+            if wait:
+                doc = rag.ingest_file(settings=settings, filename=name,
+                                      data=data)
+            else:
+                doc = rag.ingest_file_background(settings=settings,
+                                                 filename=name, data=data)
             return {"document": doc}
 
         return
@@ -720,13 +812,19 @@ async def rag_delete_document(doc_id: str) -> dict:
 
 
 @router.post("/rag/query")
-async def rag_query(req: RagQuery):
+async def rag_query(req: RagQuery, request: Request):
     question = (req.question or "").strip()
     if not question:
         raise HTTPException(422, "question wajib diisi")
     if not governance.mode_allowed("rag"):
         return _sse_error_response(
             "Mode RAG dimatikan oleh admin (halaman Admin → Pipeline).")
+    # Query RAG juga memanggil LLM → ikut kuota token end user.
+    user_key = _user_key(request)
+    verdict = quota.check(user_key)
+    if not verdict["allowed"]:
+        quota.record_rejection(user_key, verdict["reason"], mode="rag")
+        return _sse_error_response(verdict["reason"])
     ready = [d for d in rag.list_documents() if d["status"] == "ready"]
     if not ready:
         return _sse_error_response(
@@ -750,6 +848,13 @@ async def rag_query(req: RagQuery):
                 conversation_id=cid, question=question, provider=provider,
                 settings=settings, emit=emit,
                 document_ids=req.document_ids or None,
+                quota_status=_quota_event(verdict, user_key),
+            )
+            snapshot = quota.record(
+                user_key, result.get("usage"),
+                conversation_id=cid, run_id=result.get("run_id", ""),
+                mode="rag", provider=settings.provider,
+                model=settings.active_model_label(),
             )
             await queue.put({"type": "agent_done", "conversation_id": cid,
                              "answer": result.get("answer", ""),
@@ -757,6 +862,7 @@ async def rag_query(req: RagQuery):
                              "pipeline": "rag",
                              "sources": result.get("sources") or [],
                              "citations": result.get("citations") or {},
+                             "quota": snapshot,
                              "diagrams": [], "error": result.get("error")})
             db.touch_conversation(cid)
         except Exception as exc:  # noqa: BLE001

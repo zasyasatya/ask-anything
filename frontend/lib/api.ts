@@ -13,7 +13,23 @@ export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> 
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   });
-  if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
+  if (!res.ok) {
+    // Sertakan penjelasan server bila ada: "HTTP 500" saja menyembunyikan
+    // sebabnya (mis. 415 format tak didukung, 503 OCR belum aktif, 401 token
+    // admin salah) dan membuat pengguna menebak.
+    let detail = "";
+    try {
+      const body = await res.text();
+      const parsed = body ? (JSON.parse(body) as { detail?: unknown }) : null;
+      const value = parsed?.detail;
+      detail = typeof value === "string" ? value : body.slice(0, 300);
+    } catch {
+      /* body bukan JSON / tidak terbaca — cukup pakai status */
+    }
+    throw new Error(
+      `${url} → HTTP ${res.status}${detail ? `: ${detail}` : ""}`
+    );
+  }
   return (await res.json()) as T;
 }
 
@@ -281,8 +297,14 @@ import type {
   ArtifactItem,
   FeedbackItem,
   FullPolicy,
+  InstructionDashboard,
   MemoryItem,
+  OcrStatus,
+  Playbook,
+  PlaybookInput,
   PolicyInfo,
+  QuotaDashboard,
+  QuotaLimits,
   RagDocument,
 } from "./types";
 
@@ -479,4 +501,126 @@ export async function adminDeleteFeedback(
   id: string
 ): Promise<void> {
   await adminFetch(token, `/api/admin/feedback/${id}`, { method: "DELETE" });
+}
+
+// --- Pipeline kuota token (monitoring + manage per end user) ----------------
+
+export async function adminQuota(token: string): Promise<QuotaDashboard> {
+  return adminFetch(token, "/api/admin/quota?limit=300");
+}
+
+export async function adminSetQuotaLimit(
+  token: string,
+  userKey: string,
+  limits: {
+    daily_tokens?: number | null;
+    weekly_tokens?: number | null;
+    daily_requests?: number | null;
+    note?: string;
+  }
+): Promise<{ ok: boolean; limits: QuotaLimits }> {
+  return adminFetch(token, `/api/admin/quota/users/${encodeURIComponent(userKey)}`, {
+    method: "PUT",
+    body: JSON.stringify(limits),
+  });
+}
+
+export async function adminClearQuotaLimit(
+  token: string,
+  userKey: string
+): Promise<{ ok: boolean }> {
+  return adminFetch(token, `/api/admin/quota/users/${encodeURIComponent(userKey)}`, {
+    method: "DELETE",
+  });
+}
+
+export async function adminResetQuota(
+  token: string,
+  userKey: string,
+  scope: "day" | "week" | "all" = "day"
+): Promise<{ ok: boolean; removed_rows: number }> {
+  return adminFetch(
+    token,
+    `/api/admin/quota/users/${encodeURIComponent(userKey)}/reset?scope=${scope}`,
+    { method: "POST" }
+  );
+}
+
+/** Sisa kuota pemanggil (dipakai indikator kuota di UI chat). */
+export async function myQuota(): Promise<{
+  user_key: string;
+  enabled: boolean;
+  limits: QuotaLimits;
+  used: {
+    day_tokens: number;
+    day_requests: number;
+    week_tokens: number;
+    week_requests: number;
+  };
+  remaining: {
+    day_tokens: number | null;
+    week_tokens: number | null;
+    day_requests: number | null;
+  };
+  period: {
+    day_key: string;
+    week_key: string;
+    day_reset_at: number;
+    week_reset_at: number;
+  };
+}> {
+  return fetchJson("/api/quota/me");
+}
+
+// --- Pipeline instruksi advanced -------------------------------------------
+
+export async function adminInstructions(
+  token: string
+): Promise<InstructionDashboard> {
+  return adminFetch(token, "/api/admin/instructions");
+}
+
+export async function adminCreatePlaybook(
+  token: string,
+  item: PlaybookInput
+): Promise<Playbook> {
+  return adminFetch(token, "/api/admin/instructions", {
+    method: "POST",
+    body: JSON.stringify(item),
+  });
+}
+
+export async function adminUpdatePlaybook(
+  token: string,
+  id: string,
+  patch: Partial<PlaybookInput>
+): Promise<Playbook> {
+  return adminFetch(token, `/api/admin/instructions/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function adminDeletePlaybook(
+  token: string,
+  id: string
+): Promise<void> {
+  await adminFetch(token, `/api/admin/instructions/${id}`, { method: "DELETE" });
+}
+
+/** Uji pemicu playbook TANPA memanggil model (kunci agar pipeline dikelola). */
+export async function adminPreviewPlaybooks(
+  token: string,
+  body: { message: string; mode?: string; playbook_ids?: string[] }
+): Promise<{ block: string; selected: Playbook[]; count: number }> {
+  return adminFetch(token, "/api/admin/instructions/preview", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+// --- Kesiapan OCR ----------------------------------------------------------
+
+export async function ocrStatus(): Promise<OcrStatus> {
+  return fetchJson("/api/rag/ocr");
 }

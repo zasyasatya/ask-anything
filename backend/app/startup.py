@@ -35,9 +35,32 @@ def add(component: str, message: str, hint: str = "", detail: str = "") -> dict:
     _NOTES.append(note)
     if len(_NOTES) > _MAX:
         del _NOTES[0 : len(_NOTES) - _MAX]
-    print(f"[startup:{component}] {note['message']}"
-          + (f" → {note['hint']}" if note["hint"] else ""), flush=True)
+    _emit(f"[startup:{component}] {note['message']}"
+          + (f" -> {note['hint']}" if note["hint"] else ""))
     return note
+
+
+def _emit(line: str) -> None:
+    """Cetak catatan tanpa pernah menjatuhkan proses.
+
+    Console Windows default memakai code page cp1252/cp437: karakter non-ASCII
+    (mis. `→`) memicu `UnicodeEncodeError` **di dalam print**. Karena `add()`
+    dipanggil saat import `app.api.routes`, exception itu dulu membatalkan
+    import seluruh aplikasi — uvicorn mati dan UI hanya melihat
+    `/api/conversations → HTTP 500`. Sekarang stdout yang tidak bisa mewakili
+    teks-nya di-fallback ke ASCII, dan kegagalan apa pun diabaikan.
+    """
+    try:
+        print(line, flush=True)
+        return
+    except UnicodeEncodeError:
+        pass
+    except Exception:
+        return
+    try:
+        print(line.encode("ascii", "replace").decode("ascii"), flush=True)
+    except Exception:
+        pass
 
 
 def notes() -> list[dict[str, Any]]:

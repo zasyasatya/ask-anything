@@ -227,6 +227,19 @@ export type FullPolicy = {
     chunk_overlap: number;
     top_k: number;
     max_upload_mb: number;
+    // OCR (PDF hasil scan & gambar)
+    ocr_enabled: boolean;
+    ocr_engine: string;
+    ocr_min_chars: number;
+    ocr_dpi: number;
+    ocr_max_pages: number;
+    ocr_deskew: boolean;
+    // Kecerdasan retrieval
+    retrieval_mode: "hybrid" | "vector" | "lexical";
+    retrieval_candidates: number;
+    mmr_lambda: number;
+    min_score: number;
+    context_neighbors: number;
   };
   feedback: { enabled: boolean; auto_guidance: boolean; max_guidance: number };
   interpreter: {
@@ -235,7 +248,173 @@ export type FullPolicy = {
     record_tool_payloads: boolean;
   };
   artifacts: { max_artifacts: number; retention_days: number };
+  quota: {
+    enabled: boolean;
+    daily_tokens: number;
+    weekly_tokens: number;
+    daily_requests: number;
+    block_on_exceed: boolean;
+  };
+  instructions: {
+    enabled: boolean;
+    max_active: number;
+    max_chars: number;
+  };
 };
+
+// --- Pipeline kuota token ---------------------------------------------------
+
+export interface QuotaLimits {
+  daily_tokens: number;
+  weekly_tokens: number;
+  daily_requests: number;
+  source: "policy" | "override" | string;
+  note?: string;
+}
+
+export interface QuotaUserRow {
+  user_key: string;
+  first_seen: number;
+  last_seen: number;
+  day_tokens: number;
+  day_requests: number;
+  week_tokens: number;
+  week_requests: number;
+  total_tokens: number;
+  total_requests: number;
+  limits: QuotaLimits;
+  remaining: { day_tokens: number | null; week_tokens: number | null };
+  over_limit: boolean;
+}
+
+export interface QuotaOverview {
+  policy: FullPolicy["quota"];
+  users: number;
+  overrides: number;
+  totals: {
+    runs: number;
+    tokens: number;
+    prompt_tokens: number;
+    completion_tokens: number;
+  };
+  today: { runs: number; tokens: number; day_key: string };
+  this_week: { runs: number; tokens: number; week_key: string };
+  by_provider: { provider: string; runs: number; tokens: number }[];
+  by_mode: { mode: string; runs: number; tokens: number }[];
+  blocked_today: number;
+}
+
+export interface QuotaRejection {
+  id: string;
+  user_key: string;
+  mode: string;
+  reason: string;
+  day_key: string;
+  ts: number;
+}
+
+export interface QuotaDashboard {
+  overview: QuotaOverview;
+  users: QuotaUserRow[];
+  rejections: QuotaRejection[];
+}
+
+// --- Pipeline instruksi advanced -------------------------------------------
+
+export interface AnswerTheory {
+  key: string;
+  label: string;
+  domain_hint: string;
+  method: string;
+}
+
+export interface Playbook {
+  id: string;
+  name: string;
+  domain: string;
+  persona: string;
+  method: string;
+  theory: string;
+  rules: string;
+  output_format: string;
+  triggers: string[];
+  modes: string[];
+  activation: "always" | "keywords" | "manual";
+  priority: number;
+  enabled: boolean;
+  created_at: number;
+  updated_at: number;
+  /** Hanya terisi pada hasil `/preview` & seleksi run: alasan playbook menyala. */
+  match_reason?: string;
+}
+
+export interface PlaybookInput {
+  name: string;
+  domain?: string;
+  persona?: string;
+  method?: string;
+  theory?: string;
+  rules?: string;
+  output_format?: string;
+  triggers?: string[];
+  modes?: string[];
+  activation?: "always" | "keywords" | "manual";
+  priority?: number;
+  enabled?: boolean;
+}
+
+export interface InstructionStats {
+  total: number;
+  enabled: number;
+  by_activation: Record<string, number>;
+  activations_total: number;
+  top_used: {
+    playbook_id: string;
+    playbook_name: string;
+    runs: number;
+    last_used: number;
+  }[];
+  never_used: {
+    id: string;
+    name: string;
+    activation: string;
+    triggers: string[];
+  }[];
+}
+
+export interface InstructionActivation {
+  id: string;
+  playbook_id: string;
+  playbook_name: string;
+  conversation_id: string;
+  run_id: string;
+  mode: string;
+  match_reason: string;
+  ts: number;
+}
+
+export interface InstructionDashboard {
+  playbooks: Playbook[];
+  stats: InstructionStats;
+  theories: AnswerTheory[];
+  activations: InstructionActivation[];
+  policy: FullPolicy["instructions"];
+}
+
+// --- Kesiapan OCR ----------------------------------------------------------
+
+export interface OcrStatus {
+  deps: {
+    available: boolean;
+    engines: string[];
+    pdf_render: boolean;
+    pillow: boolean;
+    install_hint: string | null;
+  };
+  engine_selected: string | null;
+  policy: Record<string, string | number | boolean>;
+  accepts: string[];
+}
 
 export interface MemoryItem {
   id: string;
@@ -290,7 +469,9 @@ export interface RagDocument {
   chars: number;
   status:
     | "uploaded"
+    | "queued"
     | "parsing"
+    | "ocr"
     | "chunking"
     | "embedding"
     | "ready"
@@ -298,6 +479,11 @@ export interface RagDocument {
   error: string;
   embed_backend: string;
   timings: Record<string, number>;
+  kind?: "pdf" | "image" | string;
+  ocr_pages?: number;
+  ocr_engine?: string;
+  ocr_confidence?: number;
+  ocr_detail?: Record<string, unknown>;
   created_at: number;
   updated_at: number;
 }
@@ -327,4 +513,6 @@ export interface AdminOverview {
   provider: string;
   model: string;
   admin_protected: boolean;
+  quota?: QuotaOverview;
+  instructions?: InstructionStats;
 }
