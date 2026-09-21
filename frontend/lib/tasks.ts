@@ -16,6 +16,14 @@ export interface TaskAcceptance {
   done: boolean;
 }
 
+/** Satu langkah alur kerja pada tab Workflow di panel detail. */
+export interface TaskWorkflowStep {
+  step: number;
+  actor: string;
+  action: string;
+  result: string;
+}
+
 export interface TaskCommit {
   sha: string;
   subject: string;
@@ -51,6 +59,10 @@ export interface Task {
   depends_on: string[];
   evidence: string[];
   source: string;
+  /** Alur kerja bernomor: siapa melakukan apa, hasilnya apa. */
+  workflow: TaskWorkflowStep[];
+  /** Sketsa layout / bentuk data (teks ASCII, ditampilkan monospace). */
+  wireframe: string;
   branch: string;
   mr_url: string;
   commits: TaskCommit[];

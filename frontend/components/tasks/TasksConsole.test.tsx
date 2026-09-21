@@ -65,6 +65,8 @@ function task(over: Partial<Task>): Task {
     depends_on: [],
     evidence: [],
     source: "",
+    workflow: [],
+    wireframe: "",
     branch: "",
     mr_url: "",
     commits: [],
@@ -157,12 +159,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("TasksConsole — halaman /tasks", () => {
-  it("memuat papan dari API dan menampilkan statistik + repo", async () => {
+  it("memuat papan dari API dan menampilkan statistik", async () => {
     render(<TasksConsole />);
     await waitFor(() => expect(fetchTasks).toHaveBeenCalled());
     expect(await screen.findByText("Tab Pipeline")).toBeTruthy();
     expect(screen.getByText("Tool retrieve_knowledge")).toBeTruthy();
-    expect(screen.getByText("/repo/ask-anything")).toBeTruthy();
     expect(screen.getByTestId("task-count").textContent).toContain("2 dari 2 task tampil");
     expect(screen.getByText("40%")).toBeTruthy();
   });
@@ -190,10 +191,31 @@ describe("TasksConsole — halaman /tasks", () => {
     );
   });
 
+  it("berpindah papan memuat trek yang baru, bukan trek sebelumnya", async () => {
+    // Regresi: setTrack() lalu load() memakai `track` dari render lama, jadi
+    // judul berganti ke Internship tapi isi papan tetap task ASK-NNN.
+    const INTERN = [
+      task({ id: "INT-026", title: "Feedback jempol", phase: "i4" }),
+    ];
+    vi.mocked(fetchTasks).mockImplementation(async (_tk, opts) =>
+      opts?.track === "internship" ? response(INTERN) : response(TASKS)
+    );
+    render(<TasksConsole />);
+    await screen.findByText("Tab Pipeline");
+
+    fireEvent.click(screen.getByRole("button", { name: "Internship" }));
+    await waitFor(() =>
+      expect(fetchTasks).toHaveBeenLastCalledWith("", { track: "internship" })
+    );
+    expect(await screen.findByText("Feedback jempol")).toBeTruthy();
+    expect(screen.queryByText("Tab Pipeline")).toBeNull();
+  });
+
   it("sync git melaporkan berapa task yang berubah", async () => {
     render(<TasksConsole />);
     await screen.findByText("Tab Pipeline");
-    fireEvent.click(screen.getByTitle(/Selaraskan status dengan branch/));
+    fireEvent.click(screen.getByLabelText("Aksi papan"));
+    fireEvent.click(screen.getByText("⟳ Sync git"));
     expect(await screen.findByText(/Sync selesai: 1 task diperbarui/)).toBeTruthy();
     expect(syncTasks).toHaveBeenCalledWith("");
   });
@@ -224,10 +246,12 @@ describe("TasksConsole — halaman /tasks", () => {
     fireEvent.click(screen.getByTestId("task-open-ASK-030"));
     await waitFor(() => expect(fetchTask).toHaveBeenCalledWith("", "ASK-030"));
     expect(await screen.findByTestId("task-detail")).toBeTruthy();
+    // Ringkasan tampil lebih dulu: prasyarat terlihat, detail git dilipat.
+    expect(screen.getByText("ASK-024")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /Aktivitas/ }));
     expect(
       screen.getByText("git checkout -b feat/ASK-030-tool-retrieve-knowledge")
     ).toBeTruthy();
     expect(screen.getByText("mulai dari filter metadata")).toBeTruthy();
-    expect(screen.getByText("ASK-024")).toBeTruthy();
   });
 });

@@ -192,7 +192,9 @@ ter-install di image — jadi untuk VPS pakai provider `openai`.
 
 | Audiens | Markdown | Halaman in-app |
 |---|---|---|
-| **Pengguna** | [`docs/PANDUAN-PENGGUNA.md`](docs/PANDUAN-PENGGUNA.md) | `/panduan` |
+| **Pengguna** (pemilih peran) | [`docs/PANDUAN-PENGGUNA.md`](docs/PANDUAN-PENGGUNA.md) | `/panduan` |
+| **Member** (peserta internship) | [`docs/PANDUAN-MEMBER.md`](docs/PANDUAN-MEMBER.md) | `/panduan/member` |
+| **Admin** (pengelola platform) | [`docs/PANDUAN-ADMIN.md`](docs/PANDUAN-ADMIN.md) | `/panduan/admin` |
 | **Developer** | [`docs/PANDUAN-DEVELOPER.md`](docs/PANDUAN-DEVELOPER.md) | `/developer` |
 | **Dokumen teknis** (setiap paket + cara kerjanya) | [`docs/TEKNIS.md`](docs/TEKNIS.md) | – |
 | **Penyetelan provider per mode** | [`docs/PENYESUAIAN-PROVIDER.md`](docs/PENYESUAIAN-PROVIDER.md) | – |
@@ -618,7 +620,7 @@ backend/
 scripts/fake_llama_server.py   # server OpenAI-compatible tiruan (--demo & testing)
 scripts/download_model.py      # CLI download model offline (dipakai run.py)
 scripts/capture_screenshots.py # generator screenshot docs (Playwright, UI live)
-docs/                          # METODOLOGI.md, slides, PANDUAN-PENGGUNA.md,
+docs/                          # METODOLOGI.md, slides, PANDUAN-{PENGGUNA,MEMBER,ADMIN}.md,
                                # PANDUAN-DEVELOPER.md, DEPLOY-COOLIFY.md, images/
 frontend/                      # Next.js 16: sidebar, hero, chat, interpreter,
                                # DiagramBlock/GraphView (graph interaktif) +

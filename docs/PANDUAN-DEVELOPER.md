@@ -3,7 +3,8 @@
 > Peta lengkap codebase untuk kontributor: aliran data SSE, schema tracing,
 > cara menambah provider/tool, setup dev, testing, dan pipeline screenshot
 > dokumentasi. Versi interaktif: halaman in-app **`/developer`**.
-> Pendamping user-facing: [`PANDUAN-PENGGUNA.md`](PANDUAN-PENGGUNA.md).
+> Pendamping user-facing: [`PANDUAN-PENGGUNA.md`](PANDUAN-PENGGUNA.md) (pemilih peran),
+> [`PANDUAN-MEMBER.md`](PANDUAN-MEMBER.md), dan [`PANDUAN-ADMIN.md`](PANDUAN-ADMIN.md).
 
 ---
 
@@ -302,7 +303,7 @@ FOO = Tool(name="foo", description="...", parameters={...}, run=run_foo)
 | File | Tanggung jawab |
 |---|---|
 | `app/page.tsx` | Orkestrasi state: conversations, messages, trace, live-stream (termasuk `source`/`hits`/`duration_ms` tiap tool), settings, aksen. Header memakai `shrink-0`+`truncate` agar tidak menimpa saat Interpreter membuka. |
-| `app/panduan/page.tsx`, `app/developer/page.tsx` | Halaman dokumentasi in-app (komponen di `components/docs/DocShell.tsx`). |
+| `app/panduan/page.tsx`, `app/panduan/member/page.tsx`, `app/panduan/admin/page.tsx`, `app/developer/page.tsx` | Halaman dokumentasi in-app (komponen di `components/docs/DocShell.tsx`). |
 | `lib/api.ts` | Klien SSE (parser baris `data:`), CRUD conversations, settings, health. |
 | `components/Sidebar.tsx` | Navbar **collapsible**: rail 64px ↔ 268px, persist `aa:nav-collapsed`, `Ctrl/Cmd+B`, riwayat jadi rail titik (tetap tombol, tetap bisa keyboard) saat collapsed. |
 | `components/ChatView.tsx` | Render pesan di kolom **lebar** (`max-w-[1180px]`), chip tool **berlencana provenance** (Browser / Tool diagram / Kalkulator, + status `0 hasil`/`gagal`/durasi), bar Sitasi, kotak thinking, live answer. |

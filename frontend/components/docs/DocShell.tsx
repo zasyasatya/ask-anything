@@ -4,7 +4,10 @@ import type { ReactNode } from "react";
 /* Kerangka halaman dokumentasi in-app (/panduan & /developer).
    Desain mengikuti design system aplikasi: zinc + aksen indigo. */
 
-export function DocNav({ active }: { active: "panduan" | "developer" }) {
+/** Halaman dokumentasi yang bisa aktif di navigasi atas. */
+export type DocPage = "panduan" | "panduan-member" | "panduan-admin" | "developer";
+
+export function DocNav({ active }: { active: DocPage }) {
   const item = (href: string, label: string, on: boolean) => (
     <Link
       href={href}
@@ -27,8 +30,10 @@ export function DocNav({ active }: { active: "panduan" | "developer" }) {
           </span>
         </div>
         <nav className="flex items-center gap-1">
-          {item("/panduan", "Panduan Pengguna", active === "panduan")}
-          {item("/developer", "Docs Developer", active === "developer")}
+          {item("/panduan", "Panduan", active === "panduan")}
+          {item("/panduan/member", "Member", active === "panduan-member")}
+          {item("/panduan/admin", "Admin", active === "panduan-admin")}
+          {item("/developer", "Developer", active === "developer")}
           {item("/tasks", "Tasks", false)}
           <a
             href="/slides/slides-cara-kerja.html"
@@ -52,7 +57,7 @@ export function DocShell({
   toc,
   children,
 }: {
-  active: "panduan" | "developer";
+  active: DocPage;
   title: string;
   subtitle: string;
   toc: Array<[string, string]>;
@@ -84,7 +89,10 @@ export function DocShell({
           <div className="mt-8 space-y-10">{children}</div>
           <footer className="mt-16 border-t border-zinc-200 pt-6 text-xs text-zinc-400">
             Dokumen ini bagian dari repo — sunting via{" "}
-            <code className="rounded bg-zinc-100 px-1">frontend/app/{active}/page.tsx</code> dan{" "}
+            <code className="rounded bg-zinc-100 px-1">
+              frontend/app/{active.replace("panduan-", "panduan/")}/page.tsx
+            </code>{" "}
+            dan{" "}
             <code className="rounded bg-zinc-100 px-1">docs/</code>. Screenshot dihasilkan ulang dengan{" "}
             <code className="rounded bg-zinc-100 px-1">scripts/capture_screenshots.py</code>.
           </footer>

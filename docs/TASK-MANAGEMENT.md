@@ -36,10 +36,33 @@ ASK-012  →  feat/ASK-012-halaman-task-management-papan-kanban-list
 | **Filter** | Pencarian (id/judul/label/branch), fase, status (klik chip statistik), assignee, prioritas, label |
 | **Kelompokkan per fase** | Melihat enam fase rencana (Platform, Ingest, Retrieval, Agent×RAG, Visual Web, Polish) sebagai bagian terpisah |
 | **Statistik** | Progres keseluruhan, jumlah per kolom, total estimasi hari, jumlah task menunggu prasyarat, dan yang siap dikerjakan |
-| **Detail task** | Edit cepat (judul, status, prioritas, fase, assignee, estimasi, deskripsi), checklist kriteria selesai, komentar + riwayat aktivitas, prasyarat & dependen, bukti implementasi, commit terkait, blok branch GitLab |
+| **Detail task** | Panel bertab supaya tidak ramai — **Ringkasan** (tujuan, checklist kriteria selesai, prasyarat), **Workflow** (alur kerja bernomor: aktor → aksi → hasil), **Wireframe** (sketsa layout/bentuk data + berkas bukti), **Aktivitas** (branch, commit, merge request, komentar & riwayat). Baris kendali (status, prioritas, fase, assignee, estimasi) tetap terlihat di semua tab. |
 
 Kartu menampilkan penanda **⛔ n** bila prasyaratnya belum selesai, dan setiap
 pindah status otomatis tercatat sebagai aktivitas di panel detail.
+
+Header papan sengaja dijaga ringkas: progres + jumlah per kolom + pencarian
+dalam satu baris, filter lanjutan (fase, assignee, prioritas, label,
+kelompokkan per fase) dilipat di balik tombol **Filter** (dengan penghitung
+filter aktif), dan aksi admin (Sync git, Muat/Reset rencana, token) berada di
+menu **⋯**.
+
+### Detail task: deskripsi, workflow, wireframe
+
+Tiap task rencana ditulis agar bisa langsung dikerjakan tanpa bertanya lagi:
+
+| Bagian | Isi |
+|---|---|
+| `description` | Konteks + keputusan teknis yang sudah ditetapkan & batasannya |
+| `workflow` | Daftar langkah `{actor, action, result}` — siapa melakukan apa, hasilnya apa. Nomor langkah diisi otomatis backend |
+| `wireframe` | Sketsa ASCII: layout layar untuk task UI, atau bentuk data/diagram alur untuk task backend |
+| `acceptance` | Kriteria selesai yang bisa dicentang dan diuji |
+| `evidence` | Berkas yang harus ada (diperiksa `POST /api/tasks/sync`) |
+| `depends_on` | Prasyarat, menentukan urutan pengerjaan |
+
+Keduanya bisa diisi saat membuat task (`POST /api/tasks`) atau diubah lewat
+`PATCH /api/tasks/{id}`; **member tidak boleh mengubahnya** — rancangan task
+adalah keputusan admin.
 
 ## 3. Sinkronisasi dengan git & kode
 
@@ -102,8 +125,8 @@ POST   /api/tasks/sync                 → { changed, branches, commits, tasks, 
 
 Field task: `id, title, description, phase, status, priority, assignee,
 estimate, labels[], acceptance[{text,done}], depends_on[], evidence[], source,
-branch, mr_url, commits[{sha,subject}], position, seeded, created_at,
-updated_at, completed_at` + turunan `branch_name, git_command, progress,
+workflow[{step,actor,action,result}], wireframe, branch, mr_url,
+commits[{sha,subject}], position, seeded, created_at, updated_at, completed_at` + turunan `branch_name, git_command, progress,
 acceptance_done/total, blocked_by, ready`.
 
 ## 6. Struktur kode
@@ -111,7 +134,7 @@ acceptance_done/total, blocked_by, ready`.
 | Berkas | Isi |
 |---|---|
 | `backend/app/tasks_plan.py` | Data rencana platform (6 fase, 54 task) + fase/status/prioritas yang dikenal |
-| `backend/app/internship_plan.py` | Data rencana proyek internship (6 fase `i0`–`i5`, 33 task `INT-NNN`, penugasan round-robin peserta) |
+| `backend/app/internship_plan.py` | Data rencana **chatbot AI agent production-ready** (6 fase `i0`–`i5`, 36 task `INT-NNN` ±54 hari kerja, penugasan round-robin peserta). Tiap task memuat deskripsi, workflow, dan wireframe |
 | `backend/app/tasks.py` | Logika: CRUD, kolom & posisi, checklist, komentar, statistik, seeder, `sync()` git, `branch_name()` |
 | `backend/app/api/tasks.py` | Router `/api/tasks/*` (Pydantic + guard `X-Admin-Token`) |
 | `backend/app/startup.py` | Catatan startup (dipakai juga oleh `/api/health` & `run.py`) |

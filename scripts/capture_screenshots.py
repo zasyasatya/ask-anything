@@ -21,16 +21,21 @@ Prasyarat
 Pemakaian
 ---------
     BASE_URL=http://127.0.0.1:3000 python3 scripts/capture_screenshots.py main
-    python3 scripts/capture_screenshots.py pages      # halaman /panduan & /developer
+    python3 scripts/capture_screenshots.py pages      # /panduan, /panduan/member,
+                                                      # /panduan/admin, /developer
     python3 scripts/capture_screenshots.py roles      # login, role member/admin, task
 
 Stage `main`  : seluruh flow UI (hero, navbar collapse, chat + sitasi, kanvas
                 fullscreen, interpreter log/LLM/sumber, settings, riwayat)
-Stage `pages` : screenshot halaman dokumentasi in-app (jalan setelah stage main,
-                karena halaman tersebut menampilkan gambar hasil stage main)
+Stage `pages` : screenshot halaman dokumentasi in-app — /panduan (pemilih peran),
+                /panduan/member, /panduan/admin, /developer. Jalan setelah stage
+                main & roles, karena halaman tersebut menampilkan gambarnya.
 Stage `roles` : alur login & peran — halaman /login, playground member, papan
-                task yang ditugaskan, papan /internship, Profil (ganti password),
-                konsol Admin (Users + akses per peran). Butuh backend dengan
+                task yang ditugaskan (termasuk tab Ringkasan/Workflow/Wireframe
+                pada panel detail), papan /internship, Profil (ganti password),
+                konsol Admin (Users, akses per peran, filter & menu papan).
+                Dipakai oleh PANDUAN-MEMBER.md dan PANDUAN-ADMIN.md.
+                Butuh backend dengan
                 `ASK_AUTH_MODE=required` dan akun hasil seed (admin/admin123,
                 intern1..3/intern123; dapat di-override lewat env di bawah).
 
@@ -421,6 +426,33 @@ def goto(page, path: str, wait: str | None = None, timeout: int = 90_000) -> Non
     page.wait_for_timeout(600)
 
 
+def shoot_task_tabs(page: "Shots", prefix: str) -> None:
+    """Foto panel detail task pada tiap tab: Ringkasan, Workflow, Wireframe.
+
+    Panel ini dipecah menjadi tab supaya tidak menampilkan semua informasi
+    sekaligus; dokumentasi menunjukkan ketiganya agar pembaca tahu di mana
+    letak alur kerja & sketsa layout tiap task.
+    """
+    p = page.page
+    cards = p.locator('[data-testid^="task-open-"]')
+    if not cards.count():
+        print("  (tidak ada kartu task — dilewati)")
+        return
+    cards.first.click()
+    p.wait_for_selector('[data-testid="task-detail"]')
+    p.wait_for_timeout(700)
+    page.save(f"{prefix}-ringkasan")
+    for tab, suffix in (("Workflow", "workflow"), ("Wireframe", "wireframe")):
+        btn = p.locator(f'[data-testid="task-detail"] [role="tab"]:has-text("{tab}")')
+        if not btn.count():
+            continue
+        btn.first.click()
+        p.wait_for_timeout(600)
+        page.save(f"{prefix}-{suffix}")
+    p.locator('[data-testid="task-detail"]').get_by_text("Tutup", exact=True).first.click()
+    p.wait_for_timeout(400)
+
+
 def stage_roles(page: "Shots") -> None:
     """Alur login & peran: member (playground + task sendiri) dan admin (konsol).
 
@@ -490,6 +522,9 @@ def stage_roles(page: "Shots") -> None:
         p.locator('[data-testid="task-detail"]').get_by_text("Tutup", exact=True).first.click()
         p.wait_for_timeout(400)
 
+    print("[7b] Detail task member: tab Workflow & Wireframe")
+    shoot_task_tabs(page, prefix="46-member-task")
+
     print("[8] Papan proyek internship (member: task INT-NNN miliknya)")
     goto(p, "/internship", "text=Proyek Internship")
     p.wait_for_timeout(900)
@@ -528,6 +563,23 @@ def stage_roles(page: "Shots") -> None:
     p.wait_for_timeout(1500)
     page.save("43-admin-board-internship")
 
+    print("[12b] Admin: filter lanjutan & menu aksi papan")
+    p.click('button:has-text("Filter")')
+    p.wait_for_timeout(500)
+    page.save("50-admin-board-filters")
+    p.click('button:has-text("Filter")')
+    p.wait_for_timeout(300)
+    if p.locator('[aria-label="Aksi papan"]').count():
+        p.click('[aria-label="Aksi papan"]')
+        p.wait_for_timeout(450)
+        page.save("51-admin-board-menu")
+        p.keyboard.press("Escape")
+        p.locator('[aria-label="Tutup menu"]').click()
+        p.wait_for_timeout(300)
+
+    print("[12c] Admin: detail task internship (Ringkasan/Workflow/Wireframe)")
+    shoot_task_tabs(page, prefix="47-task")
+
     print("[13] Admin: papan proyek internship (semua peserta)")
     goto(p, "/internship", "text=Proyek Internship")
     p.wait_for_timeout(900)
@@ -543,6 +595,8 @@ def stage_pages(page: "Shots") -> None:
     p = page.page
     ensure_admin_session(p)
     for route, name in [("/panduan", "17-halaman-panduan"),
+                        ("/panduan/member", "52-halaman-panduan-member"),
+                        ("/panduan/admin", "53-halaman-panduan-admin"),
                         ("/developer", "18-halaman-developer")]:
         print(f"[pages] {route}")
         p.goto(BASE + route, wait_until="networkidle")
