@@ -1,0 +1,49 @@
+# Ask Anything — satu service, satu volume persisten.
+#
+#   docker compose up -d --build
+#   docker compose logs -f
+#
+# Seluruh state (SQLite + artifact + arsip RAG + model offline + backup)
+# tinggal di named volume `ask-anything-data` yang di-mount ke /app/data,
+# sehingga `docker compose down`, `up --build`, maupun redeploy TIDAK
+# menghapus data. Jangan `docker volume rm` kecuali memang ingin reset total.
+#
+# Coolify: panduan memakai Dockerfile ada di docs/DEPLOY-COOLIFY.md; file ini
+# berguna untuk uji lokal VPS / Portainer / server tanpa Coolify.
+
+services:
+  ask-anything:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: ask-anything:latest
+    container_name: ask-anything
+    restart: unless-stopped
+    ports:
+      - "${PORT:-3000}:3000"
+    environment:
+      # ---- WAJIB diisi untuk produksi (lihat .env.example) ----
+      ASK_PROVIDER: ${ASK_PROVIDER:-mock}
+      ASK_OPENAI_API_KEY: ${ASK_OPENAI_API_KEY:-}
+      ASK_OPENAI_MODEL: ${ASK_OPENAI_MODEL:-gpt-4o-mini}
+      ASK_OPENAI_BASE_URL: ${ASK_OPENAI_BASE_URL:-https://api.openai.com/v1}
+      # ---- Login (jangan biarkan default di server publik!) ----
+      ASK_AUTH_MODE: ${ASK_AUTH_MODE:-required}
+      ASK_ADMIN_PASSWORD: ${ASK_ADMIN_PASSWORD:-}
+      # ---- Persistence: JANGAN ubah kecuali paham risikonya ----
+      ASK_DB_PATH: /app/data/ask_anything.db
+      ASK_ARTIFACTS_DIR: /app/data/artifacts
+      ASK_RAG_DIR: /app/data/rag
+      ASK_MODELS_DIR: /app/data/models
+    volumes:
+      - ask-anything-data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+volumes:
+  ask-anything-data:
+    name: ask-anything-data

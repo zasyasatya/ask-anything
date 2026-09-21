@@ -18,10 +18,14 @@ KINDS = ("image", "pptx", "diagram", "document", "data")
 
 
 def _dir(settings: Any) -> Path:
-    p = Path(getattr(settings, "artifacts_dir", "data/artifacts"))
-    if not p.is_absolute():
-        from .config import PROJECT_ROOT
-        p = PROJECT_ROOT / p
+    resolver = getattr(settings, "resolved_artifacts_dir", None)
+    if callable(resolver):
+        p = Path(resolver())
+    else:  # pragma: no cover - settings tiruan di test lama
+        p = Path(getattr(settings, "artifacts_dir", "data/artifacts"))
+        if not p.is_absolute():
+            from .config import PROJECT_ROOT
+            p = PROJECT_ROOT / p
     p.mkdir(parents=True, exist_ok=True)
     return p
 
