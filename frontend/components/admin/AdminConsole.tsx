@@ -20,6 +20,7 @@ import type {
   MemoryItem,
 } from "@/lib/types";
 import PipelineTab from "./PipelineTab";
+import UsersTab from "./UsersTab";
 import MemoryTab from "./MemoryTab";
 import ArtifactTab from "./ArtifactTab";
 import FeedbackTab from "./FeedbackTab";
@@ -27,6 +28,7 @@ import { Card, Stat, fmtBytes } from "./ui";
 
 const TABS = [
   { id: "overview", label: "Ringkasan" },
+  { id: "users", label: "Users" },
   { id: "pipeline", label: "Pipeline" },
   { id: "memory", label: "Memori" },
   { id: "artifacts", label: "Artifact" },
@@ -246,6 +248,8 @@ export default function AdminConsole() {
             </Card>
           </div>
         )}
+
+        {tab === "users" && <UsersTab />}
 
         {tab === "pipeline" && policy && (
           <PipelineTab policy={policy} onPolicyChange={setPolicy} />

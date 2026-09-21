@@ -1,9 +1,11 @@
 # Panduan Pengguna — Ask Anything
 
-> Tata cara lengkap memakai **Ask Anything**: chat AI agentic dengan browsing,
-> diagram, kalkulasi, dan panel **Mechanistic Interpreter** yang memperlihatkan
-> seluruh proses LLM. Semua gambar di dokumen ini adalah **screenshot aplikasi
-> sungguhan** yang diambil otomatis oleh [`scripts/capture_screenshots.py`](../scripts/capture_screenshots.py)
+> Tata cara lengkap memakai **Ask Anything**: masuk dengan akun **admin** atau
+> **member**, chat AI agentic dengan browsing, diagram, kalkulasi, panel
+> **Mechanistic Interpreter** yang memperlihatkan seluruh proses LLM, sampai
+> **mengerjakan task** di papan platform (`ASK-NNN`) maupun papan proyek
+> internship (`INT-NNN`). Semua gambar di dokumen ini adalah **screenshot
+> aplikasi sungguhan** yang diambil otomatis oleh [`scripts/capture_screenshots.py`](../scripts/capture_screenshots.py)
 > (Playwright/Chromium) dari stack yang berjalan — bukan mockup.
 >
 > Versi interaktif halaman ini tersedia di dalam aplikasi: **`/panduan`**.
@@ -13,19 +15,23 @@
 ## Daftar isi
 
 1. [Mulai dalam 1 menit](#1-mulai-dalam-1-menit)
-2. [Mengenal layar utama](#2-mengenal-layar-utama)
-3. [Navbar collapsible & ruang chat lega](#3-navbar-collapsible--ruang-chat-lega)
-4. [Chat pertama Anda](#4-chat-pertama-anda)
-5. [Membaca jawaban agent: provenance & sitasi](#5-membaca-jawaban-agent-provenance--sitasi)
-6. [Browsing & penanganan error](#6-browsing--penanganan-error)
-7. [Mechanistic Interpreter](#7-mechanistic-interpreter)
-8. [Riwayat percakapan](#8-riwayat-percakapan)
-9. [Settings provider](#9-settings-provider)
-10. [Tampilan, aksen & mobile](#10-tampilan-aksen--mobile)
-11. [Materi belajar lanjutan](#11-materi-belajar-lanjutan)
-12. [Tips prompt yang efektif](#12-tips-prompt-yang-efektif)
-13. [Troubleshooting](#13-troubleshooting)
-14. [Data & privasi](#14-data--privasi)
+2. [Masuk ke aplikasi: login & dua peran](#2-masuk-ke-aplikasi-login--dua-peran)
+3. [Mengenal layar utama](#3-mengenal-layar-utama)
+4. [Navbar collapsible & ruang chat lega](#4-navbar-collapsible--ruang-chat-lega)
+5. [Chat pertama Anda](#5-chat-pertama-anda)
+6. [Membaca jawaban agent: provenance & sitasi](#6-membaca-jawaban-agent-provenance--sitasi)
+7. [Browsing & penanganan error](#7-browsing--penanganan-error)
+8. [Mechanistic Interpreter](#8-mechanistic-interpreter)
+9. [Riwayat percakapan](#9-riwayat-percakapan)
+10. [Settings provider (khusus admin)](#10-settings-provider-khusus-admin)
+11. [Tampilan, aksen & mobile](#11-tampilan-aksen--mobile)
+12. [Mengerjakan task: papan platform & internship](#12-mengerjakan-task-papan-platform--internship)
+13. [Proyek internship: chatbot + RAG dari nol](#13-proyek-internship-chatbot--rag-dari-nol)
+14. [Konsol admin: akun, peran & governance](#14-konsol-admin-akun-peran--governance)
+15. [Materi belajar lanjutan](#15-materi-belajar-lanjutan)
+16. [Tips prompt yang efektif](#16-tips-prompt-yang-efektif)
+17. [Troubleshooting](#17-troubleshooting)
+18. [Data & privasi](#18-data--privasi)
 
 ---
 
@@ -63,7 +69,92 @@ python3 run.py --model Qwen/Qwen3-1.7B
 > banner peringatan — seluruh fitur UI (termasuk Interpreter & diagram) tetap
 > bisa dicoba secara offline dan deterministik.
 
-## 2. Mengenal layar utama
+## 2. Masuk ke aplikasi: login & dua peran
+
+Ask Anything punya **dua peran** yang ditegakkan **di server** (bukan sekadar
+disembunyikan di UI):
+
+| Peran | Yang bisa dipakai | Yang ditolak (403) |
+| --- | --- | --- |
+| **admin** | Semua mode (teks, gambar, diagram, PPT, RAG, deep research), semua tool, **settings provider & model offline**, seluruh papan task, konsol `/admin` | — |
+| **member** (peserta internship) | Playground **teks, diagram, RAG** dengan provider **OpenAI**; **task yang ditugaskan kepadanya** (boleh ubah status & komentar) | mode gambar/PPT/deep research, `generate_image`/`generate_ppt`, upload dokumen RAG, settings provider, unduh/muat **model offline**, konsol admin, papan penuh |
+
+### 2.1 Halaman login
+
+Buka <http://localhost:3000> — bila belum ada sesi, Anda langsung diarahkan ke
+`/login` (bukan layar error). Halaman inilah pintu masuk satu-satunya.
+
+![Halaman login](../docs/images/30-login.png)
+
+- Setelah login, Anda dikembalikan ke halaman yang tadi dituju (`?next=…`),
+  jadi membuka `/tasks` langsung tetap bekerja.
+- Sesi disimpan sebagai **cookie HttpOnly** `ask_session` — tidak ada token di
+  localStorage, sehingga skrip halaman tidak bisa mencurinya.
+- Salah password, akun nonaktif, atau percobaan beruntun → pesan yang jelas,
+  dan percobaan berulang dibatasi (HTTP 429).
+
+![Login gagal: pesan password salah](../docs/images/31-login-error.png)
+
+### 2.2 Akun hasil seed
+
+Saat pertama kali dijalankan, backend membuat akun awal otomatis
+(`app/users.ensure_seed_users`) dan mencetak ringkasannya di log:
+
+```text
+[auth] akun awal dibuat: admin (admin), intern1 (member), intern2 (member),
+       intern3 (member) — ganti password di Profil / Admin → Users
+```
+
+| Akun | Password awal | Peran |
+| --- | --- | --- |
+| `admin` | `admin123` | admin |
+| `intern1` … `intern3` | `intern123` | member |
+
+Nilai ini bisa diubah lewat env `ASK_ADMIN_PASSWORD`, `ASK_SEED_MEMBERS`,
+`ASK_MEMBER_PASSWORD`. **Ganti password bawaan sebelum dipakai bersama.**
+
+### 2.3 Playground versi member
+
+Setelah masuk sebagai member, UI otomatis menyesuaikan: badge **`openai · akses
+member`** di header (provider dikunci policy), chip mode gambar/PPT/deep
+research tidak aktif, dan tombol bawah berubah menjadi **Profil & password**
+(tidak ada *Settings provider*).
+
+![Playground sebagai member: badge OpenAI, mode teks/diagram/RAG](../docs/images/32-member-chat.png)
+
+Sidebar kanan bawah menunjukkan identitas & cakupan akses Anda — mis.
+`intern1 · Member · task saya`. Bila Anda pemegang task, badge itu penanda bahwa
+papan task hanya menampilkan **task untuk Anda**.
+
+![Sidebar member: identitas, status LLM, Profil & password, Keluar](../docs/images/33-member-sidebar.png)
+
+### 2.4 Ganti nama & password sendiri
+
+Klik **Profil & password** di sidebar (member) atau ikon profil (admin).
+
+![Modal Profil: nama tampilan + ganti password](../docs/images/34-member-profile.png)
+
+1. **Nama tampilan** — bebas; hanya label, tidak mengubah username.
+2. **Ganti password** — wajib mengisi password lama. Password baru minimal
+   6 karakter dan harus sama pada kolom ulangi.
+3. Setelah berhasil, **semua sesi lain milik akun itu diputus** supaya password
+   baru benar-benar berlaku.
+
+![Password berhasil diganti — sesi lain diputus](../docs/images/35-member-password-changed.png)
+
+> Lupa password? Minta **admin** meresetnya di **Admin → Users** (lihat
+> [bab 14](#14-konsol-admin-akun-peran--governance)). Tidak ada reset lewat email.
+
+### 2.5 Mode tanpa login (demo/test)
+
+Bila `ASK_AUTH_MODE=open`, backend tidak mewajibkan login: semua request
+dianggap admin anonim, sehingga demo & test otomatis tidak perlu kredensial.
+Halaman login tetap ada dan menampilkan akun contoh. Mode default adalah
+`required` — jangan pakai `open` di deployment publik.
+
+---
+
+## 3. Mengenal layar utama
 
 ![Layar awal](images/01-hero-landing.png)
 *Layar awal: sidebar riwayat (kiri), header status (atas), composer pertanyaan
@@ -81,7 +172,7 @@ python3 run.py --model Qwen/Qwen3-1.7B
 ![Galeri Explore](images/02-hero-explore.png)
 *Galeri Explore dengan tab kategori. Klik kartu untuk memakai promptnya.*
 
-## 3. Navbar collapsible & ruang chat lega
+## 4. Navbar collapsible & ruang chat lega
 
 Navbar kiri bisa diperkecil jadi **rail ikon 64px** atau dibuka penuh
 **268px**. Ada tiga cara menoggle:
@@ -135,7 +226,7 @@ Kanvas juga men-*refit* otomatis saat kartunya berubah ukuran (navbar
 di-collapse, panel di-drag, layar diputar), jadi diagram tidak tertinggal
 sekecil ukuran awal.
 
-## 4. Chat pertama Anda
+## 5. Chat pertama Anda
 
 1. Klik chip contoh (mis. `Diagram alir →`) atau ketik pertanyaan sendiri.
 2. Periksa badge `4 tools` dan pilihan aksen warna di baris bawah composer.
@@ -151,7 +242,7 @@ sekecil ukuran awal.
 diagram yang dirender live di kartu berprofil tinggi, dan Interpreter (kanan)
 yang merekam semua event sebagai baris log.*
 
-## 5. Membaca jawaban agent: provenance & sitasi
+## 6. Membaca jawaban agent: provenance & sitasi
 
 Setiap keluaran agent diberi **lencana asal** supaya jelas mana bukti eksternal
 dan mana konten buatan tool:
@@ -234,7 +325,7 @@ memilih.
 *Tool `calculator`: ekspresi dikirim sebagai argumen tool, hasilnya dikutip
 agent pada jawaban final.*
 
-## 6. Browsing & penanganan error
+## 7. Browsing & penanganan error
 
 Untuk informasi terkini agent memanggil `web_search` (DuckDuckGo lite tanpa
 API key; Serper/Tavily opsional via env), dan dapat melanjutkan dengan
@@ -278,7 +369,7 @@ ASK_SEARCH_DDG_URL=http://127.0.0.1:8099/lite/ python3 run.py
 > tersebut** — kontennya fiktif. Yang difoto adalah perilaku sistem (registry
 > sumber → `[n]` → verifikasi), bukan fakta dari web.
 
-## 7. Mechanistic Interpreter
+## 8. Mechanistic Interpreter
 
 Panel kanan (tombol `Mechanistic Interpreter →`) merekam **semua** event satu
 run, dan tersimpan di SQLite sehingga riwayat bisa di-**replay** penuh. Tujuannya
@@ -319,7 +410,7 @@ chip per token).*
 ![Tab Metrik](images/08-interpreter-metrics.png)
 *Tab Metrik: angka mentah run — provider, model, temperature, steps, latensi, usage.*
 
-## 8. Riwayat percakapan
+## 9. Riwayat percakapan
 
 Setiap percakapan tersimpan otomatis di SQLite lokal **beserta trace
 event-nya**. Klik judul di sidebar untuk membuka kembali pesan *dan* replay
@@ -330,7 +421,7 @@ menyimpan event yang sama seperti saat run berlangsung).
 *Riwayat dikelompokkan per tanggal; indikator “LLM server terhubung”; tombol
 Settings provider di bawah.*
 
-## 9. Settings provider
+## 10. Settings provider (khusus admin)
 
 Tombol `Settings provider` membuka dialog pemilihan LLM — berlaku runtime
 tanpa restart:
@@ -357,7 +448,7 @@ pernah terjadi 404 karena path ganda. Isikan **API key** (Bearer token) bila
 gateway Anda memerlukannya; key yang sudah tersimpan hanya ditampilkan sebagai
 `ran…oken`. Tombol **Hapus** di samping kolom key menghapus key yang tersimpan.
 
-### 9.0 Memilih model dari daftar endpoint
+### 10.0 Memilih model dari daftar endpoint
 
 Tombol **Muat model** di samping kolom Base URL memanggil
 `GET <base>/models` dan mengisi **dropdown Model** — jadi Anda tidak perlu
@@ -371,7 +462,7 @@ mengingat/mengetik nama model:
   opsi **✎ Ketik nama model lain…** selalu tersedia untuk gateway yang tidak
   menyediakan `/models`.
 
-### 9.0.1 Test koneksi — mengetahui penyebab error API
+### 10.0.1 Test koneksi — mengetahui penyebab error API
 
 Tombol **Test koneksi** menjalankan tiga request sungguhan ke endpoint yang
 sedang diisi: `GET /models`, chat **non-streaming** (bentuk persis contoh
@@ -384,7 +475,7 @@ terlihat berbeda.
 Langkah penyetelan lengkap tiap mode (lokal / OpenAI+gateway / mock) ada di
 [`PENYESUAIAN-PROVIDER.md`](PENYESUAIAN-PROVIDER.md).
 
-### 9.1 Model offline langsung dari HuggingFace
+### 10.1 Model offline langsung dari HuggingFace
 
 Tab **Model offline (HuggingFace)** mencari model **berdasarkan namanya** di
 HuggingFace Hub — tidak ada katalog tetap, jadi model baru apa pun bisa dipakai:
@@ -441,7 +532,7 @@ Folder `models/` masuk `.gitignore` — bobot model tidak pernah ikut ter-commit
 *Bila model lokal belum dimuat (atau endpoint tidak terjangkau), banner kuning
 muncul dengan tombol “Buka Settings” dan sekali-klik “Pakai mode mock”.*
 
-## 10. Tampilan, aksen & mobile
+## 11. Tampilan, aksen & mobile
 
 Empat aksen warna (indigo, violet, orange, zinc) tersedia di composer — klik
 titik warna untuk mengganti aksen seluruh UI seketika. Layout responsif sampai
@@ -453,18 +544,164 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 ![Mobile](images/15-mobile-hero.png)
 *Tampilan mobile 390×844.*
 
-## 11. Materi belajar lanjutan
+## 12. Mengerjakan task: papan platform & internship
+
+Papan task adalah tempat pekerjaan **direncanakan, diambil, dan ditutup**.
+Ada **dua papan terpisah** dengan penomoran berbeda:
+
+| Papan | Id task | Isi | Siapa yang melihat |
+| --- | --- | --- | --- |
+| **Platform** | `ASK-NNN` | rencana produk ask-anything (54 task) | admin semuanya; member hanya yang ditugaskan |
+| **Internship** | `INT-NNN` | proyek chatbot + RAG dari nol (33 task, 6 fase) | idem — admin semuanya, member task-nya sendiri |
+
+> Id task = **nama branch Git**. Contoh: `ASK-003` → branch `ask-003-…`,
+> `INT-007` → `int-007-…`. Salin dari kartu task, jangan diketik ulang.
+
+### 12.1 Membuka papan
+
+Dari sidebar: **Tasks** (papan terpilih otomatis — member mendarat di
+**Internship**, admin di **Platform**) atau **Internship** untuk papan proyek.
+Alamat eksplisit: `/tasks?track=platform` dan `/tasks?track=internship`.
+
+![Papan task admin dengan pemilih Platform | Internship](../docs/images/42-admin-board-platform.png)
+
+Bagi **member**, papan hanya berisi task yang ditugaskan kepadanya — ada badge
+**“menampilkan task untuk Anda”** sebagai penanda. Ini juga ditegakkan server:
+`GET /api/tasks` memfilter berdasarkan `assignee` Anda (`tasks_scope=assigned`),
+jadi tidak ada task orang lain yang bisa diintip lewat API.
+
+![Papan member: hanya task yang ditugaskan](../docs/images/36-member-tasks.png)
+
+### 12.2 Detail task: apa yang boleh Anda ubah
+
+Klik kartu task untuk membuka panel detail.
+
+![Detail task bagi member](../docs/images/37-member-task-detail.png)
+
+| Bagian | Member (peserta) | Admin |
+| --- | --- | --- |
+| **Status** (Backlog → To do → In progress → Review → Done) | ✅ boleh | ✅ |
+| **Checklist kriteria penerimaan** | ✅ boleh centang | ✅ |
+| **Komentar** (mis. catatan progres, link bukti) | ✅ boleh | ✅ |
+| Prioritas, fase, estimasi, assignee, deskripsi | 🔒 terkunci | ✅ |
+| Hapus task (`ASK-…`/`INT-…`) | ❌ | ✅ |
+
+Checklist itulah kontrak sebuah task: sebuah task dinilai **selesai** bila
+kriteria penerimaannya tercentang dan buktinya (branch/commit/PR) bisa
+ditelusuri. Sinkronisasi branch & commit GitLab ada di tombol **⟳ Sync git**
+(admin) — ia mencocokkan status task dengan branch/commit yang ada.
+
+### 12.3 Alur kerja harian yang disarankan
+
+1. **Ambil task** berstatus *To do* pada papan **Internship** dengan milik Anda.
+2. Baca **Deskripsi** + **Kriteria penerimaan** sampai jelas; baca materi di
+   [bab 13](#13-proyek-internship-chatbot--rag-dari-nol) bila menyangkut desain.
+3. Buat branch dari id task (`git checkout -b int-007-…` — perintah siap salin
+   ada di kartu/detail task).
+4. Kerjakan, lalu **pindahkan status** ke *In progress*; tambahkan komentar
+   berisi keputusan penting.
+5. Buka PR/MR, minta review; pindahkan ke *Review*.
+6. Setelah review lolos dan bukti tertaut: centang semua kriteria → *Done*.
+
+---
+
+## 13. Proyek internship: chatbot + RAG dari nol
+
+Papan **Internship** adalah proyek nyata: membangun **prototipe chatbot
+agentik + RAG dari awal** di folder `projects/rag-agent`, mengikuti slide
+[`docs/slides-rag-agent.html`](slides-rag-agent.html). Bedanya dengan papan
+platform: di proyek ini **kode ditulis dari nol oleh peserta**, bukan menambah
+fitur ke aplikasi ini. Rencana kerjanya dipecah 6 fase:
+
+| Fase | Fokus |
+| --- | --- |
+| `i0` | Fondasi & spesifikasi: ERD, kontrak API, pilihan stack |
+| `i1` | Ingest dokumen: upload, parser structure-aware (PDF/DOCX/MD) |
+| `i2` | RAG: chunking, embedding, vector store, rerank |
+| `i3` | Tool & agent: `retrieve_knowledge`, sitasi `[n]`, "tidak tahu" jujur |
+| `i4` | Visual & memori: chart/tabel/timeline native, memori sesi |
+| `i5` | Polesan: evaluasi, dokumentasi, demo |
+
+![Papan proyek internship (admin melihat semua peserta)](../docs/images/44-admin-internship.png)
+
+Halaman `/internship` merangkum semuanya dalam satu layar: **progres** keseluruhan,
+**pembagian kerja per peserta**, filter **per fase**, daftar task, serta
+**materi & slide** yang bisa dibuka langsung dari daftar dokumen (dibaca dari
+backend, jadi selalu versi terbaru di repo).
+
+![Member: papan internship berisi task miliknya](../docs/images/38-member-internship.png)
+
+Materi utama yang sudah ada: slide [`slides-rag-agent.html`](slides-rag-agent.html)
+(tombol **🎬** di kartu *Materi & slide*) dan kartu-kartu **Materi** yang dibaca
+backend dari folder `docs/internship/` — begitu tim menambahkan berkas
+`01-spesifikasi-produk.md` … `06-panduan-kerja-dan-review.md` (spesifikasi
+produk, arsitektur & tech stack, ERD & kontrak API, kriteria sukses & evaluasi,
+rencana sprint, panduan kerja & review), daftarnya muncul otomatis di halaman
+`/internship` tanpa perubahan kode. Sebelum menulis kode, pastikan Anda sudah
+membacanya (bila berkasnya belum ada, tanyakan ke admin/dev lead).
+
+---
+
+## 14. Konsol admin: akun, peran & governance
+
+Buka `/admin` (hanya role admin). Ada enam tab: **Ringkasan**, **Users**,
+**Pipeline**, **Memori**, **Artifact**, **Feedback**.
+
+### 14.1 Users — akun, peran, reset password
+
+![Tab Users: akun, peran, task, sesi](../docs/images/39-admin-users.png)
+
+- **+ Akun baru** — buat akun member/admin dengan password awal; opsi *wajib
+  ganti password* membuat pemiliknya harus menggantinya di Profil.
+- **Kolom Task** — `selesai/total` task yang ditugaskan; berguna untuk
+  menyeimbangkan beban antar peserta.
+- **Reset password** — ganti password user kapan saja (mis. lupa). Semua sesi
+  user itu **diputus**, jadi password baru langsung berlaku.
+
+![Reset password member dari konsol admin](../docs/images/40-admin-reset-password.png)
+
+- **Nonaktifkan** — akun tidak bisa login (ditolak 401), tetapi riwayat &
+  task-nya tetap ada. **Hapus** — permanen; hanya untuk akun yang salah dibuat.
+
+### 14.2 Pipeline → Akses per peran
+
+Bagian paling penting untuk mengatur apa yang boleh dilakukan **member**.
+
+![Akses per peran: member vs admin](../docs/images/41-admin-pipeline-roles.png)
+
+- **Provider chat** — `openai` berarti role itu **tidak pernah** memakai model
+  offline; `auto` mengikuti setelan server.
+- **Cakupan task** — `assigned` (hanya task untuk dirinya) atau `all`.
+- **Toggle** — model offline, setelan provider, konsol admin, upload RAG, dan
+  izin mengubah status/komentar task.
+- **Mode & tool per peran** — mis. matikan mode gambar untuk member tanpa
+  mengubah izin admin.
+
+Aturan pentingnya: **gate global × gate peran** = izin efektif. Tombol
+*Tanpa model offline* milik member tidak menolong admin; dan mematikan mode
+global (tab Pipeline bagian lain) mematikan mode itu untuk **semua** peran.
+Perubahan berlaku untuk run berikutnya **tanpa restart**.
+
+---
+
+## 15. Materi belajar lanjutan
 
 - **Slide interaktif** “cara kerja agent”: tombol `Docs & Slides →` di header
   atau `/slides/slides-cara-kerja.html` (navigasi `←`/`→`).
 - **Metodologi** lengkap: [`docs/METODOLOGI.md`](METODOLOGI.md).
 - **Developer**: [`docs/PANDUAN-DEVELOPER.md`](PANDUAN-DEVELOPER.md) atau
   halaman in-app `/developer`.
+- **Proyek internship** (chatbot + RAG dari nol): slide
+  [`slides-rag-agent.html`](slides-rag-agent.html); dokumen kerja bertahap
+  diletakkan di `docs/internship/` dan otomatis tampil di halaman
+  `/internship` → kartu **Materi & slide**.
+- **Papan task**: [`docs/TASK-MANAGEMENT.md`](TASK-MANAGEMENT.md) menjelaskan
+  konvensi id task, branch, dan alur review.
 
 ![Slides](images/14-slides-cara-kerja.png)
 *Slide interaktif disajikan backend di `/slides` dan diproxy frontend.*
 
-## 12. Tips prompt yang efektif
+## 16. Tips prompt yang efektif
 
 - Sebutkan kata kunci kemampuan: `cari/berita` → browsing,
   `diagram/alur/graph/mindmap` → diagram, `hitung` → calculator.
@@ -475,7 +712,7 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 - Lanjutkan percakapan untuk merevisi diagram — riwayat dikirim sebagai
   konteks langkah berikutnya.
 
-## 13. Troubleshooting
+## 17. Troubleshooting
 
 | Gejala | Penyebab umum | Solusi |
 |---|---|---|
@@ -487,8 +724,14 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
 | “API error” tanpa penjelasan | Key salah, nama model tidak ada, atau payload ditolak gateway. | Settings → **Test koneksi**; status + pesan server ditampilkan per-request. |
 | Diagram tidak muncul | Model tidak menghasilkan Mermaid valid. | Ulangi dengan prompt eksplisit “diagram alir”; validasi server-side akan menolak Mermaid rusak dan memberikannya kembali ke model. Mode **Graph** tetap merender bagian sumber yang terbaca; tombol “salin” di kartu memudahkan menempelkan sumber ke editor Mermaid eksternal. |
 | UI tampil tapi tidak interaktif | Dev-server Next 16 memblokir resource cross-origin. | Tambahkan host ke `allowedDevOrigins` di `next.config.ts` (sudah disetel untuk 127.0.0.1 & *.e2b.app), lalu restart. |
+| Selalu diarahkan ke `/login` | Belum ada sesi (mode `required`). | Login dengan akun seed; bila akun memang belum dibuat, cek log backend baris `[auth] akun awal dibuat`. |
+| Layar “Backend tidak bisa dihubungi” saat belum login | Versi lama frontend menampilkan error untuk HTTP 401. | Perbarui frontend — sekarang 401 dialihkan ke `/login`, bukan dianggap backend mati. |
+| Login ditolak padahal password benar | Akun **nonaktif** atau password baru saja direset admin (sesi lama diputus). | Minta admin mengaktifkan kembali / memakai password hasil reset, lalu ganti sendiri di Profil. |
+| Pesan **403** saat mengubah provider / memanggil mode gambar | Role `member`: mode & provider dibatasi policy. | Hubungi admin → **Pipeline → Akses per peran** bila tugas Anda memang butuh fitur itu. |
+| Papan task member kosong | Belum ada task yang ditugaskan ke akun Anda. | Admin menetapkan **Assignee** di detail task (atau menekan **Muat rencana RAG** / seed papan internship). |
+| Halaman `/admin` menolak akses | Akun Anda bukan role admin. | Minta admin menaikkan peran Anda di **Admin → Users** (peran terakhir tidak bisa diturunkan admin terakhir). |
 
-## 14. Data & privasi
+## 18. Data & privasi
 
 - Semua percakapan + trace tersimpan **lokal** di SQLite
   (`data/ask_anything.db`, lokasi bisa diubah via `ASK_DB_PATH`).
@@ -496,6 +739,12 @@ layar ponsel (sidebar disembunyikan, composer tetap penuh).
   Anda pilih.
 - Hapus riwayat: `DELETE /api/conversations/{id}` atau hapus file DB saat
   aplikasi mati.
+- **Akun & sesi**: password disimpan sebagai hash **PBKDF2** (tanpa garam
+  statis, tidak pernah dikembalikan API), sesi berupa cookie HttpOnly
+  `ask_session` dengan masa berlaku terbatas. Ganti password = sesi lain
+  diputus; nonaktifkan akun = login ditolak.
+- **Percakapan milik pemiliknya**: member hanya bisa membuka percakapan yang ia
+  buat sendiri (ditegakkan server, bukan hanya disaring di UI).
 
 ---
 
@@ -506,4 +755,11 @@ python3 run.py --demo                     # stack + emulator LLM
 pip install playwright brotli             # sekali
 BASE_URL=http://127.0.0.1:3000 python3 scripts/capture_screenshots.py main
 python3 scripts/capture_screenshots.py pages
+python3 scripts/capture_screenshots.py roles    # login, peran, task, konsol admin
 ```
+
+Stage `roles` memakai akun seed (`admin`/`admin123`, `intern1`/`intern123`)
+pada backend ber-`ASK_AUTH_MODE=required`; kredensialnya bisa diganti lewat env
+`SEED_ADMIN_USER`, `SEED_ADMIN_PASSWORD`, `SEED_MEMBER_USER`,
+`SEED_MEMBER_PASSWORD`. Stage ini mengganti password member sebentar untuk
+memotret bukti ganti password, lalu **mengembalikannya** ke password semula.

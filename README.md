@@ -63,13 +63,26 @@ sitasi karangan.
   dinormalkan.
 - **Siap produksi**: `Dockerfile` multi-stage (backend + frontend dalam satu
   container, satu port publik) untuk deploy di **Coolify** / VPS mana pun.
+- **Login & peran (halaman `/login`)**: dua role — **admin** (semua mode/tool,
+  settings provider + model offline, seluruh papan task, konsol `/admin`) dan
+  **member** (playground teks/diagram/RAG dengan provider **OpenAI**, task yang
+  ditugaskan, ganti password sendiri). Batasnya **ditegakkan server-side**
+  (403), bukan hanya disembunyikan di UI; sesi = cookie HttpOnly `ask_session`.
+  Akun awal di-seed (`admin`, `intern1..3`) dan bisa dikelola di **Admin →
+  Users** (buat/nonaktifkan/hapus/peran/reset password).
+- **Papan proyek internship (`/internship`)**: trek terpisah dengan id
+  `INT-NNN` (33 task, 6 fase) + statistik sendiri, berisi proyek “chatbot +
+  RAG dari nol” di `projects/rag-agent`; materi kerja dibaca langsung dari
+  `docs/internship/*.md` dan slide `slides-rag-agent.html`. Member hanya
+  melihat task yang ditugaskan kepadanya.
 - **Halaman Admin (`/admin`) — pipeline governance**: atur **mode** yang boleh
   dipakai user (teks, gambar, diagram, PPT, RAG, deep research) dan **tool**
   yang boleh dieksekusi agent (`web_search`, `fetch_url`, `create_diagram`,
-  `calculator`, `generate_image`, `generate_ppt`, `save_memory`). Penegakan
-  **server-side**: tool yang dimatikan tidak diiklankan ke model dan panggilan
-  liar ditolak + terecord. Konsol bisa dilindungi `ASK_ADMIN_TOKEN`
-  (`X-Admin-Token`).
+  `calculator`, `generate_image`, `generate_ppt`, `save_memory`), plus
+  **akses per peran** (provider chat, cakupan task, izin model offline/settings/
+  konsol/upload/ubah task). Penegakan **server-side**: tool yang dimatikan tidak
+  diiklankan ke model dan panggilan liar ditolak + terecord. Konsol bisa
+  dilindungi sesi admin **atau** `ASK_ADMIN_TOKEN` (`X-Admin-Token`).
 - **Mode Gambar & PPT**: `generate_image` (poster generatif offline atau
   gateway OpenAI-compatible) dan `generate_ppt` (deck `.pptx` via python-pptx)
   — hasilnya **artifact** teregistry: file + metadata + kartu unduh di chat +
@@ -402,12 +415,23 @@ GET  /api/policy                     proyeksi publik policy (gating UI)
 POST /api/feedback                   👍/👎 + komentar (record + auto-guidance)
 POST /api/rag/upload|query           pipeline RAG (ingest & retrieve-generate)
 GET  /api/artifacts/{id}/download    unduh artifact
-── dilindungi X-Admin-Token bila ASK_ADMIN_TOKEN diset ──
+── butuh sesi role admin (atau X-Admin-Token bila ASK_ADMIN_TOKEN diset) ──
 GET/PUT   /api/admin/policy          baca / deep-merge kebijakan
 GET       /api/admin/overview        statistik dashboard
 CRUD      /api/admin/memories        manajemen memori
 CRUD      /api/admin/artifacts       registry artifact
 CRUD      /api/admin/feedback        review + POST …/apply (→ pedoman)
+CRUD      /api/admin/users           akun, peran, reset password (Admin → Users)
+```
+
+Login & profil (tanpa token):
+
+```text
+GET  /api/auth/bootstrap             sudah ada akun? (kredensial awal hanya di mode demo)
+GET  /api/auth/me                    siapa saya + capabilities (gating UI)
+POST /api/auth/login | /logout       sesi cookie HttpOnly ask_session
+POST /api/auth/password              ganti password sendiri (butuh password lama)
+PATCH /api/auth/profile              ganti nama tampilan
 ```
 
 Cara kerja tiap pipeline (dari awal sampai akhir, plus paket yang dipakai)
@@ -449,7 +473,11 @@ POST          /api/tasks/{id}/move       drag & drop antar kolom
 POST          /api/tasks/{id}/comments   komentar + aktivitas
 POST          /api/tasks/{id}/acceptance checklist kriteria selesai
 POST          /api/tasks/seed|sync       muat ulang rencana · selaras dengan git
-── dilindungi X-Admin-Token bila ASK_ADMIN_TOKEN diset ──
+GET           /api/tasks?track=internship|platform   papan terpisah (INT-NNN / ASK-NNN)
+GET           /api/internship/overview   ringkasan proyek + task (otomatis per peran)
+GET           /api/internship/docs/{name} materi docs/internship/*.md
+── tulis: sesi role admin (atau X-Admin-Token bila ASK_ADMIN_TOKEN diset);
+   member hanya melihat & memindahkan task yang ditugaskan kepadanya ──
 ```
 
 Panduan lengkap (alur kerja, aturan sync, struktur kode, cara menambah task):
@@ -474,7 +502,12 @@ Panduan lengkap (alur kerja, aturan sync, struktur kode, cara menambah task):
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+key masing-masing) |
 | `ASK_SEARCH_DDG_URL` | `https://lite.duckduckgo.com/lite/` | Endpoint pencarian — ke gateway internal/self-host, atau `scripts/fake_search_server.py` untuk uji E2E tanpa internet |
 | `ASK_DB_PATH` | `data/ask_anything.db` | SQLite (di container: `/app/data/ask_anything.db`) |
-| `ASK_ADMIN_TOKEN` | – (terbuka) | Bila diset, semua `/api/admin/*` wajib header `X-Admin-Token` |
+| `ASK_AUTH_MODE` | `required` | `required` = login wajib (halaman `/login`) · `open` = tanpa login untuk demo/test otomatis |
+| `ASK_ADMIN_USERNAME` / `ASK_ADMIN_PASSWORD` / `ASK_ADMIN_NAME` | `admin` / `admin123` / `Administrator` | Akun admin pertama yang di-seed saat tabel `users` kosong |
+| `ASK_SEED_MEMBERS` / `ASK_MEMBER_PASSWORD` | `intern1,intern2,intern3` / `intern123` | Akun member contoh (kosongkan untuk tidak men-seed) |
+| `ASK_SESSION_HOURS` / `ASK_SESSION_COOKIE` / `ASK_COOKIE_SECURE` | 168 / `ask_session` / false | Masa berlaku sesi, nama cookie, dan flag `Secure` (set true di belakang HTTPS) |
+| `ASK_LOGIN_MAX_ATTEMPTS` | 8 | Batas percobaan login gagal per username per 5 menit (0 = tanpa batas) |
+| `ASK_ADMIN_TOKEN` | – (terbuka) | Bila diset, semua `/api/admin/*` juga menerima header `X-Admin-Token` (skrip/CLI) |
 | `ASK_ARTIFACTS_DIR` / `ASK_RAG_DIR` | `data/artifacts` / `data/rag` | Penyimpanan file artifact & arsip PDF RAG |
 | `ASK_TASKS_AUTOSEED` | `true` | Isi papan `/tasks` dengan rencana RAG saat tabel masih kosong |
 | `ASK_REPO_DIR` | root proyek | Folder repo git yang dipakai sinkronisasi branch/commit task |

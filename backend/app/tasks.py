@@ -26,6 +26,7 @@ from typing import Any, Iterable
 
 from . import db
 from .config import PROJECT_ROOT, settings
+from . import internship_plan
 from .tasks_plan import (
     PHASES,
     PHASE_IDS,
@@ -36,7 +37,41 @@ from .tasks_plan import (
     summary as plan_summary,
 )
 
-TASK_ID_RE = re.compile(r"\bASK-(\d{3,4})\b", re.IGNORECASE)
+#: Papan yang tersedia. `platform` = rencana RAG/platform ask-anything
+#: (id ASK-NNN, halaman /tasks). `internship` = proyek chatbot+RAG dari nol
+#: untuk anak internship (id INT-NNN, halaman /internship) — papan terpisah
+#: supaya statistik & fokus tidak bercampur.
+TRACKS: tuple[str, ...] = ("platform", "internship")
+TRACK_LABELS: dict[str, str] = {
+    "platform": "Platform Ask Anything",
+    "internship": "Proyek Internship (from scratch)",
+}
+DEFAULT_TRACK = "platform"
+
+
+def track_of(task_id: str) -> str:
+    """Tentukan papan dari prefix id (`INT-…` → internship)."""
+    return "internship" if _norm(task_id).startswith("INT-") else "platform"
+
+
+def phases_for(track: str = DEFAULT_TRACK) -> list[dict[str, str]]:
+    return internship_plan.PHASES if track == "internship" else PHASES
+
+
+def phase_ids_for(track: str = DEFAULT_TRACK) -> tuple[str, ...]:
+    return tuple(p["id"] for p in phases_for(track))
+
+
+def plan_tasks_for(track: str = DEFAULT_TRACK) -> list[dict[str, Any]]:
+    return internship_plan.TASKS if track == "internship" else PLAN_TASKS
+
+
+def plan_summary_for(track: str = DEFAULT_TRACK) -> dict[str, Any]:
+    return (internship_plan.summary() if track == "internship"
+            else plan_summary())
+
+
+TASK_ID_RE = re.compile(r"\b(ASK|INT)-(\d{3,4})\b", re.IGNORECASE)
 #: status yang menandakan pekerjaan sudah dianggap selesai (untuk auto-done).
 DONE_KEYWORDS = ("close", "closes", "closed", "fix", "fixes", "fixed",
                  "done", "selesai", "merge")
@@ -80,6 +115,8 @@ def _row(row: dict[str, Any]) -> dict[str, Any]:
     ]
     task["evidence"] = [str(x) for x in _loads(task.get("evidence"), [])]
     task["seeded"] = bool(task.get("seeded"))
+    task["track"] = task.get("track") or track_of(task.get("id", ""))
+    task["track_label"] = TRACK_LABELS.get(task["track"], task["track"])
     task["branch_name"] = branch_name(task)
     task["git_command"] = f"git checkout -b {task['branch_name']}"
     task["acceptance_done"] = sum(1 for a in task["acceptance"] if a["done"])
@@ -124,10 +161,26 @@ def project_root() -> Path:
 def list_tasks(*, status: str | None = None, phase: str | None = None,
                assignee: str | None = None, priority: str | None = None,
                label: str | None = None, q: str | None = None,
-               seeded: bool | None = None) -> list[dict]:
+               seeded: bool | None = None, track: str | None = None,
+               assignee_in: Iterable[str] | None = None) -> list[dict]:
+    """Daftar task.
+
+    `track`       → batasi ke satu papan (platform | internship),
+    `assignee_in`  → batasi ke beberapa nama penanggung jawab (dipakai role
+                     member: hanya task yang ditugaskan kepadanya).
+    """
     sql = "SELECT * FROM tasks"
     where: list[str] = []
     params: list[Any] = []
+    if track and track in TRACKS:
+        where.append("track=?")
+        params.append(track)
+    if assignee_in is not None:
+        names = [str(n).strip().lower() for n in assignee_in if str(n).strip()]
+        if not names:
+            return []
+        where.append("LOWER(assignee) IN (" + ",".join("?" * len(names)) + ")")
+        params.extend(names)
     if status and status in STATUSES:
         where.append("status=?")
         params.append(status)
@@ -214,14 +267,17 @@ def list_comments(task_id: str) -> list[dict]:
 # Tulis
 # ---------------------------------------------------------------------------
 
-def next_task_id() -> str:
-    rows = db.query_all("SELECT id FROM tasks")
+def next_task_id(track: str = DEFAULT_TRACK) -> str:
+    """Nomor berikutnya **per papan**: ASK-NNN atau INT-NNN."""
+    track = track if track in TRACKS else DEFAULT_TRACK
+    prefix = "INT" if track == "internship" else "ASK"
+    rows = db.query_all("SELECT id FROM tasks WHERE track=?", (track,))
     top = 0
     for r in rows:
         m = TASK_ID_RE.search(r["id"] or "")
-        if m:
-            top = max(top, int(m.group(1)))
-    return f"ASK-{top + 1:03d}"
+        if m and m.group(1).upper() == prefix:
+            top = max(top, int(m.group(2)))
+    return f"{prefix}-{top + 1:03d}"
 
 
 def _clean_acceptance(items: Iterable[Any]) -> list[dict]:
@@ -245,21 +301,24 @@ def create_task(*, title: str, description: str = "", phase: str = "f0",
                 depends_on: Iterable[str] | None = None,
                 evidence: Iterable[str] | None = None, source: str = "",
                 task_id: str = "", seeded: bool = False,
-                branch: str = "", position: int | None = None) -> dict:
+                branch: str = "", position: int | None = None,
+                track: str = "") -> dict:
     title = (title or "").strip()
     if not title:
         raise TaskError("judul task wajib diisi")
-    tid = _norm(task_id) or next_task_id()
+    tid = _norm(task_id) or next_task_id(track or DEFAULT_TRACK)
     if not TASK_ID_RE.fullmatch(tid):
-        raise TaskError("id task harus berbentuk ASK-NNN (mis. ASK-012)")
+        raise TaskError("id task harus berbentuk ASK-NNN (platform) atau "
+                        "INT-NNN (proyek internship)")
+    track = track if track in TRACKS else track_of(tid)
     if get_task(tid):
         raise TaskError(f"task {tid} sudah ada")
     if status not in STATUSES:
         raise TaskError(f"status tidak dikenal: {status}")
     if priority not in PRIORITIES:
         raise TaskError(f"prioritas tidak dikenal: {priority}")
-    if phase not in PHASE_IDS:
-        raise TaskError(f"fase tidak dikenal: {phase}")
+    if phase not in phase_ids_for(track):
+        raise TaskError(f"fase tidak dikenal untuk papan {track}: {phase}")
     if position is None:
         row = db.query_one(
             "SELECT COALESCE(MAX(position),-1) AS p FROM tasks WHERE status=?",
@@ -270,15 +329,15 @@ def create_task(*, title: str, description: str = "", phase: str = "f0",
     db.execute(
         "INSERT INTO tasks(id,title,description,phase,status,priority,assignee,"
         "estimate,labels,acceptance,depends_on,evidence,source,branch,mr_url,"
-        "commits,position,seeded,created_at,updated_at,completed_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?)",
+        "commits,position,seeded,track,created_at,updated_at,completed_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?)",
         (tid, title[:300], description or "", phase, status, priority,
          assignee or "", float(estimate or 0), json.dumps(list(labels or [])),
          json.dumps(_clean_acceptance(acceptance or [])),
          json.dumps([_norm(d) for d in (depends_on or [])]),
          json.dumps([str(e) for e in (evidence or [])]),
          source or "", branch or "", "", int(position), 1 if seeded else 0,
-         ts, ts, 0.0 if status != "done" else ts),
+         track, ts, ts, 0.0 if status != "done" else ts),
     )
     return get_task(tid) or {}
 
@@ -304,8 +363,9 @@ def update_task(task_id: str, patch: dict[str, Any]) -> dict | None:
                 raise TaskError(f"status tidak dikenal: {value}")
         if key == "priority" and value not in PRIORITIES:
             raise TaskError(f"prioritas tidak dikenal: {value}")
-        if key == "phase" and value not in PHASE_IDS:
-            raise TaskError(f"fase tidak dikenal: {value}")
+        if key == "phase" and value not in phase_ids_for(current["track"]):
+            raise TaskError(f"fase tidak dikenal untuk papan "
+                            f"{current['track']}: {value}")
         if key == "title":
             value = str(value).strip()
             if not value:
@@ -448,11 +508,15 @@ def delete_comment(comment_id: str) -> bool:
 # Statistik
 # ---------------------------------------------------------------------------
 
-def stats() -> dict[str, Any]:
-    tasks = list_tasks()
+def stats(track: str | None = None, *, assignee_in: Iterable[str] | None = None
+          ) -> dict[str, Any]:
+    """Statistik papan. `track=None` → semua papan (pandangan admin)."""
+    tasks = list_tasks(track=track, assignee_in=assignee_in)
     per_status = {s: 0 for s in STATUSES}
     per_phase: dict[str, dict[str, int]] = {
-        p["id"]: {"total": 0, "done": 0} for p in PHASES}
+        p["id"]: {"total": 0, "done": 0}
+        for p in (phases_for(track) if track in TRACKS
+                  else [*PHASES, *internship_plan.PHASES])}
     per_priority = {p: 0 for p in PRIORITIES}
     estimate_total = 0.0
     estimate_done = 0.0
@@ -493,8 +557,11 @@ def stats() -> dict[str, Any]:
         "ready": sum(1 for t in tasks if t["ready"]),
         "statuses": list(STATUSES),
         "status_labels": dict(STATUS_LABELS),
-        "phases": PHASES,
+        "phases": (phases_for(track) if track in TRACKS
+                   else [*PHASES, *internship_plan.PHASES]),
         "priorities": list(PRIORITIES),
+        "track": track or "all",
+        "tracks": list(TRACKS),
     }
 
 
@@ -502,41 +569,61 @@ def stats() -> dict[str, Any]:
 # Seeder rencana RAG
 # ---------------------------------------------------------------------------
 
-def seed_tasks(*, reset: bool = False) -> dict[str, Any]:
-    """Muat rencana dari `tasks_plan.py`.
+def seed_tasks(*, reset: bool = False, track: str = DEFAULT_TRACK
+               ) -> dict[str, Any]:
+    """Muat rencana satu papan dari modul rencananya.
 
-    Idempoten: task yang id-nya sudah ada **tidak** ditimpa (perubahan tangan
-    developer aman), kecuali ``reset=True`` — di situ task rencana
-    (``seeded=1``) dihapus lalu dibuat ulang; task buatan sendiri dibiarkan.
+    `track=platform` → `tasks_plan.py` (ASK-NNN), `track=internship` →
+    `internship_plan.py` (INT-NNN). Idempoten: task yang id-nya sudah ada
+    **tidak** ditimpa (perubahan tangan developer aman), kecuali ``reset=True``
+    — di situ task rencana (``seeded=1``) papan itu dihapus lalu dibuat ulang;
+    task buatan sendiri dibiarkan.
     """
+    track = track if track in TRACKS else DEFAULT_TRACK
+    plan = plan_tasks_for(track)
     if reset:
-        db.execute("DELETE FROM task_comments WHERE task_id IN "
-                   "(SELECT id FROM tasks WHERE seeded=1)")
-        db.execute("DELETE FROM tasks WHERE seeded=1")
+        ids = "(SELECT id FROM tasks WHERE seeded=1 AND track=?)"
+        db.execute(f"DELETE FROM task_comments WHERE task_id IN {ids}", (track,))
+        db.execute("DELETE FROM tasks WHERE seeded=1 AND track=?", (track,))
 
     created: list[str] = []
     existing = {r["id"] for r in db.query_all("SELECT id FROM tasks")}
     position_by_status: dict[str, int] = {}
-    for task in PLAN_TASKS:
+    for task in plan:
         if task["id"] in existing:
             continue
         payload = dict(task)
         payload["task_id"] = payload.pop("id")
+        payload["track"] = track
         status = payload["status"]
         position_by_status[status] = position_by_status.get(status, 0) + 1
         create_task(**payload, seeded=True,
                     position=position_by_status[status] - 1)
         created.append(task["id"])
         existing.add(task["id"])
-    return {"created": created, "total": len(PLAN_TASKS), "reset": reset}
+    return {"created": created, "total": len(plan), "reset": reset,
+            "track": track}
 
 
 def seed_if_empty() -> list[str]:
-    """Seed otomatis saat papan masih kosong (dipakai saat startup)."""
-    row = db.query_one("SELECT COUNT(*) AS n FROM tasks")
+    """Seed otomatis saat papan **platform** masih kosong (dipakai startup)."""
+    row = db.query_one("SELECT COUNT(*) AS n FROM tasks WHERE track=?",
+                       (DEFAULT_TRACK,))
     if row and int(row["n"]) > 0:
         return []
-    report = seed_tasks()
+    report = seed_tasks(track=DEFAULT_TRACK)
+    if report["created"]:
+        sync(silent=True)
+    return report["created"]
+
+
+def seed_track_if_empty(track: str) -> list[str]:
+    """Seed papan lain (mis. internship) bila belum punya task sama sekali."""
+    track = track if track in TRACKS else DEFAULT_TRACK
+    row = db.query_one("SELECT COUNT(*) AS n FROM tasks WHERE track=?", (track,))
+    if row and int(row["n"]) > 0:
+        return []
+    report = seed_tasks(track=track)
     if report["created"]:
         sync(silent=True)
     return report["created"]
@@ -659,5 +746,8 @@ def sync(*, silent: bool = False) -> dict[str, Any]:
     return report
 
 
-def plan() -> dict[str, Any]:
-    return plan_summary()
+def plan(track: str = DEFAULT_TRACK) -> dict[str, Any]:
+    summary = plan_summary_for(track)
+    return {**summary, "track": track,
+            "track_label": TRACK_LABELS.get(track, track),
+            "tracks": list(TRACKS), "track_labels": dict(TRACK_LABELS)}

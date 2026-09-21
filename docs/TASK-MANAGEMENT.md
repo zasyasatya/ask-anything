@@ -73,12 +73,20 @@ diberitahukan dan hanya pemeriksaan berkas `evidence` yang berjalan.
 
 ## 5. HTTP API
 
-Semua endpoint memakai pengaman yang sama dengan konsol admin: bila
-`ASK_ADMIN_TOKEN` diset, header `X-Admin-Token` wajib (di UI: tombol 🔑).
+Semua endpoint memakai pengaman yang sama dengan konsol admin: **sesi role
+admin** (login `/login`), atau header `X-Admin-Token` bila `ASK_ADMIN_TOKEN`
+diset (di UI: tombol 🔑). **Member** mendapat jalur terbatas: `GET /api/tasks`
+otomatis disaring ke task yang ditugaskan kepadanya (`tasks_scope=assigned`)
+dan hanya boleh memindahkan status/mengomentari task itu — membuat,
+menghapus, seed, dan sync tetap khusus admin.
+
+Papan punya **dua trek** (`track=platform` → `ASK-NNN`, `track=internship` →
+`INT-NNN`) dengan statistik dan seeder terpisah; ringkasan trek internship juga
+tersedia lewat `GET /api/internship/overview` (otomatis menyesuaikan peran).
 
 ```text
-GET    /api/tasks?status=&phase=&assignee=&priority=&label=&q=&seeded=
-       → { tasks, stats, plan, statuses, repo }
+GET    /api/tasks?track=&status=&phase=&assignee=&priority=&label=&q=&seeded=
+       → { tasks, stats, plan, statuses, repo, track, scope }
 GET    /api/tasks/plan
 GET    /api/tasks/{id}                 → task + komentar + prasyarat + dependen
 POST   /api/tasks                      buat task (id otomatis ASK-NNN)
@@ -88,7 +96,7 @@ POST   /api/tasks/{id}/move            { status, before_id }  (drag & drop)
 POST   /api/tasks/{id}/comments        { body, author }
 DELETE /api/tasks/comments/{comment_id}
 POST   /api/tasks/{id}/acceptance      { index, done } | { text } | { index, remove }
-POST   /api/tasks/seed?reset=true|false
+POST   /api/tasks/seed?reset=true|false&track=…
 POST   /api/tasks/sync                 → { changed, branches, commits, tasks, stats }
 ```
 
@@ -102,7 +110,8 @@ acceptance_done/total, blocked_by, ready`.
 
 | Berkas | Isi |
 |---|---|
-| `backend/app/tasks_plan.py` | Data rencana (6 fase, 54 task) + fase/status/prioritas yang dikenal |
+| `backend/app/tasks_plan.py` | Data rencana platform (6 fase, 54 task) + fase/status/prioritas yang dikenal |
+| `backend/app/internship_plan.py` | Data rencana proyek internship (6 fase `i0`–`i5`, 33 task `INT-NNN`, penugasan round-robin peserta) |
 | `backend/app/tasks.py` | Logika: CRUD, kolom & posisi, checklist, komentar, statistik, seeder, `sync()` git, `branch_name()` |
 | `backend/app/api/tasks.py` | Router `/api/tasks/*` (Pydantic + guard `X-Admin-Token`) |
 | `backend/app/startup.py` | Catatan startup (dipakai juga oleh `/api/health` & `run.py`) |

@@ -18,9 +18,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, db, hf_hub, startup, tasks
+from . import __version__, db, hf_hub, startup, tasks, users
 from .api.admin import router as admin_router
-from .api.routes import router
+from .api.auth_api import router as auth_router
+from .api.internship import router as internship_router
+from .api.routes import public_router, router
 from .api.tasks import router as tasks_router
 from .config import settings
 from .local_inference import dependencies as _deps, engine as llm_engine
@@ -144,6 +146,27 @@ def _init_storage() -> None:
         except Exception as exc:  # noqa: BLE001 - fitur tracker, bukan jalur kritis
             startup.add("tasks", "Gagal memuat task rencana ke papan.",
                         detail=f"{type(exc).__name__}: {exc}")
+        # Papan proyek internship (track terpisah, halaman /internship).
+        try:
+            created_intern = tasks.seed_track_if_empty("internship")
+            if created_intern:
+                print(f"[tasks] {len(created_intern)} task proyek internship "
+                      f"dimuat ke papan /internship", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            startup.add("tasks", "Gagal memuat task proyek internship.",
+                        detail=f"{type(exc).__name__}: {exc}")
+
+    # Login: buat akun awal bila tabel `users` masih kosong.
+    try:
+        seeded = users.ensure_seed_users(settings)
+        if seeded.get("created"):
+            names = ", ".join(f"{u['username']} ({u['role']})"
+                              for u in seeded["created"])
+            print(f"[auth] akun awal dibuat: {names} — ganti password di "
+                  f"Profil / Admin → Users", flush=True)
+    except Exception as exc:  # noqa: BLE001 - login tetap bisa lewat token admin
+        startup.add("auth", "Gagal membuat akun awal (login page).",
+                    detail=f"{type(exc).__name__}: {exc}")
 
 
 @asynccontextmanager
@@ -176,11 +199,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Login/sesi (publik — justru karena itu pengguna bisa masuk).
+app.include_router(auth_router)
+# Health check: sengaja **tanpa** dependency sesi (run.py & HEALTHCHECK Docker).
+app.include_router(public_router)
 app.include_router(router)
-# Konsol admin: policy pipeline, memori, artifact, feedback (/api/admin/*).
+# Konsol admin: policy pipeline, memori, artifact, feedback, users (/api/admin/*).
 app.include_router(admin_router)
 # Task management: papan rencana RAG + integrasi branch GitLab (/api/tasks/*).
 app.include_router(tasks_router)
+# Proyek internship: papan, materi, dan rencana (/api/internship/*).
+app.include_router(internship_router)
 
 # Serve docs/ (slides & metodologi) at /slides — frontend proxies /slides/*.
 _DOCS = Path(__file__).resolve().parents[2] / "docs"

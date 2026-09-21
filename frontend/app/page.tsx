@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import Sidebar from "@/components/Sidebar";
+import AuthGate from "@/components/AuthGate";
+import ProfileModal from "@/components/ProfileModal";
 import Hero from "@/components/Hero";
 import ChatView, { type DispMsg, type LiveState } from "@/components/ChatView";
 import Interpreter from "@/components/Interpreter";
@@ -26,6 +28,7 @@ import DeepResearchCanvas, {
 } from "@/components/DeepResearchCanvas";
 import Composer from "@/components/Composer";
 import { EMPTY_LIVE, reduceLive } from "@/lib/live";
+import { useAuth } from "@/lib/auth";
 import type {
   Conversation,
   PipelineMode,
@@ -86,6 +89,7 @@ export default function Page() {
   const [streaming, setStreaming] = useState(false);
   const [showInt, setShowInt] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
+  const [showProfile, setShowProfile] = useState(false);
   const [settings, setSettings] = useState<SettingsInfo | null>(null);
   const [llm, setLlm] = useState<boolean | null>(null);
   const [localState, setLocalState] = useState<string | null>(null);
@@ -102,6 +106,12 @@ export default function Page() {
   const [booting, setBooting] = useState(true);
   const [bootError, setBootError] = useState<string | null>(null);
   const [openingId, setOpeningId] = useState<string | null>(null);
+
+  const { user, capabilities } = useAuth();
+  const isAdmin = capabilities?.is_admin ?? false;
+  // Member tidak menyentuh model offline/setelan provider: bannernya tidak
+  // relevan (dan memang akan ditolak server), jadi jangan ditampilkan.
+  const showProviderBanners = isAdmin;
 
   const refresh = useCallback(async () => {
     const [cs, st, h, pol] = await Promise.all([
@@ -129,7 +139,16 @@ export default function Page() {
           setBooting(false);
         }
       } catch (e) {
-        if (!cancelled) setBootError(String(e));
+        if (cancelled) return;
+        const text = String(e);
+        // 401 = belum login (bukan backend mati): biarkan AuthGate mengarahkan
+        // ke /login, jangan tampilkan layar "Backend tidak bisa dihubungi".
+        if (text.includes("401")) {
+          setBootError(null);
+          setBooting(false);
+        } else {
+          setBootError(text);
+        }
       }
     })();
     return () => {
@@ -346,31 +365,38 @@ export default function Page() {
   const inChat = activeId !== null || messages.length > 0 || streaming || researchState !== null || researchStreaming;
 
   // Loading screen penuh sampai startup selesai (atau error + retry).
+  // Dibungkus AuthGate juga: tanpa sesi, splash tidak perlu muncul sama sekali
+  // — AuthGate langsung mengalihkan ke halaman login.
   if (booting) {
     return (
-      <div style={accentVars}>
-        <AppSplash
-          error={bootError}
-          onRetry={bootError ? () => {
-            setBootError(null); // splash kembali ke mode spinner
-            refresh()
-              .then(() => setBooting(false))
-              .catch((e) => setBootError(String(e)));
-          } : undefined}
-        />
-      </div>
+      <AuthGate>
+        <div style={accentVars}>
+          <AppSplash
+            error={bootError}
+            onRetry={bootError ? () => {
+              setBootError(null); // splash kembali ke mode spinner
+              refresh()
+                .then(() => setBooting(false))
+                .catch((e) => setBootError(String(e)));
+            } : undefined}
+          />
+        </div>
+      </AuthGate>
     );
   }
 
   return (
+    <AuthGate>
     <div style={accentVars} className="flex h-screen overflow-hidden text-zinc-900">
       <Sidebar
         conversations={conversations}
         activeId={activeId}
         onSelect={openConversation}
         onNew={newChat}
-        onSettings={() => setShowSettings(true)}
+        onSettings={() => (isAdmin ? setShowSettings(true) : setShowProfile(true))}
         llmReachable={llm}
+        user={user}
+        capabilities={capabilities}
       />
 
       <main className="relative flex min-w-0 flex-1 flex-col bg-[#f7f7f8]">
@@ -382,14 +408,25 @@ export default function Page() {
           {/* shrink-0 + nowrap: saat Interpreter membuka (460px hilang), tombol
               tidak boleh menimpa judul atau bertumpuk satu sama lain. */}
           <div className="flex shrink-0 items-center gap-2">
-            {settings && (
-              <span
-                title={`${settings.provider} · ${settings.model}`}
-                className="hidden max-w-[190px] truncate whitespace-nowrap rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[10.5px] text-zinc-500 sm:block"
-              >
-                {settings.provider} · {settings.model}
-              </span>
-            )}
+            {settings &&
+              (isAdmin ? (
+                <span
+                  title={`${settings.provider} · ${settings.model}`}
+                  className="hidden max-w-[190px] truncate whitespace-nowrap rounded-md border border-zinc-200 bg-zinc-50 px-2 py-1 font-mono text-[10.5px] text-zinc-500 sm:block"
+                >
+                  {settings.provider} · {settings.model}
+                </span>
+              ) : (
+                // Member: provider dikunci ke OpenAI oleh policy role — model
+                // offline & setelan provider ditolak server (403).
+                <span
+                  data-testid="member-provider-badge"
+                  title="Role member memakai model OpenAI; model offline dan setelan provider hanya untuk admin."
+                  className="hidden max-w-[190px] truncate whitespace-nowrap rounded-md border border-emerald-200 bg-emerald-50 px-2 py-1 font-mono text-[10.5px] text-emerald-700 sm:block"
+                >
+                  openai · akses member
+                </span>
+              ))}
             <Link
               href="/panduan"
               className="hidden shrink-0 rounded-lg border border-zinc-300 bg-white/70 px-3 py-1.5 text-xs font-medium text-zinc-600 transition hover:bg-white sm:block"
@@ -423,7 +460,8 @@ export default function Page() {
           </div>
         </header>
 
-        {settings &&
+        {showProviderBanners &&
+          settings &&
           settings.provider === "huggingface" &&
           settings.hf_mode !== "server" &&
           localState === "loading" && (
@@ -443,7 +481,8 @@ export default function Page() {
           </div>
         )}
 
-        {settings &&
+        {showProviderBanners &&
+          settings &&
           llm === false &&
           !(
             settings.provider === "huggingface" &&
@@ -599,7 +638,7 @@ export default function Page() {
 
       {showInt && <Interpreter trace={trace} streaming={streaming || researchStreaming} onClose={() => setShowInt(false)} />}
 
-      {showSettings && (
+      {showSettings && isAdmin && (
         <SettingsModal
           settings={settings}
           onSaved={(s) => {
@@ -609,6 +648,9 @@ export default function Page() {
           onClose={() => setShowSettings(false)}
         />
       )}
+
+      {showProfile && <ProfileModal onClose={() => setShowProfile(false)} />}
     </div>
+    </AuthGate>
   );
 }
