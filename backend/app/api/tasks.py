@@ -176,6 +176,18 @@ async def get_plan(track: str = Query(default="platform")) -> dict:
     return tasks.plan(track)
 
 
+@router.get("/next-id", dependencies=[Depends(require_admin)])
+async def next_id(track: str = Query(default="platform")) -> dict:
+    """Nomor task berikutnya untuk satu papan (pratinjau ID otomatis).
+
+    Dipakai dialog "Task baru" supaya admin tahu nomor yang akan dipakai
+    (mis. untuk menyebut branch). ID final tetap dihitung backend saat
+    menyimpan — aman bila dua admin membuat task bersamaan.
+    """
+    track = track if track in tasks.TRACKS else tasks.DEFAULT_TRACK
+    return {"next_id": tasks.next_task_id(track), "track": track}
+
+
 @router.post("", dependencies=[Depends(require_admin)])
 async def create_task(item: TaskIn) -> dict:
     try:

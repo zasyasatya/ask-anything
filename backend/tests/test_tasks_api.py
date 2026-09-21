@@ -290,3 +290,78 @@ def test_member_cannot_edit_workflow_or_wireframe(client, strict_auth):
     after = client.get("/api/tasks/INT-001").json()["task"]
     assert after["wireframe"] == before["wireframe"]
     assert after["workflow"] == before["workflow"]
+
+
+# ---------------------------------------------------------------------------
+# ID otomatis (ASK-NNN / INT-NNN tergenerate saat menyimpan)
+# ---------------------------------------------------------------------------
+
+def test_next_id_previews_per_track(client):
+    """Pratinjau nomor berikutnya mengikuti papan yang diminta."""
+    client.post("/api/tasks/seed")
+    client.post("/api/tasks/seed", params={"track": "internship"})
+    plat = client.get("/api/tasks/next-id", params={"track": "platform"}).json()
+    assert plat["track"] == "platform"
+    assert plat["next_id"].startswith("ASK-")
+    inter = client.get("/api/tasks/next-id",
+                       params={"track": "internship"}).json()
+    assert inter["track"] == "internship"
+    assert inter["next_id"].startswith("INT-")
+    assert client.get("/api/tasks/next-id").json()["track"] == "platform"
+
+
+def test_create_auto_id_matches_preview_and_increments(client):
+    """Task tanpa task_id memakai nomor pratinjau, lalu berlanjut naik."""
+    _fresh(client)
+    preview = client.get("/api/tasks/next-id").json()["next_id"]
+    first = client.post("/api/tasks", json={"title": "auto satu"}).json()["task"]
+    assert first["id"] == preview, "ID pertama harus sama dengan pratinjau"
+    second = client.post("/api/tasks", json={"title": "auto dua"}).json()["task"]
+    assert int(second["id"][4:]) == int(first["id"][4:]) + 1
+    assert second["branch_name"].startswith(f"feat/{second['id']}-")
+
+
+def test_create_on_internship_track_gets_int_id(client):
+    """Membuat task dari papan internship → ID INT-NNN, bukan ASK-NNN."""
+    client.post("/api/tasks/seed", params={"track": "internship"})
+    task = client.post("/api/tasks", json={
+        "title": "Tugas magang baru", "track": "internship", "phase": "i1",
+    }).json()["task"]
+    assert task["id"].startswith("INT-")
+    assert task["track"] == "internship"
+
+
+def test_create_explicit_duplicate_still_rejected(client):
+    """ID eksplisit yang sudah ada tetap ditolak (tidak ditimpa diam-diam)."""
+    _fresh(client)
+    res = client.post("/api/tasks", json={"title": "x", "task_id": "ASK-001"})
+    assert res.status_code == 400
+    assert "sudah ada" in res.text
+
+
+def test_create_auto_id_retries_on_collision(client):
+    """Bentrok nomor saat generate → hitung ulang, bukan gagal.
+
+    Mensimulasikan dua admin yang membuat task bersamaan: generator
+    dipaksa mengembalikan nomor yang sudah dipakai dulu.
+    """
+    from app import tasks
+
+    _fresh(client)
+    real_next = tasks.next_task_id
+    calls = {"n": 0}
+
+    def flaky(track="platform"):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return "ASK-001"  # sudah dipakai rencana → harus dilewati
+        return real_next(track)
+
+    tasks.next_task_id = flaky  # type: ignore[method-assign]
+    try:
+        task = client.post("/api/tasks",
+                           json={"title": "lolos walau bentrok"}).json()["task"]
+    finally:
+        tasks.next_task_id = real_next  # type: ignore[method-assign]
+    assert task["id"] != "ASK-001"
+    assert task["id"].startswith("ASK-")

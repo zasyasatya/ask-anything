@@ -139,6 +139,34 @@ class Settings(BaseSettings):
             p = PROJECT_ROOT / p
         return p
 
+    def resolved_db_path(self) -> Path:
+        """Absolute path of the SQLite file.
+
+        Relative values (local default ``data/ask_anything.db``) resolve
+        against the project root — never against the process CWD — so the
+        database lands in the same place whether uvicorn is started from
+        ``/app``, ``/app/backend`` or anywhere else. Absolute values (Docker:
+        ``/app/data/ask_anything.db``) are used verbatim.
+        """
+        p = Path(self.db_path).expanduser()
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return p
+
+    def resolved_artifacts_dir(self) -> Path:
+        """Absolute path of the artifact file store."""
+        p = Path(self.artifacts_dir).expanduser()
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return p
+
+    def resolved_rag_dir(self) -> Path:
+        """Absolute path of the raw-PDF archive for RAG mode."""
+        p = Path(self.rag_dir).expanduser()
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return p
+
     def as_public_dict(self) -> dict:
         return {
             "provider": self.provider,

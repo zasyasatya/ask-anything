@@ -363,6 +363,20 @@ export interface NewTaskInput {
   acceptance?: Array<string | TaskAcceptance>;
   depends_on?: string[];
   source?: string;
+  /** Papan tujuan: platform (ASK-NNN) atau internship (INT-NNN). */
+  track?: string;
+  /** Biasanya dikosongkan — backend mengisi ID otomatis yang anti-bentrok. */
+  task_id?: string;
+}
+
+/** Nomor task berikutnya untuk satu papan (pratinjau ID otomatis). */
+export async function fetchNextTaskId(
+  token: string,
+  track = "platform"
+): Promise<{ next_id: string; track: string }> {
+  return fetchJson(`/api/tasks/next-id?track=${encodeURIComponent(track)}`, {
+    headers: headers(token),
+  });
 }
 
 export async function fetchTasks(

@@ -168,10 +168,29 @@ CREATE INDEX IF NOT EXISTS idx_task_comments ON task_comments(task_id, created_a
 
 def init_db(path: str) -> None:
     global _conn
+    # Resolve relative paths against the project root (not the process CWD)
+    # so `data/ask_anything.db` always lands in the same place regardless of
+    # where uvicorn was started from. Absolute paths are used verbatim
+    # (Docker: ASK_DB_PATH=/app/data/ask_anything.db on a persistent volume).
+    from .config import PROJECT_ROOT
+
+    p = os.path.expanduser(path)
+    if not os.path.isabs(p):
+        p = os.path.join(str(PROJECT_ROOT), p)
+    path = p
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     _conn = sqlite3.connect(path, check_same_thread=False)
     _conn.row_factory = sqlite3.Row
     with _lock:
+        # Wait (instead of "database is locked") when a redeploy/healthcheck
+        # overlaps a write; keep the classic rollback journal so the whole
+        # database stays in ONE file that the volume persists atomically.
+        try:
+            _conn.execute("PRAGMA busy_timeout=5000")
+            _conn.execute("PRAGMA journal_mode=DELETE")
+            _conn.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.Error:
+            pass
         _conn.executescript(SCHEMA)
         _migrate(_conn)
         _conn.commit()
@@ -341,8 +360,17 @@ def list_trace(conversation_id: str) -> list[dict]:
 def execute(sql: str, params: tuple = ()) -> None:
     """Run a write statement (INSERT/UPDATE/DELETE) and commit."""
     with _lock:
-        _c().execute(sql, params)
-        _c().commit()
+        try:
+            _c().execute(sql, params)
+            _c().commit()
+        except Exception:
+            # Statement gagal (mis. PRIMARY KEY bentrok) tidak boleh
+            # meninggalkan transaksi setengah jalan bagi percobaan berikutnya.
+            try:
+                _c().rollback()
+            except Exception:
+                pass
+            raise
 
 
 def query_all(sql: str, params: tuple = ()) -> list[dict]:

@@ -117,24 +117,31 @@ def _run_autoload_in_background() -> None:
 
 
 def _init_storage() -> None:
-    """Siapkan SQLite + folder model/artifact. Gagal → pesan yang bisa ditindak."""
+    """Siapkan SQLite + folder model/artifact/rag. Gagal → pesan yang bisa ditindak."""
     try:
-        db.init_db(settings.db_path)
+        db.init_db(str(settings.resolved_db_path()))
     except Exception as exc:  # noqa: BLE001 - bungkus jadi pesan jelas
         raise RuntimeError(
-            f"Tidak bisa menyiapkan database SQLite di '{settings.db_path}': "
+            f"Tidak bisa menyiapkan database SQLite di "
+            f"'{settings.resolved_db_path()}': "
             f"{type(exc).__name__}: {exc}\n"
             "Periksa apakah foldernya bisa ditulis (OneDrive/antivirus kadang "
-            "mengunci file). Set ASK_DB_PATH ke lokasi lain bila perlu."
+            "mengunci file; di Docker/Coolify pastikan volume ter-mount di "
+            "/app/data). Set ASK_DB_PATH ke lokasi lain bila perlu."
         ) from exc
 
-    try:
-        settings.resolved_models_dir().mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        startup.add("storage",
-                    f"Folder model '{settings.resolved_models_dir()}' tidak bisa dibuat.",
-                    hint="Set ASK_MODELS_DIR ke folder lain yang bisa ditulis.",
-                    detail=f"{type(exc).__name__}: {exc}")
+    for label, path, env in (
+        ("model", settings.resolved_models_dir(), "ASK_MODELS_DIR"),
+        ("artifact", settings.resolved_artifacts_dir(), "ASK_ARTIFACTS_DIR"),
+        ("arsip RAG", settings.resolved_rag_dir(), "ASK_RAG_DIR"),
+    ):
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            startup.add("storage",
+                        f"Folder {label} '{path}' tidak bisa dibuat.",
+                        hint=f"Set {env} ke folder lain yang bisa ditulis.",
+                        detail=f"{type(exc).__name__}: {exc}")
 
     # Task management: isi papan dengan rencana RAG pada boot pertama.
     if settings.tasks_autoseed:

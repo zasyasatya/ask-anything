@@ -1,12 +1,14 @@
 "use client";
 /* Dialog "Task baru" — seperlunya saja: judul, fase, status, prioritas,
    estimasi, label, prasyarat, dan kriteria selesai (satu per baris).
-   Nama branch yang disarankan ditampilkan langsung (mengikuti pola backend). */
-import { useState } from "react";
+   Task ID tergenerate otomatis (ASK-NNN / INT-NNN sesuai papan) dan
+   ditampilkan di awal form; nama branch mengikuti ID tersebut. */
+import { useEffect, useState } from "react";
 import {
   COLUMNS,
   STATUS_META,
   createTask,
+  fetchNextTaskId,
   suggestBranch,
   type Task,
   type TaskPriority,
@@ -15,6 +17,7 @@ import {
 
 export default function TaskForm({
   token,
+  track,
   phases,
   defaultPhase,
   suggestions,
@@ -23,6 +26,8 @@ export default function TaskForm({
   onError,
 }: {
   token: string;
+  /** Papan tujuan: "platform" (ASK-NNN) atau "internship" (INT-NNN). */
+  track: string;
   phases: Array<{ id: string; name: string }>;
   defaultPhase: string;
   suggestions: { assignees: string[]; labels: string[] };
@@ -31,6 +36,23 @@ export default function TaskForm({
   onError: (message: string) => void;
 }) {
   const [title, setTitle] = useState("");
+  // Nomor berikutnya diambil dari backend saat dialog dibuka — ID final
+  // tetap dihitung backend saat menyimpan (aman dari bentrok).
+  const [nextId, setNextId] = useState("");
+  const [nextIdFailed, setNextIdFailed] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    fetchNextTaskId(token, track)
+      .then((d) => {
+        if (alive) setNextId(d.next_id || "");
+      })
+      .catch(() => {
+        if (alive) setNextIdFailed(true);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [token, track]);
   const [description, setDescription] = useState("");
   const [phase, setPhase] = useState(defaultPhase);
   const [status, setStatus] = useState<TaskStatus>("todo");
@@ -62,6 +84,7 @@ export default function TaskForm({
           status,
           priority,
           assignee,
+          track,
           estimate: Number(estimate) || 0,
           labels: labelList,
           depends_on: dependsOn
@@ -110,8 +133,25 @@ export default function TaskForm({
               className={field}
             />
           </label>
+          <div
+            aria-label="Task ID otomatis"
+            className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1.5"
+          >
+            <span className="font-mono text-[12px] font-semibold text-emerald-800">
+              {nextId || (nextIdFailed ? "otomatis" : "…")}
+            </span>
+            <span className="text-[10.5px] text-emerald-600">
+              ID task tergenerate otomatis
+              {track === "internship" ? " (papan internship)" : " (papan platform)"}
+            </span>
+          </div>
           <p className="rounded-lg bg-zinc-50 px-2.5 py-1.5 font-mono text-[11px] text-zinc-500">
-            branch: {suggestBranch("ASK-NEW", title, labelList)}
+            branch:{" "}
+            {suggestBranch(
+              nextId || (track === "internship" ? "INT-NEW" : "ASK-NEW"),
+              title,
+              labelList
+            )}
           </p>
 
           <div className="grid grid-cols-2 gap-2">

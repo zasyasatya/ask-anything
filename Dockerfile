@@ -60,13 +60,22 @@ RUN python3 -m venv /opt/venv \
 # Stage 3 — runtime
 # ---------------------------------------------------------------------------
 FROM ${NODE_IMAGE} AS runtime
-# ASK_DB_PATH ditaruh di luar source tree → tinggal mount volume ke /app/data
+# Semua state persisten ditaruh di bawah /app/data (satu volume):
+#   ask_anything.db  → SQLite (chat, users, tasks, RAG index, governance)
+#   artifacts/       → file biner artifact (gambar/PPTX/diagram)
+#   rag/             → arsip PDF mentah mode RAG
+#   models/          → model offline yang diunduh (HuggingFace Hub)
+#   backups/         → salinan SQLite tiap start (dipangkas otomatis)
+# Tinggal mount SATU volume ke /app/data → redeploy tidak menghapus data.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive \
-    ASK_DB_PATH=/app/data/ask_anything.db
+    ASK_DB_PATH=/app/data/ask_anything.db \
+    ASK_ARTIFACTS_DIR=/app/data/artifacts \
+    ASK_RAG_DIR=/app/data/rag \
+    ASK_MODELS_DIR=/app/data/models
 
 # python3 = interpreter untuk venv hasil stage 2; tini = PID 1 (signal handling);
 # curl = dipakai HEALTHCHECK & probe LLM di entrypoint
@@ -84,8 +93,14 @@ COPY --chown=node:node docs/ /app/docs/
 COPY --chown=node:node docker/entrypoint.sh /app/docker/entrypoint.sh
 
 RUN chmod +x /app/docker/entrypoint.sh \
-    && mkdir -p /app/data \
-    && chown node:node /app/data
+    && mkdir -p /app/data/artifacts /app/data/rag /app/data/models /app/data/backups \
+    && chown -R node:node /app/data
+
+# Menandai /app/data sebagai state persisten. Catatan: VOLUME saja TIDAK
+# cukup di Coolify — tetap mount named volume (ask-anything-data:/app/data)
+# di menu Persistent Storage, kalau tidak Docker membuat anonymous volume
+# yang ikut hilang saat resource dihapus. Lihat docs/DEPLOY-COOLIFY.md §5.
+VOLUME /app/data
 
 # PORT & HOST sengaja TIDAK di-set di sini: Coolify meng-inject
 # PORT = exposed port pertama dan HOST = 0.0.0.0. Fallback ada di entrypoint.
