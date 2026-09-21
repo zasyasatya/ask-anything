@@ -650,6 +650,7 @@ export default function TasksConsole() {
       {creating && isAdmin && (
         <TaskForm
           token={token}
+          track={track}
           phases={phases}
           defaultPhase={filters.phase || phases[0]?.id || "f0"}
           suggestions={{
@@ -660,7 +661,7 @@ export default function TasksConsole() {
           onCreated={async (task) => {
             setCreating(false);
             setNotice(`Task ${task.id} dibuat — branch: ${task.branch_name}`);
-            const refreshed = await fetchTasks(token);
+            const refreshed = await fetchTasks(token, { track });
             setTasks(refreshed.tasks);
             setStats(refreshed.stats);
             setDetail(await fetchTask(token, task.id));

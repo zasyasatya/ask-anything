@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import re
+import sqlite3
 import subprocess
 import time
 import uuid
@@ -330,42 +331,60 @@ def create_task(*, title: str, description: str = "", phase: str = "f0",
     title = (title or "").strip()
     if not title:
         raise TaskError("judul task wajib diisi")
-    tid = _norm(task_id) or next_task_id(track or DEFAULT_TRACK)
-    if not TASK_ID_RE.fullmatch(tid):
+    # ID eksplisit (mis. impor rencana) tetap didukung; kosong = otomatis
+    # (ASK-NNN / INT-NNN sesuai papan, dihitung saat menyimpan).
+    explicit = _norm(task_id)
+    if explicit and not TASK_ID_RE.fullmatch(explicit):
         raise TaskError("id task harus berbentuk ASK-NNN (platform) atau "
                         "INT-NNN (proyek internship)")
-    track = track if track in TRACKS else track_of(tid)
-    if get_task(tid):
-        raise TaskError(f"task {tid} sudah ada")
+    track = track if track in TRACKS else (
+        track_of(explicit) if explicit else DEFAULT_TRACK)
     if status not in STATUSES:
         raise TaskError(f"status tidak dikenal: {status}")
     if priority not in PRIORITIES:
         raise TaskError(f"prioritas tidak dikenal: {priority}")
     if phase not in phase_ids_for(track):
         raise TaskError(f"fase tidak dikenal untuk papan {track}: {phase}")
-    if position is None:
-        row = db.query_one(
-            "SELECT COALESCE(MAX(position),-1) AS p FROM tasks WHERE status=?",
-            (status,))
-        position = int(row["p"]) + 1 if row else 0
 
     ts = db.now()
-    db.execute(
-        "INSERT INTO tasks(id,title,description,phase,status,priority,assignee,"
-        "estimate,labels,acceptance,depends_on,evidence,source,workflow,"
-        "wireframe,branch,mr_url,commits,position,seeded,track,created_at,"
-        "updated_at,completed_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?)",
-        (tid, title[:300], description or "", phase, status, priority,
-         assignee or "", float(estimate or 0), json.dumps(list(labels or [])),
-         json.dumps(_clean_acceptance(acceptance or [])),
-         json.dumps([_norm(d) for d in (depends_on or [])]),
-         json.dumps([str(e) for e in (evidence or [])]),
-         source or "", json.dumps(_clean_workflow(workflow or [])),
-         str(wireframe or "")[:6000],
-         branch or "", "", int(position), 1 if seeded else 0,
-         track, ts, ts, 0.0 if status != "done" else ts),
-    )
+    tid = explicit
+    for _attempt in range(6):
+        # Nomor otomatis dihitung dari isi papan *saat ini*. Bila dua admin
+        # membuat task bersamaan dan nomornya bentrok, percobaan berikutnya
+        # menghitung ulang — tidak ada yang gagal menyimpan.
+        if not tid:
+            tid = next_task_id(track)
+        pos = position
+        if pos is None:
+            row = db.query_one(
+                "SELECT COALESCE(MAX(position),-1) AS p FROM tasks WHERE status=?",
+                (status,))
+            pos = int(row["p"]) + 1 if row else 0
+        try:
+            db.execute(
+                "INSERT INTO tasks(id,title,description,phase,status,priority,assignee,"
+                "estimate,labels,acceptance,depends_on,evidence,source,workflow,"
+                "wireframe,branch,mr_url,commits,position,seeded,track,created_at,"
+                "updated_at,completed_at) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?)",
+                (tid, title[:300], description or "", phase, status, priority,
+                 assignee or "", float(estimate or 0), json.dumps(list(labels or [])),
+                 json.dumps(_clean_acceptance(acceptance or [])),
+                 json.dumps([_norm(d) for d in (depends_on or [])]),
+                 json.dumps([str(e) for e in (evidence or [])]),
+                 source or "", json.dumps(_clean_workflow(workflow or [])),
+                 str(wireframe or "")[:6000],
+                 branch or "", "", int(pos), 1 if seeded else 0,
+                 track, ts, ts, 0.0 if status != "done" else ts),
+            )
+        except sqlite3.IntegrityError:
+            if explicit:
+                raise TaskError(f"task {tid} sudah ada") from None
+            tid = ""  # nomor tergenerate bentrok → coba nomor berikutnya
+            continue
+        break
+    else:  # pragma: no cover - praktis tak terjadi (6x bentrok beruntun)
+        raise TaskError("gagal membuat id task unik — coba lagi")
     return get_task(tid) or {}
 
 

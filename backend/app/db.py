@@ -360,8 +360,17 @@ def list_trace(conversation_id: str) -> list[dict]:
 def execute(sql: str, params: tuple = ()) -> None:
     """Run a write statement (INSERT/UPDATE/DELETE) and commit."""
     with _lock:
-        _c().execute(sql, params)
-        _c().commit()
+        try:
+            _c().execute(sql, params)
+            _c().commit()
+        except Exception:
+            # Statement gagal (mis. PRIMARY KEY bentrok) tidak boleh
+            # meninggalkan transaksi setengah jalan bagi percobaan berikutnya.
+            try:
+                _c().rollback()
+            except Exception:
+                pass
+            raise
 
 
 def query_all(sql: str, params: tuple = ()) -> list[dict]:
