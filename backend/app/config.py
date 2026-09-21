@@ -80,6 +80,27 @@ class Settings(BaseSettings):
     deep_research_max_queries: int = 6
     deep_research_max_results_per_query: int = 8
 
+    # ---- login & role (halaman /login; role: admin | member) ----
+    #: "required" = semua endpoint aplikasi butuh sesi login (default, aman
+    #: untuk deployment publik). "open" = tanpa login, semua request dianggap
+    #: admin — dipakai untuk test otomatis & demo cepat (ASK_AUTH_MODE=open).
+    auth_mode: str = "required"
+    #: Akun admin pertama yang di-seed saat tabel `users` masih kosong.
+    admin_username: str = "admin"
+    admin_password: str = "admin123"
+    admin_name: str = "Administrator"
+    #: Akun member contoh (username dipisah koma, "" = tidak di-seed).
+    #: Password awalnya sama, bisa diganti user sendiri / direset admin.
+    seed_members: str = "intern1,intern2,intern3"
+    member_password: str = "intern123"
+    #: Masa berlaku sesi login (jam). Sesi disimpan di tabel `sessions`.
+    session_hours: int = 168
+    session_cookie: str = "ask_session"
+    #: Set true bila dilayani lewat HTTPS (cookie Secure; Coolify/VPS TLS).
+    cookie_secure: bool = False
+    #: Batas percobaan login gagal per username dalam 5 menit (0 = tanpa batas).
+    login_max_attempts: int = 8
+
     # ---- governance (halaman Admin) ----
     #: Bila diset, semua endpoint /api/admin/* mewajibkan header X-Admin-Token.
     admin_token: str = ""
@@ -94,6 +115,13 @@ class Settings(BaseSettings):
 
     # ---- storage ----
     db_path: str = "data/ask_anything.db"
+
+    def auth_required(self) -> bool:
+        """True (default) = login wajib; "open" = mode uji/demo tanpa login."""
+        return (self.auth_mode or "required").strip().lower() != "open"
+
+    def seed_member_usernames(self) -> list[str]:
+        return [u.strip() for u in (self.seed_members or "").split(",") if u.strip()]
 
     def active_model_label(self) -> str:
         if self.provider == "openai":
@@ -111,10 +139,42 @@ class Settings(BaseSettings):
             p = PROJECT_ROOT / p
         return p
 
+    def resolved_db_path(self) -> Path:
+        """Absolute path of the SQLite file.
+
+        Relative values (local default ``data/ask_anything.db``) resolve
+        against the project root — never against the process CWD — so the
+        database lands in the same place whether uvicorn is started from
+        ``/app``, ``/app/backend`` or anywhere else. Absolute values (Docker:
+        ``/app/data/ask_anything.db``) are used verbatim.
+        """
+        p = Path(self.db_path).expanduser()
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return p
+
+    def resolved_artifacts_dir(self) -> Path:
+        """Absolute path of the artifact file store."""
+        p = Path(self.artifacts_dir).expanduser()
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return p
+
+    def resolved_rag_dir(self) -> Path:
+        """Absolute path of the raw-PDF archive for RAG mode."""
+        p = Path(self.rag_dir).expanduser()
+        if not p.is_absolute():
+            p = PROJECT_ROOT / p
+        return p
+
     def as_public_dict(self) -> dict:
         return {
             "provider": self.provider,
             "model": self.active_model_label(),
+            # auth dikirim ke UI supaya banner/hint benar ("login wajib" vs
+            # "mode demo terbuka"); penegakannya tetap di server.
+            "auth_mode": self.auth_mode,
+            "session_hours": self.session_hours,
             "hf_mode": self.hf_mode,
             "hf_base_url": self.hf_base_url,
             "hf_model": self.hf_model,

@@ -110,7 +110,10 @@ dipakai `docker/entrypoint.sh`.
 | `ASK_LOGPROBS` / `ASK_TOP_LOGPROBS` | true / 4 | Data tab *Tokens* di Mechanistic Interpreter. |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily`. |
 | `ASK_SERPER_API_KEY` / `ASK_TAVILY_API_KEY` | – | Wajib bila memakai backend search tersebut. |
-| `ASK_DB_PATH` | `/app/data/ask_anything.db` | Path SQLite di dalam container. |
+| `ASK_DB_PATH` | `/app/data/ask_anything.db` | Path SQLite di dalam container (sudah persisten — jangan ubah). |
+| `ASK_ARTIFACTS_DIR` | `/app/data/artifacts` | File biner artifact (sudah persisten — jangan ubah). |
+| `ASK_RAG_DIR` | `/app/data/rag` | Arsip PDF mentah RAG (sudah persisten — jangan ubah). |
+| `ASK_MODELS_DIR` | `/app/data/models` | Model offline terunduh (sudah persisten — jangan ubah). |
 | `PORT` | `3000` | Di-inject Coolify; port publik Next. |
 | `HOST` | `0.0.0.0` | Di-inject Coolify; bind address Next. |
 | `BACKEND_HOST` / `BACKEND_PORT` | `127.0.0.1` / `8000` | Internal saja. ⚠️ `BACKEND_PORT` ikut ter-bake saat build — kalau diubah, rebuild dengan `--build-arg BACKEND_PORT=<port>` **dan** set env runtime yang sama. |
@@ -130,14 +133,26 @@ ASK_SERPER_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
 ASK_DB_PATH=/app/data/ask_anything.db
 ```
 
-## 5. Volume & persistence (SQLite)
+## 5. Volume & persistence (SQLite + file)
 
-Riwayat percakapan, pesan, dan seluruh trace interpreter disimpan di SQLite
-(`conversations`, `messages`, `trace_events`). Tanpa volume, data hilang setiap
-redeploy.
+Seluruh state aplikasi tinggal di **satu direktori** `/app/data`:
+
+| Isi | Keterangan |
+|---|---|
+| `ask_anything.db` | SQLite: riwayat chat, pesan, trace interpreter, users/sesi, tasks, memori, artifact registry, feedback, index RAG. Satu file (journal `DELETE`), jadi volume selalu konsisten. |
+| `artifacts/` | File biner artifact (gambar, PPTX, diagram). Registry-nya di SQLite, isinya di sini — keduanya harus ikut volume. |
+| `rag/` | Arsip PDF mentah yang di-upload (indeks vektornya di SQLite). |
+| `models/` | Model offline yang diunduh via Hub (bisa GB-an; tanpa volume harus unduh ulang tiap redeploy). |
+| `backups/` | Salinan `ask_anything.db` otomatis tiap container start (7 terakhir, format `ask_anything-YYYYMMDD-HHMMSS.db`). |
+
+Tanpa volume, **semua** data di atas hilang setiap redeploy.
 
 - **Coolify**: *Persistent Storage* → Source: volume (mis. `ask-anything-data`),
-  Destination: **`/app/data`**.
+  Destination: **`/app/data`**. Wajib *named volume* — jangan mengandalkan
+  `VOLUME` di Dockerfile saja (itu membuat *anonymous volume* yang ikut hilang
+  saat resource dihapus).
+- **Docker Compose** (`docker-compose.yml` di root repo): volume sudah
+  didefinisikan — cukup `docker compose up -d --build`.
 - Container berjalan sebagai user `node` (uid 1000) dan `/app/data` sudah
   dimiliki uid 1000 di dalam image; **named volume** Docker mewarisi ownership
   itu otomatis, jadi langsung writable.
@@ -150,6 +165,25 @@ redeploy.
   Bila tidak, entrypoint berhenti dini dengan pesan
   `ERROR: /app/data tidak bisa ditulis …` (sengaja fail-fast daripada diam-diam
   kehilangan data).
+
+Jaminan anti-reset yang sudah terpasang:
+
+1. **Default image persisten** — `ASK_DB_PATH`, `ASK_ARTIFACTS_DIR`,
+   `ASK_RAG_DIR`, `ASK_MODELS_DIR` semuanya menunjuk ke `/app/data/…` (lihat
+   `Dockerfile` + `docker/entrypoint.sh`). Selama volume ter-mount, redeploy
+   hanya mengganti kode — data tidak disentuh.
+2. **Migrasi sekali-jalan** — bila volume baru masih kosong tetapi ada data
+   dari layout lama (mis. `/app/backend/data/…`, `/app/models`), entrypoint
+   menyalinnya ke volume saat start pertama, lalu mencatatnya di log
+   (`migrasi database SQLite: …`). Redeploy pertama dengan volume tidak
+   terlihat "reset".
+3. **Backup tiap start** — salinan SQLite ke `/app/data/backups/` sebelum
+   backend jalan; bila database korup, restore manual satu file:
+   `cp /app/data/backups/ask_anything-<terbaru>.db /app/data/ask_anything.db`
+   lalu restart.
+4. **Path absolut deterministik** — path relatif selalu di-resolve terhadap
+   root proyek (bukan CWD proses), jadi database tidak pernah nyasar ke
+   `/app/backend/data/` dsb. hanya karena direktori start berbeda.
 
 ## 6. Uji image di lokal dulu
 

@@ -1,7 +1,18 @@
-"""HTTP API: SSE chat stream, conversations CRUD, settings, health."""
+"""HTTP API: SSE chat stream, conversations CRUD, settings, health.
+
+Semua endpoint di sini (kecuali `/api/health`) melewati dependency
+`auth.current_principal`: mode `ASK_AUTH_MODE=required` menolak 401 tanpa sesi
+login, mode `open` memperlakukan request sebagai admin anonim (test/demo).
+Penegakan **peran** (admin vs member) mengikuti policy `governance.roles`:
+
+  * member  → provider OpenAI saja (model offline diblokir), `/api/hf/*`,
+              `POST /api/settings`, dan unggah dokumen RAG ditolak 403,
+  * admin   → semuanya, sesuai policy global.
+"""
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 from pathlib import Path
 from typing import Any, AsyncIterator
@@ -9,22 +20,27 @@ from typing import Any, AsyncIterator
 from fastapi import HTTPException, Request, UploadFile
 
 import httpx
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
-from .. import (artifacts, db, feedback, governance, hf_hub, ocr, quota, rag,
-                startup)
+from .. import (artifacts, auth, db, feedback, governance, hf_hub, ocr, quota,
+                rag, startup)
 from ..agent.loop import run_agent
 from ..agent.rag_loop import run_rag_query
-from ..config import HF_MODES, settings, update_settings
+from ..auth import current_principal, require_admin
+from ..config import HF_MODES, Settings, settings, update_settings
 from ..local_inference import dependencies, engine
-from ..providers import build_provider
+from ..providers import BaseProvider, build_provider
 from ..providers.diagnostics import probe_endpoint
 from ..providers.discovery import list_remote_models
 from ..providers.url_utils import models_url
 
-router = APIRouter(prefix="/api")
+#: Router aplikasi — butuh sesi login (kecuali mode `open`).
+router = APIRouter(prefix="/api", dependencies=[Depends(current_principal)])
+#: Router publik: **hanya** health check. run.py & HEALTHCHECK Docker memanggil
+#: `/api/health` tanpa kredensial, jadi endpoint ini tidak boleh ikut dijaga.
+public_router = APIRouter(prefix="/api")
 
 # Test seams: tests replace these with an httpx.MockTransport so discovery,
 # diagnostics and Hub access can be exercised without a live server.
@@ -120,13 +136,26 @@ def _sse(obj: dict[str, Any]) -> str:
     return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n"
 
 
-def _user_key(request: Request) -> str:
+def _user_key(request: Request,
+              principal: dict[str, Any] | None = None) -> str:
     """Identitas end user untuk kuota token.
 
-    Aplikasi belum punya login, jadi frontend mengirim header `X-User-Id`
-    (id perangkat/akun). Bila absen, dipakai IP klien supaya pemanggil anonim
-    tetap terkena batas — lebih baik daripada tanpa batas sama sekali.
+    Urutan sumber, dari yang paling dipercaya:
+
+    1. sesi login sungguhan (`principal["username"]`) — tidak bisa dipalsukan
+       klien, jadi kuota menempel pada akun dan bukan pada perangkat;
+    2. header `X-User-Id` — dipakai skrip/CLI dan `ASK_AUTH_MODE=open`;
+    3. IP klien — supaya pemanggil anonim tetap terkena batas.
+
+    Principal anonim mode `open` (`anonymous=True`) sengaja **tidak** dipakai:
+    seluruh pemanggil akan berbagi satu kunci `user:anon` dan header identitas
+    yang dikirim klien jadi tidak berpengaruh.
     """
+    person = principal or {}
+    username = ("" if person.get("anonymous")
+                else (person.get("username") or "")).strip()
+    if username:
+        return quota.normalise_user(f"user:{username}")
     client_ip = request.client.host if request.client else ""
     return quota.normalise_user(request.headers.get(quota.USER_HEADER),
                                 fallback_ip=client_ip)
@@ -148,9 +177,11 @@ def _quota_event(verdict: dict[str, Any], user_key: str) -> dict[str, Any]:
 
 
 @router.get("/quota/me")
-async def quota_me(request: Request) -> dict:
+async def quota_me(request: Request,
+                   principal: dict[str, Any] = Depends(current_principal)
+                   ) -> dict:
     """Sisa kuota pemanggil — dipakai UI untuk menampilkan indikator kuota."""
-    user_key = _user_key(request)
+    user_key = _user_key(request, principal)
     quota.touch_user(user_key)
     return quota.status(user_key)
 
@@ -161,15 +192,72 @@ KEEPALIVE = ": keep-alive\n\n"
 KEEPALIVE_S = 10.0
 
 
+# ---------------------------------------------------------------------------
+# Peran (admin | member) → penyedia LLM & pesan penolakan
+# ---------------------------------------------------------------------------
+
+def _scoped_settings(role: str) -> tuple[Settings, bool]:
+    """Settings untuk peran ini; kembalikan (settings, dipaksa_openai).
+
+    Role member tidak boleh menyentuh model offline. Bila policy-nya
+    `chat_provider=openai` dan provider global bukan OpenAI (mis. HuggingFace
+    lokal), request ini memakai salinan settings yang diarahkan ke OpenAI —
+    tanpa mengubah setelan global yang dipakai admin.
+    """
+    forced = governance.role_setting(role, "chat_provider", "auto")
+    if forced == "openai" and settings.provider not in ("openai", "mock"):
+        scoped = copy.copy(settings)
+        scoped.provider = "openai"
+        scoped.hf_mode = "server"
+        return scoped, True
+    return settings, False
+
+
+def _provider_for_role(role: str) -> tuple[BaseProvider | None, str | None]:
+    """Provider + pesan error siap-tampil (tanpa melempar)."""
+    scoped, forced = _scoped_settings(role)
+    if forced and not (scoped.openai_api_key or "").strip():
+        return None, (
+            "Role member hanya memakai model OpenAI, tetapi API key OpenAI "
+            "belum diatur. Minta admin mengisi Settings → Provider OpenAI "
+            "(atau ubah akses per peran di Admin → Pipeline)."
+        )
+    return build_provider(scoped), None
+
+
+def _mode_blocked_message(mode: str, role: str) -> str:
+    if governance.mode_allowed(mode):
+        return (f"Mode '{mode}' tidak diizinkan untuk role {role}. Admin bisa "
+                "mengaktifkannya di halaman Admin → Pipeline (Akses per peran).")
+    return f"Mode '{mode}' dimatikan oleh admin (halaman Admin → Pipeline)."
+
+
+def _forbidden(message: str) -> HTTPException:
+    return HTTPException(403, message)
+
+
+def _owns_conversation(cid: str, principal: dict[str, Any]) -> bool:
+    """Admin bebas; member hanya percakapan miliknya sendiri (manajemen sesi)."""
+    if (principal or {}).get("role") == "admin":
+        return True
+    owner = db.conversation_owner(cid)
+    return bool(owner) and owner == (principal or {}).get("id")
+
+
 @router.post("/chat")
-async def chat(req: ChatRequest, request: Request):
+async def chat(req: ChatRequest, request: Request,
+               principal: dict[str, Any] = Depends(current_principal)):
+    role = (principal or {}).get("role") or "member"
     mode = (req.mode or "text").strip().lower()
-    if not governance.mode_allowed(mode):
-        return _sse_error_response(
-            f"Mode '{mode}' dimatikan oleh admin (halaman Admin → Pipeline).")
+    if not governance.mode_allowed(mode, role):
+        return _sse_error_response(_mode_blocked_message(mode, role))
+
+    provider, provider_error = _provider_for_role(role)
+    if provider is None:
+        return _sse_error_response(provider_error or "Provider tidak siap.")
 
     # --- gate kuota token per end user (sebelum model disentuh) -------------
-    user_key = _user_key(request)
+    user_key = _user_key(request, principal)
     verdict = quota.check(user_key)
     if not verdict["allowed"]:
         quota.record_rejection(user_key, verdict["reason"], mode=mode)
@@ -178,8 +266,12 @@ async def chat(req: ChatRequest, request: Request):
     conv = None
     if req.conversation_id:
         conv = db.get_conversation(req.conversation_id)
+        if conv is not None and not _owns_conversation(conv["id"], principal):
+            return _sse_error_response(
+                "Percakapan ini milik user lain — buka percakapan sendiri.")
     if conv is None:
-        conv = db.new_conversation(title=req.message[:64])
+        conv = db.new_conversation(title=req.message[:64],
+                                   user_id=(principal or {}).get("id") or "")
     cid = conv["id"]
     history = db.list_messages(cid)
 
@@ -190,7 +282,6 @@ async def chat(req: ChatRequest, request: Request):
 
     async def runner() -> None:
         try:
-            provider = build_provider(settings)
             result = await run_agent(
                 conversation_id=cid,
                 user_message=req.message,
@@ -201,6 +292,7 @@ async def chat(req: ChatRequest, request: Request):
                 mode=mode,
                 quota_status=_quota_event(verdict, user_key),
                 playbook_ids=req.playbook_ids or None,
+                role=role,
             )
             # Catat pemakaian nyata; kuota harian/mingguan memakai angka ini.
             snapshot = quota.record(
@@ -250,24 +342,24 @@ async def chat(req: ChatRequest, request: Request):
 
 
 @router.post("/deep-research")
-async def deep_research(req: DeepResearchRequest):
+async def deep_research(req: DeepResearchRequest,
+                        principal: dict[str, Any] = Depends(current_principal)):
     """Run deep research on a topic, streaming nodes for the canvas."""
     from ..deep_research import run_deep_research
 
-    if not governance.mode_allowed("research"):
+    role = (principal or {}).get("role") or "member"
+    if not governance.mode_allowed("research", role):
         return _sse({"type": "error",
-                     "message": "Mode deep research dimatikan oleh admin "
-                                "(halaman Admin → Pipeline)."})
+                     "message": _mode_blocked_message("research", role)})
     topic = (req.topic or "").strip()
     if not topic:
         return {"error": "topic tidak boleh kosong"}
 
     # Apply per-request overrides without mutating the global settings.
-    research_settings = settings
+    research_settings, _forced = _scoped_settings(role)
     if req.max_queries or req.max_results_per_query:
         # Shallow copy of settings for this request only.
-        import copy
-        research_settings = copy.copy(settings)
+        research_settings = copy.copy(research_settings)
         if req.max_queries:
             research_settings.deep_research_max_queries = req.max_queries
         if req.max_results_per_query:
@@ -315,15 +407,25 @@ async def deep_research(req: DeepResearchRequest):
 
 
 @router.get("/conversations")
-async def list_conversations():
-    return {"conversations": db.list_conversations()}
+async def list_conversations(
+    principal: dict[str, Any] = Depends(current_principal),
+):
+    """Admin melihat semua sesi (lengkap pemiliknya), member hanya miliknya."""
+    role = (principal or {}).get("role") or "member"
+    if role == "admin":
+        return {"conversations": db.list_conversations(), "scope": "all"}
+    return {"conversations": db.list_conversations((principal or {}).get("id")),
+            "scope": "own"}
 
 
 @router.get("/conversations/{cid}")
-async def get_conversation(cid: str):
+async def get_conversation(cid: str,
+                           principal: dict[str, Any] = Depends(current_principal)):
     conv = db.get_conversation(cid)
     if conv is None:
         return {"error": "not found"}
+    if not _owns_conversation(cid, principal):
+        raise HTTPException(403, "Percakapan ini milik user lain")
     return {
         "conversation": conv,
         "messages": db.list_messages(cid),
@@ -332,25 +434,43 @@ async def get_conversation(cid: str):
 
 
 @router.delete("/conversations/{cid}")
-async def delete_conversation(cid: str):
+async def delete_conversation(cid: str,
+                              principal: dict[str, Any] = Depends(current_principal)):
+    if db.get_conversation(cid) is None:
+        return {"ok": True}
+    if not _owns_conversation(cid, principal):
+        raise HTTPException(403, "Percakapan ini milik user lain")
     db.delete_conversation(cid)
     return {"ok": True}
 
 
 @router.get("/settings")
-async def get_settings():
-    return settings.as_public_dict()
+async def get_settings(principal: dict[str, Any] = Depends(current_principal)):
+    """Setelan publik. Key selalu termask; member tidak bisa mengubah apa pun."""
+    role = (principal or {}).get("role") or "member"
+    return {
+        **settings.as_public_dict(),
+        "role": role,
+        "can_manage": governance.role_allows(role, "allow_provider_settings"),
+        "capabilities": auth.capabilities(principal),
+    }
 
 
 @router.post("/settings")
-async def post_settings(update: SettingsUpdate):
+async def post_settings(update: SettingsUpdate,
+                        principal: dict[str, Any] = Depends(current_principal)):
+    role = (principal or {}).get("role") or "member"
+    if not governance.role_allows(role, "allow_provider_settings"):
+        raise _forbidden(
+            "Role member tidak bisa mengubah provider/model (Settings). "
+            "Hubungi admin — lihat Admin → Pipeline → Akses per peran.")
     return update_settings(**update.model_dump())
 
 
 # ---------------------------------------------------------------------------
 # Model list of an OpenAI-compatible endpoint (dropdown in *Settings provider*)
 # ---------------------------------------------------------------------------
-@router.post("/models")
+@router.post("/models", dependencies=[Depends(require_admin)])
 async def list_models(probe: ModelsProbe):
     provider = (probe.provider or settings.provider or "").strip().lower()
 
@@ -378,7 +498,7 @@ async def list_models(probe: ModelsProbe):
             "active_model": active, "count": len(result.get("models") or [])}
 
 
-@router.post("/models/test")
+@router.post("/models/test", dependencies=[Depends(require_admin)])
 async def test_models(probe: ModelsProbe):
     """Replay the real requests against the endpoint and report each one.
 
@@ -410,13 +530,13 @@ async def test_models(probe: ModelsProbe):
 # ---------------------------------------------------------------------------
 # Offline models: HuggingFace Hub → models/ → inference lokal (transformers)
 # ---------------------------------------------------------------------------
-@router.get("/hf/search")
+@router.get("/hf/search", dependencies=[Depends(require_admin)])
 async def search_hf_models(q: str = "", limit: int = 20):
     result = await hf_hub.search_models(q, limit=limit, transport=HUB_TRANSPORT)
     return result
 
 
-@router.get("/hf/models")
+@router.get("/hf/models", dependencies=[Depends(require_admin)])
 async def list_hf_models():
     return {
         "models_dir": str(hf_hub.models_dir()),
@@ -434,13 +554,13 @@ async def list_hf_models():
     }
 
 
-@router.get("/hf/downloads")
+@router.get("/hf/downloads", dependencies=[Depends(require_admin)])
 async def hf_downloads():
     return {"downloads": hf_hub.all_downloads(),
             "models": hf_hub.list_local()}
 
 
-@router.post("/hf/models/download")
+@router.post("/hf/models/download", dependencies=[Depends(require_admin)])
 async def download_hf_model(req: RepoRequest):
     try:
         state = hf_hub.start_download(req.repo_id, transport=HUB_TRANSPORT)
@@ -450,13 +570,13 @@ async def download_hf_model(req: RepoRequest):
             "models_dir": str(hf_hub.models_dir())}
 
 
-@router.post("/hf/models/cancel")
+@router.post("/hf/models/cancel", dependencies=[Depends(require_admin)])
 async def cancel_hf_download(req: RepoRequest):
     return {"ok": hf_hub.cancel_download(req.repo_id),
             "download": hf_hub.download_state(req.repo_id)}
 
 
-@router.post("/hf/models/delete")
+@router.post("/hf/models/delete", dependencies=[Depends(require_admin)])
 async def delete_hf_model(req: RepoRequest):
     if engine.ready() and (engine.repo_id or "") == req.repo_id.strip("/"):
         await engine.unload()
@@ -466,7 +586,7 @@ async def delete_hf_model(req: RepoRequest):
     return {"ok": True, "repo_id": req.repo_id}
 
 
-@router.post("/hf/models/use")
+@router.post("/hf/models/use", dependencies=[Depends(require_admin)])
 async def use_hf_model(req: RepoRequest):
     """Select a downloaded model as the active one (and load it by default)."""
     try:
@@ -504,7 +624,7 @@ class LoadPathRequest(BaseModel):
     dtype: str | None = None
 
 
-@router.post("/hf/models/load")
+@router.post("/hf/models/load", dependencies=[Depends(require_admin)])
 async def load_model_from_path(req: LoadPathRequest):
     raw = (req.path or "").strip().strip("'\"")
     if not raw:
@@ -537,18 +657,18 @@ async def load_model_from_path(req: LoadPathRequest):
             "settings": result, "engine": status}
 
 
-@router.get("/hf/runtime")
+@router.get("/hf/runtime", dependencies=[Depends(require_admin)])
 async def hf_runtime_status():
     return engine.status()
 
 
-@router.post("/hf/runtime/stop")
+@router.post("/hf/runtime/stop", dependencies=[Depends(require_admin)])
 async def hf_runtime_stop():
     stopped = await engine.unload()
     return {"ok": True, "stopped": stopped, "engine": engine.status()}
 
 
-@router.get("/health")
+@public_router.get("/health")
 async def health():
     llm_reachable = False
     llm_error = None
@@ -625,8 +745,11 @@ async def rag_ocr_status() -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/policy")
-async def public_policy() -> dict:
-    return governance.public_policy()
+async def public_policy(
+    principal: dict[str, Any] = Depends(current_principal),
+) -> dict:
+    """Policy efektif **untuk peran pemanggil** (member ↔ admin bisa berbeda)."""
+    return governance.public_policy((principal or {}).get("role") or "member")
 
 
 def _sse_error_response(message: str) -> StreamingResponse:
@@ -739,10 +862,19 @@ def _register_rag_upload() -> None:
     global MULTIPART_HINT
     try:
         @router.post("/rag/upload")
-        async def rag_upload(file: UploadFile, wait: bool = False) -> dict:
+        async def rag_upload(file: UploadFile, wait: bool = False,
+                             principal: dict[str, Any] = Depends(current_principal)
+                             ) -> dict:
             pol = governance.policy()
-            if not governance.mode_allowed("rag"):
-                raise HTTPException(403, "Mode RAG dimatikan oleh admin")
+            role = (principal or {}).get("role") or "member"
+            if not governance.mode_allowed("rag", role):
+                raise HTTPException(403, _mode_blocked_message("rag", role))
+            if not governance.role_allows(role, "allow_rag_upload"):
+                raise HTTPException(
+                    403,
+                    "Role member tidak bisa menambah dokumen ke knowledge base. "
+                    "Minta admin mengunggahnya (Admin → Pipeline → Akses per peran "
+                    "bisa mengizinkan bila memang diinginkan).")
             data = await file.read()
             max_bytes = int(pol["rag"]["max_upload_mb"]) * 1024 * 1024
             if len(data) > max_bytes:
@@ -804,7 +936,7 @@ async def rag_documents() -> dict:
     return {"documents": rag.list_documents()}
 
 
-@router.delete("/rag/documents/{doc_id}")
+@router.delete("/rag/documents/{doc_id}", dependencies=[Depends(require_admin)])
 async def rag_delete_document(doc_id: str) -> dict:
     if not rag.delete_document(doc_id, settings=settings):
         raise HTTPException(404, "dokumen tidak ditemukan")
@@ -812,15 +944,19 @@ async def rag_delete_document(doc_id: str) -> dict:
 
 
 @router.post("/rag/query")
-async def rag_query(req: RagQuery, request: Request):
+async def rag_query(req: RagQuery, request: Request,
+                    principal: dict[str, Any] = Depends(current_principal)):
     question = (req.question or "").strip()
     if not question:
         raise HTTPException(422, "question wajib diisi")
-    if not governance.mode_allowed("rag"):
-        return _sse_error_response(
-            "Mode RAG dimatikan oleh admin (halaman Admin → Pipeline).")
+    role = (principal or {}).get("role") or "member"
+    if not governance.mode_allowed("rag", role):
+        return _sse_error_response(_mode_blocked_message("rag", role))
+    provider, provider_error = _provider_for_role(role)
+    if provider is None:
+        return _sse_error_response(provider_error or "Provider tidak siap.")
     # Query RAG juga memanggil LLM → ikut kuota token end user.
-    user_key = _user_key(request)
+    user_key = _user_key(request, principal)
     verdict = quota.check(user_key)
     if not verdict["allowed"]:
         quota.record_rejection(user_key, verdict["reason"], mode="rag")
@@ -832,8 +968,12 @@ async def rag_query(req: RagQuery, request: Request):
     conv = None
     if req.conversation_id:
         conv = db.get_conversation(req.conversation_id)
+        if conv is not None and not _owns_conversation(conv["id"], principal):
+            return _sse_error_response(
+                "Percakapan ini milik user lain — buka percakapan sendiri.")
     if conv is None:
-        conv = db.new_conversation(title=f"RAG: {question[:56]}")
+        conv = db.new_conversation(title=f"RAG: {question[:56]}",
+                                   user_id=(principal or {}).get("id") or "")
     cid = conv["id"]
 
     queue: asyncio.Queue = asyncio.Queue()
@@ -843,7 +983,6 @@ async def rag_query(req: RagQuery, request: Request):
 
     async def runner() -> None:
         try:
-            provider = build_provider(settings)
             result = await run_rag_query(
                 conversation_id=cid, question=question, provider=provider,
                 settings=settings, emit=emit,

@@ -21,12 +21,23 @@ Prasyarat
 Pemakaian
 ---------
     BASE_URL=http://127.0.0.1:3000 python3 scripts/capture_screenshots.py main
-    python3 scripts/capture_screenshots.py pages      # halaman /panduan & /developer
+    python3 scripts/capture_screenshots.py pages      # /panduan, /panduan/member,
+                                                      # /panduan/admin, /developer
+    python3 scripts/capture_screenshots.py roles      # login, role member/admin, task
 
 Stage `main`  : seluruh flow UI (hero, navbar collapse, chat + sitasi, kanvas
                 fullscreen, interpreter log/LLM/sumber, settings, riwayat)
-Stage `pages` : screenshot halaman dokumentasi in-app (jalan setelah stage main,
-                karena halaman tersebut menampilkan gambar hasil stage main)
+Stage `pages` : screenshot halaman dokumentasi in-app — /panduan (pemilih peran),
+                /panduan/member, /panduan/admin, /developer. Jalan setelah stage
+                main & roles, karena halaman tersebut menampilkan gambarnya.
+Stage `roles` : alur login & peran — halaman /login, playground member, papan
+                task yang ditugaskan (termasuk tab Ringkasan/Workflow/Wireframe
+                pada panel detail), papan /internship, Profil (ganti password),
+                konsol Admin (Users, akses per peran, filter & menu papan).
+                Dipakai oleh PANDUAN-MEMBER.md dan PANDUAN-ADMIN.md.
+                Butuh backend dengan
+                `ASK_AUTH_MODE=required` dan akun hasil seed (admin/admin123,
+                intern1..3/intern123; dapat di-override lewat env di bawah).
 
 Catatan kejujuran data: alur "browser" memakai gateway pencarian demo lokal
 (`scripts/fake_search_server.py`, via ASK_SEARCH_DDG_URL) supaya pipeline
@@ -68,6 +79,17 @@ ARGS = [
 VIEWPORT = {"width": 1440, "height": 900}
 WIDE = {"width": 1680, "height": 950}
 MOBILE = {"width": 390, "height": 844}
+
+#: Kredensial akun hasil seed untuk stage `roles` (lihat app/users.ensure_seed_users).
+ADMIN_CREDS = {
+    "username": os.environ.get("SEED_ADMIN_USER", "admin"),
+    "password": os.environ.get("SEED_ADMIN_PASSWORD", "admin123"),
+}
+MEMBER_CREDS = {
+    "username": os.environ.get("SEED_MEMBER_USER", "intern1"),
+    "password": os.environ.get("SEED_MEMBER_PASSWORD", "intern123"),
+}
+MEMBER_TMP_PASSWORD = os.environ.get("SEED_MEMBER_TMP_PASSWORD", "intern1234")
 
 
 def browser_kwargs() -> dict:
@@ -132,14 +154,40 @@ def send_prompt(page, text: str) -> None:
     wait_idle(page)
 
 
-def set_settings(update: dict) -> None:
+#: Cookie sesi admin untuk panggilan API di luar browser (diisi otomatis).
+_API_COOKIE = {"value": ""}
+
+
+def api_login(creds: dict) -> str:
+    """Login ke backend, simpan cookie sesi untuk panggilan API berikutnya."""
     import json
     import urllib.request
 
     req = urllib.request.Request(
+        f"{API}/api/auth/login",
+        data=json.dumps(creds).encode(),
+        headers={"Content-Type": "application/json"},
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=15) as r:
+        cookie = r.headers.get("Set-Cookie") or ""
+    _API_COOKIE["value"] = cookie.split(";")[0]
+    return _API_COOKIE["value"]
+
+
+def set_settings(update: dict) -> None:
+    import json
+    import urllib.request
+
+    if not _API_COOKIE["value"]:
+        api_login(ADMIN_CREDS)
+    req = urllib.request.Request(
         f"{API}/api/settings",
         data=json.dumps(update).encode(),
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Cookie": _API_COOKIE["value"],
+        },
         method="POST",
     )
     urllib.request.urlopen(req, timeout=15).read()
@@ -164,9 +212,25 @@ def open_interpreter(page) -> None:
         page.wait_for_timeout(400)
 
 
+def ensure_admin_session(page, timeout: int = 90_000) -> None:
+    """Mode `required`: login admin dulu supaya halaman aplikasi bisa difoto.
+
+    Pada `ASK_AUTH_MODE=open` halaman langsung terbuka (admin anonim) dan
+    fungsi ini tidak melakukan apa pun.
+    """
+    page.goto(BASE, wait_until="networkidle")
+    if page.locator('[data-testid="login-submit"]').count():
+        page.fill('[data-testid="login-username"]', ADMIN_CREDS["username"])
+        page.fill('[data-testid="login-password"]', ADMIN_CREDS["password"])
+        page.click('[data-testid="login-submit"]')
+        page.wait_for_selector('[data-testid="nav-user"]', timeout=timeout)
+    page.wait_for_timeout(400)
+
+
 def stage_main(page: "Shots") -> None:
     p = page.page
     OUT.mkdir(parents=True, exist_ok=True)
+    ensure_admin_session(p)
 
     print("[1] Hero / landing")
     p.goto(BASE, wait_until="networkidle")
@@ -282,6 +346,7 @@ def stage_main(page: "Shots") -> None:
     with p.context.browser.new_context(viewport=WIDE, device_scale_factor=2) as ctx:
         w = ctx.new_page()
         w.goto(BASE, wait_until="networkidle")
+        ensure_admin_session(w)
         new_chat(w)
         send_prompt(w, "Buatkan diagram alir proses registrasi pengguna dengan langkah validasi email.")
         # run yang sudah selesai otomatis membuka interpreter; helper ini
@@ -296,7 +361,7 @@ def stage_main(page: "Shots") -> None:
         w.screenshot(path=str(OUT / "29-wide-room-navbar-collapsed.png"))
         print(f"  ✔ {OUT / '29-wide-room-navbar-collapsed.png'}")
 
-    print("[15] Settings provider")
+    print("[15] Settings provider (admin)")
     p.goto(BASE, wait_until="networkidle")
     p.click('button:has-text("Settings provider")')
     p.wait_for_selector('text=Provider')
@@ -325,14 +390,213 @@ def stage_main(page: "Shots") -> None:
     with p.context.browser.new_context(viewport=MOBILE, device_scale_factor=2) as ctx:
         m = ctx.new_page()
         m.goto(BASE, wait_until="networkidle")
+        ensure_admin_session(m)
         m.wait_for_timeout(600)
         m.screenshot(path=str(OUT / "15-mobile-hero.png"))
         print(f"  ✔ {OUT / '15-mobile-hero.png'}")
 
 
+def login(page, creds: dict, timeout: int = 90_000) -> None:
+    """Masuk lewat halaman /login seperti user sungguhan (cookie sesi HttpOnly)."""
+    page.goto(f"{BASE}/login", wait_until="networkidle")
+    page.wait_for_selector('[data-testid="login-submit"]')
+    page.fill('[data-testid="login-username"]', creds["username"])
+    page.fill('[data-testid="login-password"]', creds["password"])
+    page.click('[data-testid="login-submit"]')
+    # Sidebar hanya muncul setelah sesi sah terbaca klien (GET /api/auth/me).
+    page.wait_for_selector('[data-testid="nav-user"]', timeout=timeout)
+    page.wait_for_timeout(500)
+
+
+def logout(page, timeout: int = 60_000) -> None:
+    # Tombol keluar ada di sidebar — halaman seperti /internship & /tasks tidak
+    # punya sidebar, jadi kembali ke playground dulu.
+    if not page.locator('[data-testid="nav-logout"]').count():
+        page.goto(BASE, wait_until="networkidle")
+        page.wait_for_selector('[data-testid="nav-logout"]', timeout=timeout)
+    page.click('[data-testid="nav-logout"]')
+    page.wait_for_selector('[data-testid="login-submit"]', timeout=timeout)
+    page.wait_for_timeout(400)
+
+
+def goto(page, path: str, wait: str | None = None, timeout: int = 90_000) -> None:
+    page.goto(BASE + path, wait_until="networkidle")
+    if wait:
+        page.wait_for_selector(wait, timeout=timeout)
+    page.wait_for_timeout(600)
+
+
+def shoot_task_tabs(page: "Shots", prefix: str) -> None:
+    """Foto panel detail task pada tiap tab: Ringkasan, Workflow, Wireframe.
+
+    Panel ini dipecah menjadi tab supaya tidak menampilkan semua informasi
+    sekaligus; dokumentasi menunjukkan ketiganya agar pembaca tahu di mana
+    letak alur kerja & sketsa layout tiap task.
+    """
+    p = page.page
+    cards = p.locator('[data-testid^="task-open-"]')
+    if not cards.count():
+        print("  (tidak ada kartu task — dilewati)")
+        return
+    cards.first.click()
+    p.wait_for_selector('[data-testid="task-detail"]')
+    p.wait_for_timeout(700)
+    page.save(f"{prefix}-ringkasan")
+    for tab, suffix in (("Workflow", "workflow"), ("Wireframe", "wireframe")):
+        btn = p.locator(f'[data-testid="task-detail"] [role="tab"]:has-text("{tab}")')
+        if not btn.count():
+            continue
+        btn.first.click()
+        p.wait_for_timeout(600)
+        page.save(f"{prefix}-{suffix}")
+    p.locator('[data-testid="task-detail"]').get_by_text("Tutup", exact=True).first.click()
+    p.wait_for_timeout(400)
+
+
+def stage_roles(page: "Shots") -> None:
+    """Alur login & peran: member (playground + task sendiri) dan admin (konsol).
+
+    Semua tangkapan memakai UI asli; satu-satunya intervensi adalah mengganti
+    password member lalu mengembalikannya, supaya basis data contoh tetap sesuai
+    dokumentasi (intern123).
+    """
+    p = page.page
+    OUT.mkdir(parents=True, exist_ok=True)
+
+    print("[1] Halaman login (belum ada sesi)")
+    p.context.clear_cookies()  # type: ignore[attr-defined]
+    goto(p, "/login", '[data-testid="login-submit"]')
+    page.save("30-login")
+
+    print("[2] Login gagal (password salah)")
+    p.fill('[data-testid="login-username"]', MEMBER_CREDS["username"])
+    p.fill('[data-testid="login-password"]', "password-salah")
+    p.click('[data-testid="login-submit"]')
+    p.wait_for_selector('[data-testid="login-error"]')
+    p.wait_for_timeout(400)
+    page.save("31-login-error")
+
+    print("[3] Masuk sebagai member (intern) → playground")
+    p.fill('[data-testid="login-password"]', MEMBER_CREDS["password"])
+    p.click('[data-testid="login-submit"]')
+    p.wait_for_selector('[data-testid="nav-user"]')
+    p.wait_for_selector('[data-testid="member-provider-badge"]')
+    p.wait_for_timeout(900)
+    page.save("32-member-chat")
+    page.element(p.locator('[data-testid="sidebar"]'), "33-member-sidebar")
+
+    print("[4] Profil member: ganti nama & password sendiri")
+    p.click('[data-testid="nav-settings"]')
+    p.wait_for_selector('[data-testid="profile-modal"]')
+    p.wait_for_timeout(400)
+    page.save("34-member-profile")
+
+    print("[5] Ganti password (bukti sukses) → lalu dikembalikan ke password awal")
+    fields = p.locator('[data-testid="profile-modal"] input[type="password"]')
+    fields.nth(0).fill(MEMBER_CREDS["password"])
+    fields.nth(1).fill(MEMBER_TMP_PASSWORD)
+    fields.nth(2).fill(MEMBER_TMP_PASSWORD)
+    p.click('[data-testid="profile-modal"] button:has-text("Ganti password")')
+    p.wait_for_selector("text=Password diganti")
+    p.wait_for_timeout(400)
+    page.save("35-member-password-changed")
+    fields.nth(0).fill(MEMBER_TMP_PASSWORD)
+    fields.nth(1).fill(MEMBER_CREDS["password"])
+    fields.nth(2).fill(MEMBER_CREDS["password"])
+    p.click('[data-testid="profile-modal"] button:has-text("Ganti password")')
+    p.wait_for_timeout(1500)
+    p.click('[data-testid="profile-modal"] button:has-text("Tutup")')
+    p.wait_for_timeout(400)
+
+    print("[6] Papan task member: hanya task yang ditugaskan")
+    goto(p, "/tasks", '[data-testid="task-count"]')
+    page.save("36-member-tasks")
+
+    print("[7] Detail task (member: status & komentar, tanpa hapus/penugasan)")
+    cards = p.locator('[data-testid^="task-open-"]')
+    if cards.count():
+        cards.first.click()
+        p.wait_for_selector('[data-testid="task-detail"]')
+        p.wait_for_timeout(600)
+        page.save("37-member-task-detail")
+        p.locator('[data-testid="task-detail"]').get_by_text("Tutup", exact=True).first.click()
+        p.wait_for_timeout(400)
+
+    print("[7b] Detail task member: tab Workflow & Wireframe")
+    shoot_task_tabs(page, prefix="46-member-task")
+
+    print("[8] Papan proyek internship (member: task INT-NNN miliknya)")
+    goto(p, "/internship", "text=Proyek Internship")
+    p.wait_for_timeout(900)
+    page.save("38-member-internship")
+
+    print("[9] Admin: konsol → Users")
+    logout(p)
+    login(p, ADMIN_CREDS)
+    goto(p, "/admin", "text=Admin — Pipeline")
+    p.click('nav button:has-text("Users")')
+    p.wait_for_selector("text=Akun & peran")
+    p.wait_for_timeout(600)
+    page.save("39-admin-users")
+
+    print("[10] Admin: reset password member (inline)")
+    p.click('button:has-text("Reset password")')
+    p.wait_for_timeout(300)
+    p.fill('input[placeholder="password baru (min. 6 karakter)"]',
+           MEMBER_TMP_PASSWORD)
+    page.save("40-admin-reset-password")
+    p.click('button:has-text("Reset password")')  # tutup panel tanpa menyimpan
+    p.wait_for_timeout(300)
+    # kembalikan ke panel tertutup: tak ada perubahan password yang tersimpan.
+
+    print("[11] Admin: Pipeline → akses per peran")
+    p.click('nav button:has-text("Pipeline")')
+    p.wait_for_selector("text=Akses per peran")
+    p.wait_for_timeout(700)
+    page.save("41-admin-pipeline-roles")
+
+    print("[12] Admin: papan task dengan pemilih trek (Platform | Internship)")
+    goto(p, "/tasks", '[data-testid="task-count"]')
+    p.wait_for_timeout(900)
+    page.save("42-admin-board-platform")
+    p.click('button:has-text("Internship")')
+    p.wait_for_timeout(1500)
+    page.save("43-admin-board-internship")
+
+    print("[12b] Admin: filter lanjutan & menu aksi papan")
+    p.click('button:has-text("Filter")')
+    p.wait_for_timeout(500)
+    page.save("50-admin-board-filters")
+    p.click('button:has-text("Filter")')
+    p.wait_for_timeout(300)
+    if p.locator('[aria-label="Aksi papan"]').count():
+        p.click('[aria-label="Aksi papan"]')
+        p.wait_for_timeout(450)
+        page.save("51-admin-board-menu")
+        p.keyboard.press("Escape")
+        p.locator('[aria-label="Tutup menu"]').click()
+        p.wait_for_timeout(300)
+
+    print("[12c] Admin: detail task internship (Ringkasan/Workflow/Wireframe)")
+    shoot_task_tabs(page, prefix="47-task")
+
+    print("[13] Admin: papan proyek internship (semua peserta)")
+    goto(p, "/internship", "text=Proyek Internship")
+    p.wait_for_timeout(900)
+    page.save("44-admin-internship")
+
+    print("[14] Admin: ringkasan pipeline")
+    goto(p, "/admin", "text=Admin — Pipeline")
+    p.wait_for_timeout(700)
+    page.save("45-admin-overview")
+
+
 def stage_pages(page: "Shots") -> None:
     p = page.page
+    ensure_admin_session(p)
     for route, name in [("/panduan", "17-halaman-panduan"),
+                        ("/panduan/member", "52-halaman-panduan-member"),
+                        ("/panduan/admin", "53-halaman-panduan-admin"),
                         ("/developer", "18-halaman-developer")]:
         print(f"[pages] {route}")
         p.goto(BASE + route, wait_until="networkidle")
@@ -356,6 +620,8 @@ def main() -> int:
             stage_main(shots)
         elif stage == "pages":
             stage_pages(shots)
+        elif stage == "roles":
+            stage_roles(shots)
         else:
             print(f"stage tidak dikenal: {stage}")
             return 2

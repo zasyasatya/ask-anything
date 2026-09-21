@@ -19,9 +19,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, db, hf_hub, startup, tasks
+from . import __version__, db, hf_hub, startup, tasks, users
 from .api.admin import router as admin_router
-from .api.routes import router
+from .api.auth_api import router as auth_router
+from .api.internship import router as internship_router
+from .api.routes import public_router, router
 from .api.tasks import router as tasks_router
 from .config import settings
 from .local_inference import dependencies as _deps, engine as llm_engine
@@ -116,24 +118,31 @@ def _run_autoload_in_background() -> None:
 
 
 def _init_storage() -> None:
-    """Siapkan SQLite + folder model/artifact. Gagal → pesan yang bisa ditindak."""
+    """Siapkan SQLite + folder model/artifact/rag. Gagal → pesan yang bisa ditindak."""
     try:
-        db.init_db(settings.db_path)
+        db.init_db(str(settings.resolved_db_path()))
     except Exception as exc:  # noqa: BLE001 - bungkus jadi pesan jelas
         raise RuntimeError(
-            f"Tidak bisa menyiapkan database SQLite di '{settings.db_path}': "
+            f"Tidak bisa menyiapkan database SQLite di "
+            f"'{settings.resolved_db_path()}': "
             f"{type(exc).__name__}: {exc}\n"
             "Periksa apakah foldernya bisa ditulis (OneDrive/antivirus kadang "
-            "mengunci file). Set ASK_DB_PATH ke lokasi lain bila perlu."
+            "mengunci file; di Docker/Coolify pastikan volume ter-mount di "
+            "/app/data). Set ASK_DB_PATH ke lokasi lain bila perlu."
         ) from exc
 
-    try:
-        settings.resolved_models_dir().mkdir(parents=True, exist_ok=True)
-    except OSError as exc:
-        startup.add("storage",
-                    f"Folder model '{settings.resolved_models_dir()}' tidak bisa dibuat.",
-                    hint="Set ASK_MODELS_DIR ke folder lain yang bisa ditulis.",
-                    detail=f"{type(exc).__name__}: {exc}")
+    for label, path, env in (
+        ("model", settings.resolved_models_dir(), "ASK_MODELS_DIR"),
+        ("artifact", settings.resolved_artifacts_dir(), "ASK_ARTIFACTS_DIR"),
+        ("arsip RAG", settings.resolved_rag_dir(), "ASK_RAG_DIR"),
+    ):
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            startup.add("storage",
+                        f"Folder {label} '{path}' tidak bisa dibuat.",
+                        hint=f"Set {env} ke folder lain yang bisa ditulis.",
+                        detail=f"{type(exc).__name__}: {exc}")
 
     # Task management: isi papan dengan rencana RAG pada boot pertama.
     if settings.tasks_autoseed:
@@ -145,6 +154,27 @@ def _init_storage() -> None:
         except Exception as exc:  # noqa: BLE001 - fitur tracker, bukan jalur kritis
             startup.add("tasks", "Gagal memuat task rencana ke papan.",
                         detail=f"{type(exc).__name__}: {exc}")
+        # Papan proyek internship (track terpisah, halaman /internship).
+        try:
+            created_intern = tasks.seed_track_if_empty("internship")
+            if created_intern:
+                print(f"[tasks] {len(created_intern)} task proyek internship "
+                      f"dimuat ke papan /internship", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            startup.add("tasks", "Gagal memuat task proyek internship.",
+                        detail=f"{type(exc).__name__}: {exc}")
+
+    # Login: buat akun awal bila tabel `users` masih kosong.
+    try:
+        seeded = users.ensure_seed_users(settings)
+        if seeded.get("created"):
+            names = ", ".join(f"{u['username']} ({u['role']})"
+                              for u in seeded["created"])
+            print(f"[auth] akun awal dibuat: {names} — ganti password di "
+                  f"Profil / Admin → Users", flush=True)
+    except Exception as exc:  # noqa: BLE001 - login tetap bisa lewat token admin
+        startup.add("auth", "Gagal membuat akun awal (login page).",
+                    detail=f"{type(exc).__name__}: {exc}")
 
 
 @asynccontextmanager
@@ -180,11 +210,17 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Login/sesi (publik — justru karena itu pengguna bisa masuk).
+app.include_router(auth_router)
+# Health check: sengaja **tanpa** dependency sesi (run.py & HEALTHCHECK Docker).
+app.include_router(public_router)
 app.include_router(router)
-# Konsol admin: policy pipeline, memori, artifact, feedback (/api/admin/*).
+# Konsol admin: policy pipeline, memori, artifact, feedback, users (/api/admin/*).
 app.include_router(admin_router)
 # Task management: papan rencana RAG + integrasi branch GitLab (/api/tasks/*).
 app.include_router(tasks_router)
+# Proyek internship: papan, materi, dan rencana (/api/internship/*).
+app.include_router(internship_router)
 
 # Serve docs/ (slides & metodologi) at /slides — frontend proxies /slides/*.
 _DOCS = Path(__file__).resolve().parents[2] / "docs"

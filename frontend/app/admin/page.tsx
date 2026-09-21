@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import AuthGate from "@/components/AuthGate";
 import AdminConsole from "@/components/admin/AdminConsole";
 
 export const metadata: Metadata = {
@@ -8,5 +9,9 @@ export const metadata: Metadata = {
 };
 
 export default function AdminPage() {
-  return <AdminConsole />;
+  return (
+    <AuthGate requireAdmin>
+      <AdminConsole />
+    </AuthGate>
+  );
 }

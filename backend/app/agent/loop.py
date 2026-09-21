@@ -141,6 +141,7 @@ async def run_agent(
     #: Playbook instruksi advanced yang dipilih user secara eksplisit
     #: (activation="manual" hanya menyala lewat jalur ini).
     playbook_ids: list[str] | None = None,
+    role: str = "admin",
 ) -> dict[str, Any]:
     """Run one agentic turn. Returns a summary dict (answer text, steps...)."""
     run_id = uuid.uuid4().hex[:8]
@@ -149,9 +150,13 @@ async def run_agent(
     t0 = time.time()
 
     # ---- governance: policy dimuat sekali per run (konsisten selama run) ----
+    # `role` menentukan izin efektif: global (section modes/tools) AND policy
+    # peran (roles.admin / roles.member) — member tidak bisa memakai mode/tool
+    # yang bukan haknya walau request dibuat langsung ke API.
     pol = governance.policy()
+    role = governance.normalise_role(role)
     mode = (mode or "text").strip().lower()
-    if not governance.mode_allowed(mode):
+    if not governance.mode_allowed(mode, role):
         mode = "text"
 
     async def trace(type_: str, payload: dict[str, Any], stream: bool = True) -> None:
@@ -217,7 +222,7 @@ async def run_agent(
                 instruction_store.trace_payload(active_playbooks,
                                                 instruction_block))
 
-    allowed_tool_names = set(governance.allowed_tools())
+    allowed_tool_names = set(governance.allowed_tools(role))
     allowed_schemas = [
         s for s in tool_schemas()
         if s["function"]["name"] in allowed_tool_names
@@ -236,10 +241,12 @@ async def run_agent(
             "thinking": settings.thinking if provider.name == "huggingface"
             else None,
             "mode": mode,
+            "role": role,
             "tools": [t["function"]["name"] for t in allowed_schemas],
             "policy": {
-                "modes": pol["modes"],
-                "tools": pol["tools"],
+                "modes": governance.effective_modes(role),
+                "tools": governance.effective_tools(role),
+                "role": role,
                 "feedback": pol["feedback"],
                 "memory": pol["memory"],
             },
@@ -432,7 +439,7 @@ async def run_agent(
                     continue
                 # ---- governance gate: tool yang tidak diizinkan admin ----
                 # tidak pernah dieksekusi; penolakan terecord & terlihat model.
-                if not governance.tool_allowed(tool.name):
+                if not governance.tool_allowed(tool.name, role):
                     reason = (f"tool {tool.name} diblokir oleh kebijakan "
                               "admin (halaman Admin → Pipeline)")
                     await trace(

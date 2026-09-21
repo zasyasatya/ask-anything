@@ -3,7 +3,7 @@
    memori, dan feedback — satu layar governance seperti console admin Claude. */
 import { useState } from "react";
 import { adminUpdatePolicy } from "@/lib/api";
-import type { FullPolicy } from "@/lib/types";
+import type { FullPolicy, RolePolicy } from "@/lib/types";
 import { Card, Toggle } from "./ui";
 
 const MODE_META: Record<string, { label: string; hint: string }> = {
@@ -66,6 +66,9 @@ export default function PipelineTab({
 }) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  // Peran yang sedang diatur di kartu "Akses per peran".
+  const [role, setRole] = useState<"admin" | "member">("member");
+  const rolePolicy: RolePolicy | undefined = policy.roles?.[role];
 
   async function patch(section: string, values: Record<string, unknown>) {
     setSaving(true);
@@ -82,6 +85,112 @@ export default function PipelineTab({
 
   return (
     <div className="grid gap-4 lg:grid-cols-2">
+      <Card
+        title="Akses per peran (login admin | member)"
+        subtitle="Batas role berlaku DI ATAS gate global di bawah: mode/tool harus lolos keduanya. Member default: teks, diagram, RAG — hanya model OpenAI, tanpa setelan provider, hanya task yang ditugaskan."
+        right={
+          <div className="flex overflow-hidden rounded-lg border border-zinc-200">
+            {(["member", "admin"] as const).map((r) => (
+              <button
+                key={r}
+                onClick={() => setRole(r)}
+                className={`px-2.5 py-1 text-[11.5px] font-medium transition ${
+                  role === r
+                    ? "bg-zinc-900 text-white"
+                    : "bg-white text-zinc-600 hover:bg-zinc-50"
+                }`}
+              >
+                {r}
+              </button>
+            ))}
+          </div>
+        }
+      >
+        {rolePolicy ? (
+          <div className="space-y-2">
+            <div className="grid gap-2 sm:grid-cols-2">
+              <label className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                <span className="block text-[11px] font-medium text-zinc-500">
+                  Provider chat
+                </span>
+                <select
+                  aria-label="Provider chat peran"
+                  value={rolePolicy.chat_provider}
+                  onChange={(e) =>
+                    patch("roles", { [role]: { chat_provider: e.target.value } })
+                  }
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1 text-[12.5px]"
+                >
+                  <option value="openai">openai — tanpa model offline</option>
+                  <option value="auto">auto — ikut setelan server</option>
+                </select>
+              </label>
+              <label className="rounded-xl border border-zinc-200 bg-white px-3 py-2">
+                <span className="block text-[11px] font-medium text-zinc-500">
+                  Cakupan task
+                </span>
+                <select
+                  aria-label="Cakupan task peran"
+                  value={rolePolicy.tasks_scope}
+                  onChange={(e) =>
+                    patch("roles", { [role]: { tasks_scope: e.target.value } })
+                  }
+                  className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1 text-[12.5px]"
+                >
+                  <option value="assigned">assigned — hanya untuk dirinya</option>
+                  <option value="all">all — seluruh papan</option>
+                </select>
+              </label>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2">
+              {(
+                [
+                  ["allow_offline_models", "Model offline (GGUF lokal)", "Mematikan = hanya endpoint OpenAI yang dipakai role ini."],
+                  ["allow_provider_settings", "Setelan provider & API key", "Bila mati, halaman Settings tidak diakses role ini (403)."],
+                  ["allow_admin_console", "Konsol admin", "Akses /admin & endpoint /api/admin/*."],
+                  ["allow_rag_upload", "Upload dokumen RAG", "Bila mati, member hanya bertanya ke knowledge base."],
+                  ["allow_task_write", "Ubah status/komentar task", "Bila mati, papan hanya bisa dibaca role ini."],
+                ] as const
+              ).map(([key, label, hint]) => (
+                <Toggle
+                  key={key}
+                  label={label}
+                  hint={hint}
+                  checked={Boolean(rolePolicy[key])}
+                  onChange={(v) => patch("roles", { [role]: { [key]: v } })}
+                />
+              ))}
+            </div>
+            {Object.keys(MODE_META).map((m) => (
+              <Toggle
+                key={`role-mode-${m}`}
+                label={`Mode ${MODE_META[m].label} untuk ${role}`}
+                hint={MODE_META[m].hint}
+                checked={rolePolicy.modes?.[m] !== false}
+                onChange={(v) =>
+                  patch("roles", { [role]: { modes: { [m]: v } } })
+                }
+              />
+            ))}
+            {Object.keys(TOOL_META).map((t) => (
+              <Toggle
+                key={`role-tool-${t}`}
+                label={`Tool ${TOOL_META[t].label} untuk ${role}`}
+                hint={TOOL_META[t].hint}
+                checked={rolePolicy.tools?.[t] !== false}
+                onChange={(v) =>
+                  patch("roles", { [role]: { tools: { [t]: v } } })
+                }
+              />
+            ))}
+          </div>
+        ) : (
+          <p className="text-[12.5px] text-zinc-400">
+            Policy peran belum tersedia dari backend.
+          </p>
+        )}
+      </Card>
+
       <Card
         title="Mode pipeline"
         subtitle="Mode yang tidak dicentang disembunyikan dari user DAN ditolak server-side."

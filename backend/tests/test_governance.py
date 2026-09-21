@@ -142,3 +142,121 @@ def test_blocked_tool_never_executes(client, clean_policy):
 def asyncio_run(coro):
     import asyncio
     return asyncio.run(coro)
+
+# ---------------------------------------------------------------------------
+# Policy per peran (admin | member) — halaman Admin → Pipeline
+# ---------------------------------------------------------------------------
+
+def test_default_role_policies(clean_policy):
+    """Member = playground (teks/diagram/rag); admin = semua fitur."""
+    assert governance.effective_modes("admin") == {
+        "text": True, "image": True, "diagram": True, "ppt": True,
+        "rag": True, "research": True}
+    assert governance.effective_modes("member") == {
+        "text": True, "image": False, "diagram": True, "ppt": False,
+        "rag": True, "research": False}
+    assert set(governance.allowed_tools("member")) == {
+        "web_search", "fetch_url", "create_diagram", "calculator"}
+    assert governance.role_allows("member", "allow_offline_models") is False
+    assert governance.role_allows("member", "allow_provider_settings") is False
+    assert governance.role_allows("admin", "allow_offline_models") is True
+    assert governance.role_setting("member", "chat_provider") == "openai"
+    assert governance.role_setting("member", "tasks_scope") == "assigned"
+
+
+def test_global_gate_always_wins_over_role(clean_policy):
+    governance.update_policy({"modes": {"rag": False}})
+    assert governance.mode_allowed("rag", "admin") is False
+    assert governance.mode_allowed("rag", "member") is False
+    governance.update_policy({"tools": {"calculator": False}})
+    assert governance.tool_allowed("calculator", "admin") is False
+    assert governance.tool_allowed("calculator", "member") is False
+
+
+def test_role_override_does_not_touch_other_role(clean_policy):
+    governance.update_policy({"roles": {"member": {
+        "modes": {"rag": False, "image": True},
+        "tools": {"generate_image": True},
+        "allow_offline_models": True,
+        "chat_provider": "auto",
+        "tasks_scope": "all"}}})
+    assert governance.mode_allowed("rag", "member") is False
+    assert governance.mode_allowed("image", "member") is True
+    assert governance.tool_allowed("generate_image", "member") is True
+    assert governance.role_allows("member", "allow_offline_models") is True
+    assert governance.role_setting("member", "chat_provider") == "auto"
+    assert governance.role_setting("member", "tasks_scope") == "all"
+    # admin tidak ikut berubah
+    assert governance.role_setting("admin", "tasks_scope") == "all"
+    assert governance.mode_allowed("ppt", "admin") is True
+    assert governance.role_allows("admin", "allow_offline_models") is True
+
+
+def test_role_patch_rejects_unknown_values(clean_policy):
+    governance.update_policy({"roles": {"member": {
+        "chat_provider": "model-offline",     # bukan pilihan yang sah
+        "tasks_scope": "semuanya",
+        "is_superuser": True,                 # key asing
+        "modes": {"mode-asing": True}}}})
+    assert governance.role_setting("member", "chat_provider") == "openai"
+    assert governance.role_setting("member", "tasks_scope") == "assigned"
+    assert "is_superuser" not in governance.role_policy("member")
+    assert "mode-asing" not in governance.role_policy("member")["modes"]
+
+
+def test_public_policy_reflects_caller_role(clean_policy):
+    member = governance.public_policy("member")
+    admin = governance.public_policy("admin")
+    assert member["role"] == "member"
+    assert member["modes"]["image"] is False and admin["modes"]["image"] is True
+    assert member["tools"]["generate_ppt"] is False
+    assert member["roles"]["member"]["allow_offline_models"] is False
+    assert "admin_token" not in member
+
+
+def test_role_gate_blocks_agent_tool_for_member(clean_policy, monkeypatch):
+    """Tool yang bukan hak member tidak diiklankan & ditolak walau dipanggil."""
+    from app import db
+    from app.agent.loop import run_agent
+    from app.config import settings
+    from app.providers.base import BaseProvider, StreamEvent
+
+    class StubbornProvider(BaseProvider):
+        name = "stubborn"
+        _called = set()
+
+        def model_label(self) -> str:
+            return "stubborn-test"
+
+        async def stream(self, messages, tools, **kwargs):
+            if "generate_ppt" in self._called:
+                yield StreamEvent("delta", {"text": "baik, tanpa tool."})
+                yield StreamEvent("done", {"finish_reason": "stop"})
+                return
+            self._called.add("generate_ppt")
+            yield StreamEvent("tool_calls", {"calls": [{
+                "id": "call_ppt", "name": "generate_ppt",
+                "arguments": {"title": "Deck", "slides": [{"title": "A"}]}}]})
+            yield StreamEvent("done", {"finish_reason": "tool_calls"})
+
+    events: list[dict] = []
+
+    async def emit(ev):
+        events.append(ev)
+
+    conv = db.new_conversation("role-gate")
+    result = asyncio_run(run_agent(
+        conversation_id=conv["id"], user_message="buat ppt",
+        history=[], provider=StubbornProvider(), settings=settings,
+        emit=emit, role="member"))
+    types = [e["type"] for e in events]
+    assert "policy" in types
+    tr = next(e for e in events if e["type"] == "tool_result"
+              and e.get("name") == "generate_ppt")
+    assert tr["ok"] is False
+    prompt_ev = next(e for e in events if e["type"] == "prompt")
+    assert "generate_ppt" not in {t["function"]["name"]
+                                  for t in prompt_ev["tools"]}
+    assert result["error"] is None
+    db.delete_conversation(conv["id"])
+

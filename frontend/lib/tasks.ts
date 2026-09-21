@@ -16,6 +16,14 @@ export interface TaskAcceptance {
   done: boolean;
 }
 
+/** Satu langkah alur kerja pada tab Workflow di panel detail. */
+export interface TaskWorkflowStep {
+  step: number;
+  actor: string;
+  action: string;
+  result: string;
+}
+
 export interface TaskCommit {
   sha: string;
   subject: string;
@@ -51,6 +59,10 @@ export interface Task {
   depends_on: string[];
   evidence: string[];
   source: string;
+  /** Alur kerja bernomor: siapa melakukan apa, hasilnya apa. */
+  workflow: TaskWorkflowStep[];
+  /** Sketsa layout / bentuk data (teks ASCII, ditampilkan monospace). */
+  wireframe: string;
   branch: string;
   mr_url: string;
   commits: TaskCommit[];
@@ -67,7 +79,11 @@ export interface Task {
   progress: number;
   blocked_by: string[];
   ready: boolean;
+  // papan task: platform (ASK-NNN) atau internship (INT-NNN)
+  track?: "platform" | "internship";
+  track_label?: string;
   // hanya pada detail
+  can_write?: boolean;
   comments?: TaskComment[];
   depends_on_tasks?: TaskDep[];
   dependents?: TaskDep[];
@@ -91,6 +107,8 @@ export interface TaskStats {
   status_labels: Record<string, string>;
   phases: TaskPhase[];
   priorities: TaskPriority[];
+  track?: string;
+  tracks?: string[];
 }
 
 export interface TaskPhase {
@@ -113,6 +131,12 @@ export interface TaskListResponse {
   plan: TaskPlan;
   statuses: TaskStatus[];
   repo: string;
+  track?: string;
+  tracks?: string[];
+  track_labels?: Record<string, string>;
+  /** "assigned" = hanya task untuk user ini (role member). */
+  scope?: "all" | "assigned";
+  me?: { username: string; role: string };
 }
 
 export interface SyncReport {
@@ -339,6 +363,20 @@ export interface NewTaskInput {
   acceptance?: Array<string | TaskAcceptance>;
   depends_on?: string[];
   source?: string;
+  /** Papan tujuan: platform (ASK-NNN) atau internship (INT-NNN). */
+  track?: string;
+  /** Biasanya dikosongkan — backend mengisi ID otomatis yang anti-bentrok. */
+  task_id?: string;
+}
+
+/** Nomor task berikutnya untuk satu papan (pratinjau ID otomatis). */
+export async function fetchNextTaskId(
+  token: string,
+  track = "platform"
+): Promise<{ next_id: string; track: string }> {
+  return fetchJson(`/api/tasks/next-id?track=${encodeURIComponent(track)}`, {
+    headers: headers(token),
+  });
 }
 
 export async function fetchTasks(

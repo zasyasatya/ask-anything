@@ -189,6 +189,29 @@ CREATE TABLE IF NOT EXISTS instruction_activations (
 CREATE INDEX IF NOT EXISTS idx_instruction_activations
     ON instruction_activations(playbook_id, ts);
 
+-- ---- Login & role (halaman /login; role: admin | member) ------------------
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'member',      -- admin | member
+    password_hash TEXT NOT NULL,              -- pbkdf2_sha256$iterasi$salt$hash
+    active INTEGER NOT NULL DEFAULT 1,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    last_login REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    last_seen REAL NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at);
+
 -- ---- Task management (halaman /tasks; task id = kode branch GitLab) --------
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,                 -- ASK-001 (dipakai di nama branch)
@@ -204,11 +227,14 @@ CREATE TABLE IF NOT EXISTS tasks (
     depends_on TEXT NOT NULL DEFAULT '[]',  -- ["ASK-002", …]
     evidence TEXT NOT NULL DEFAULT '[]',    -- file penanda implementasi
     source TEXT NOT NULL DEFAULT '',        -- rujukan slide / tab admin
+    workflow TEXT NOT NULL DEFAULT '[]',    -- [{actor, action, result}] alur kerja
+    wireframe TEXT NOT NULL DEFAULT '',     -- sketsa layout (teks/ASCII box)
     branch TEXT NOT NULL DEFAULT '',
     mr_url TEXT NOT NULL DEFAULT '',
     commits TEXT NOT NULL DEFAULT '[]',     -- [{sha, subject}]
     position INTEGER NOT NULL DEFAULT 0,    -- urutan dalam kolom
     seeded INTEGER NOT NULL DEFAULT 0,      -- 1 = berasal dari rencana RAG
+    track TEXT NOT NULL DEFAULT 'platform', -- platform | internship (papan terpisah)
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
     completed_at REAL NOT NULL DEFAULT 0
@@ -228,10 +254,29 @@ CREATE INDEX IF NOT EXISTS idx_task_comments ON task_comments(task_id, created_a
 
 def init_db(path: str) -> None:
     global _conn
+    # Resolve relative paths against the project root (not the process CWD)
+    # so `data/ask_anything.db` always lands in the same place regardless of
+    # where uvicorn was started from. Absolute paths are used verbatim
+    # (Docker: ASK_DB_PATH=/app/data/ask_anything.db on a persistent volume).
+    from .config import PROJECT_ROOT
+
+    p = os.path.expanduser(path)
+    if not os.path.isabs(p):
+        p = os.path.join(str(PROJECT_ROOT), p)
+    path = p
     os.makedirs(os.path.dirname(os.path.abspath(path)) or ".", exist_ok=True)
     _conn = sqlite3.connect(path, check_same_thread=False)
     _conn.row_factory = sqlite3.Row
     with _lock:
+        # Wait (instead of "database is locked") when a redeploy/healthcheck
+        # overlaps a write; keep the classic rollback journal so the whole
+        # database stays in ONE file that the volume persists atomically.
+        try:
+            _conn.execute("PRAGMA busy_timeout=5000")
+            _conn.execute("PRAGMA journal_mode=DELETE")
+            _conn.execute("PRAGMA synchronous=NORMAL")
+        except sqlite3.Error:
+            pass
         _conn.executescript(SCHEMA)
         _migrate(_conn)
         _conn.commit()
@@ -240,27 +285,31 @@ def init_db(path: str) -> None:
 #: Kolom yang ditambahkan setelah tabel pertama kali dirilis.
 #: `CREATE TABLE IF NOT EXISTS` tidak menyentuh tabel yang sudah ada, jadi
 #: database lama harus di-ALTER — tanpa ini fitur baru gagal dengan
-#: "no such column" di instalasi yang sudah berjalan.
-_ADDED_COLUMNS: dict[str, dict[str, str]] = {
-    "rag_documents": {
-        "kind": "TEXT NOT NULL DEFAULT 'pdf'",
-        "ocr_pages": "INTEGER NOT NULL DEFAULT 0",
-        "ocr_engine": "TEXT NOT NULL DEFAULT ''",
-        "ocr_confidence": "REAL NOT NULL DEFAULT 0",
-        "ocr_detail": "TEXT NOT NULL DEFAULT '{}'",
-    },
-}
+#: "no such column" di instalasi yang sudah berjalan (data pengguna sungguhan
+#: ikut naik versi tanpa migrasi manual).
+_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("conversations", "user_id", "TEXT NOT NULL DEFAULT ''"),
+    ("tasks", "track", "TEXT NOT NULL DEFAULT 'platform'"),
+    ("tasks", "workflow", "TEXT NOT NULL DEFAULT '[]'"),
+    ("tasks", "wireframe", "TEXT NOT NULL DEFAULT ''"),
+    ("rag_documents", "kind", "TEXT NOT NULL DEFAULT 'pdf'"),
+    ("rag_documents", "ocr_pages", "INTEGER NOT NULL DEFAULT 0"),
+    ("rag_documents", "ocr_engine", "TEXT NOT NULL DEFAULT ''"),
+    ("rag_documents", "ocr_confidence", "REAL NOT NULL DEFAULT 0"),
+    ("rag_documents", "ocr_detail", "TEXT NOT NULL DEFAULT '{}'"),
+)
 
 
 def _migrate(conn: sqlite3.Connection) -> None:
-    for table, columns in _ADDED_COLUMNS.items():
-        existing = {row["name"] for row in
-                    conn.execute(f"PRAGMA table_info({table})").fetchall()}
-        if not existing:
+    for table, column, ddl in _MIGRATIONS:
+        try:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.Error:
+            continue
+        if not cols:
             continue  # tabel belum ada (schema baru sudah membuatnya)
-        for name, ddl in columns.items():
-            if name not in existing:
-                conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {ddl}")
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
 
 
 def _c() -> sqlite3.Connection:
@@ -272,13 +321,14 @@ def now() -> float:
     return time.time()
 
 
-def new_conversation(title: str = "") -> dict:
+def new_conversation(title: str = "", user_id: str = "") -> dict:
     cid = uuid.uuid4().hex[:12]
     ts = now()
     with _lock:
         _c().execute(
-            "INSERT INTO conversations(id,title,created_at,updated_at) VALUES(?,?,?,?)",
-            (cid, title or "New chat", ts, ts),
+            "INSERT INTO conversations(id,title,created_at,updated_at,user_id) "
+            "VALUES(?,?,?,?,?)",
+            (cid, title or "New chat", ts, ts, user_id or ""),
         )
         _c().commit()
     return get_conversation(cid)  # type: ignore[return-value]
@@ -289,11 +339,32 @@ def get_conversation(cid: str) -> dict | None:
     return dict(row) if row else None
 
 
-def list_conversations() -> list[dict]:
-    rows = _c().execute(
-        "SELECT * FROM conversations ORDER BY updated_at DESC"
-    ).fetchall()
+def list_conversations(user_id: str | None = None) -> list[dict]:
+    """Riwayat percakapan.
+
+    `user_id=None` → semua percakapan (pandangan admin, lengkap dengan pemilik).
+    `user_id="u-…"` → hanya milik user tersebut (role member: sesi sendiri).
+    """
+    if user_id is None:
+        rows = _c().execute(
+            "SELECT c.*, u.username AS owner_username, u.name AS owner_name "
+            "FROM conversations c LEFT JOIN users u ON u.id = c.user_id "
+            "ORDER BY c.updated_at DESC"
+        ).fetchall()
+    else:
+        rows = _c().execute(
+            "SELECT c.*, u.username AS owner_username, u.name AS owner_name "
+            "FROM conversations c LEFT JOIN users u ON u.id = c.user_id "
+            "WHERE c.user_id=? ORDER BY c.updated_at DESC",
+            (user_id,),
+        ).fetchall()
     return [dict(r) for r in rows]
+
+
+def conversation_owner(cid: str) -> str:
+    """`user_id` pemilik percakapan ('' bila belum ada / percakapan lama)."""
+    conv = get_conversation(cid)
+    return (conv or {}).get("user_id", "") or ""
 
 
 def touch_conversation(cid: str, title: str | None = None) -> None:
@@ -384,8 +455,17 @@ def list_trace(conversation_id: str) -> list[dict]:
 def execute(sql: str, params: tuple = ()) -> None:
     """Run a write statement (INSERT/UPDATE/DELETE) and commit."""
     with _lock:
-        _c().execute(sql, params)
-        _c().commit()
+        try:
+            _c().execute(sql, params)
+            _c().commit()
+        except Exception:
+            # Statement gagal (mis. PRIMARY KEY bentrok) tidak boleh
+            # meninggalkan transaksi setengah jalan bagi percobaan berikutnya.
+            try:
+                _c().rollback()
+            except Exception:
+                pass
+            raise
 
 
 def query_all(sql: str, params: tuple = ()) -> list[dict]:

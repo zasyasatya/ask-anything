@@ -1,9 +1,11 @@
-"""Admin API — mengatur pipeline (policy), memori, artifact, feedback.
+"""Admin API — mengatur pipeline (policy), memori, artifact, feedback, **user**.
 
-Auth: bila env `ASK_ADMIN_TOKEN` diset, semua endpoint /api/admin/* mewajibkan
-header `X-Admin-Token` yang cocok. Bila kosong (default, mode lokal/demo),
-endpoint terbuka — governance tetap ditegakkan di server untuk *end-user*,
-token ini hanya untuk melindungi konsol admin di deployment publik.
+Auth (dua jalur, lihat `app/auth.py`):
+  1. **sesi login** dengan role `admin` (halaman /login) — jalur normal, dan
+  2. header `X-Admin-Token` bila `ASK_ADMIN_TOKEN` diset (skrip/CLI).
+Bila `ASK_ADMIN_TOKEN` **diset**, header itu wajib (perilaku lama dipertahankan);
+sesi admin tetap diterima. Bila tidak diset dan `ASK_AUTH_MODE=open` (demo/test),
+konsol terbuka. Governance untuk end-user tetap ditegakkan di server.
 """
 from __future__ import annotations
 
@@ -12,20 +14,13 @@ from typing import Any
 from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, field_validator
 
-from .. import (artifacts, db, feedback, governance, instructions, memory,
-                quota)
+from .. import (artifacts, auth, db, feedback, governance, instructions,
+                memory, quota, users)
 from ..config import settings
 
-router = APIRouter(prefix="/api/admin")
-
-
-def require_admin(x_admin_token: str | None = Header(default=None)) -> None:
-    expected = (getattr(settings, "admin_token", "") or "").strip()
-    if not expected:
-        return  # mode lokal/demo: konsol terbuka, enforcement tetap server-side
-    if (x_admin_token or "") != expected:
-        raise HTTPException(status_code=401, detail="Token admin salah/absen")
-
+#: Guard konsol admin (sesi admin ATAU header X-Admin-Token) — satu sumber di
+#: `auth.require_admin`, dipakai juga oleh /api/tasks/*.
+require_admin = auth.require_admin
 
 router = APIRouter(prefix="/api/admin", dependencies=[Depends(require_admin)])
 
@@ -49,7 +44,9 @@ async def put_policy(patch: dict[str, dict[str, Any]]) -> dict:
 # ---------------------------------------------------------------------------
 
 @router.get("/overview")
-async def overview() -> dict:
+async def overview(
+    x_admin_token: str | None = Header(default=None),
+) -> dict:
     counts = db.stats_counts()
     return {
         "counts": counts,
@@ -60,6 +57,10 @@ async def overview() -> dict:
         "admin_protected": bool((settings.admin_token or "").strip()),
         "quota": quota.overview(),
         "instructions": instructions.stats(),
+        "auth": {**auth.admin_console_state(x_admin_token),
+                 "auth_mode": settings.auth_mode,
+                 "login_required": settings.auth_required()},
+        "users": db.query_one("SELECT COUNT(*) AS n FROM users"),
     }
 
 
@@ -246,6 +247,96 @@ async def quota_reset(user_key: str, scope: str = "day") -> dict:
     removed = quota.reset_user(user_key, scope=scope)
     return {"ok": True, "scope": scope, "removed_rows": removed,
             "status": quota.status(user_key)}
+
+
+# ---------------------------------------------------------------------------
+# Users — kelola akun & peran (admin | member), reset password, tugas
+# ---------------------------------------------------------------------------
+
+class UserIn(BaseModel):
+    username: str
+    password: str
+    name: str = ""
+    role: str = "member"
+    active: bool = True
+    must_change_password: bool = False
+
+
+class UserPatch(BaseModel):
+    name: str | None = None
+    role: str | None = None
+    active: bool | None = None
+    must_change_password: bool | None = None
+
+
+class PasswordReset(BaseModel):
+    password: str
+    must_change_password: bool = True
+
+
+@router.get("/users")
+async def list_users() -> dict:
+    """Daftar akun + jumlah task yang ditugaskan (untuk penugasan intern)."""
+    items = users.list_users()
+    row = db.query_all(
+        "SELECT assignee, COUNT(*) AS n, "
+        "SUM(CASE WHEN status='done' THEN 1 ELSE 0 END) AS done "
+        "FROM tasks WHERE assignee<>'' GROUP BY assignee")
+    counts = {(r["assignee"] or "").lower(): r for r in row}
+    for user in items:
+        key = (user["username"] or "").lower()
+        stats = counts.get(key) or {}
+        user["tasks_total"] = int(stats.get("n") or 0)
+        user["tasks_done"] = int(stats.get("done") or 0)
+        user["sessions"] = auth.active_sessions(user["id"])
+    return {"users": items, "roles": list(users.ROLES),
+            "role_labels": dict(users.ROLE_LABELS),
+            "auth": auth.admin_console_state()}
+
+
+@router.post("/users")
+async def create_user(item: UserIn) -> dict:
+    try:
+        user = users.create_user(**item.model_dump())
+    except users.UserError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    return {"user": user, "users": users.list_users()}
+
+
+@router.patch("/users/{user_id}")
+async def patch_user(user_id: str, patch: UserPatch) -> dict:
+    try:
+        user = users.update_user(user_id, patch.model_dump(exclude_none=True))
+    except users.UserError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if user is None:
+        raise HTTPException(404, "user tidak ditemukan")
+    return {"user": user, "users": users.list_users()}
+
+
+@router.post("/users/{user_id}/password")
+async def reset_password(user_id: str, item: PasswordReset) -> dict:
+    """Reset password user (admin). Semua sesi user itu diputus."""
+    try:
+        user = users.set_password(user_id, item.password,
+                                  must_change=item.must_change_password)
+    except users.UserError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if user is None:
+        raise HTTPException(404, "user tidak ditemukan")
+    auth.destroy_user_sessions(user_id)
+    return {"user": user, "users": users.list_users(), "sessions_revoked": True}
+
+
+@router.delete("/users/{user_id}")
+async def delete_user(user_id: str) -> dict:
+    try:
+        removed = users.delete_user(user_id)
+    except users.UserError as exc:
+        raise HTTPException(400, str(exc)) from exc
+    if not removed:
+        raise HTTPException(404, "user tidak ditemukan")
+    return {"ok": True, "users": users.list_users()}
 
 
 # ---------------------------------------------------------------------------

@@ -1,9 +1,12 @@
 # python
+# `.venv*` menangkap venv utama sekaligus salinan sementara seperti
+# `.venv-anaconda-broken/` (lihat catatan WinError 1114 di README) — venv tidak
+# pernah boleh masuk git: isinya biner khusus mesin, ratusan MB.
 .venv/
+.venv*/
 __pycache__/
 *.py[cod]
 .pytest_cache/
-.venv-anaconda-broken
 
 # node / next
 node_modules/
@@ -25,3 +28,4 @@ models/
 # misc
 .DS_Store
 *.log
+frontend/tsconfig.tsbuildinfo

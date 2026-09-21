@@ -329,10 +329,14 @@ def delete_document(doc_id: str, settings: Any | None = None) -> bool:
 def _raw_path(doc: dict, settings: Any):
     from pathlib import Path
 
-    from .config import PROJECT_ROOT
-    base = Path(getattr(settings, "rag_dir", "data/rag"))
-    if not base.is_absolute():
-        base = PROJECT_ROOT / base
+    resolver = getattr(settings, "resolved_rag_dir", None)
+    if callable(resolver):
+        base = Path(resolver())
+    else:  # pragma: no cover - settings tiruan di test lama
+        from .config import PROJECT_ROOT
+        base = Path(getattr(settings, "rag_dir", "data/rag"))
+        if not base.is_absolute():
+            base = PROJECT_ROOT / base
     return base / f"{doc['id']}_{doc['filename']}"
 
 

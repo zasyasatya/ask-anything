@@ -3,6 +3,82 @@ export interface Conversation {
   title: string;
   created_at: number;
   updated_at: number;
+  /** Pemilik sesi ('' bila percakapan lama / mode terbuka). */
+  user_id?: string;
+  owner_username?: string | null;
+  owner_name?: string | null;
+}
+
+// ---------------------------------------------------------------------------
+// Login & role (halaman /login; role: admin | member)
+// ---------------------------------------------------------------------------
+
+export type Role = "admin" | "member";
+
+/** Izin efektif sebuah peran — dihitung backend, dipakai UI. */
+export interface Capabilities {
+  role: Role;
+  is_admin: boolean;
+  dashboard: string;
+  modes: Record<string, boolean>;
+  tools: Record<string, boolean>;
+  allow_offline_models: boolean;
+  allow_provider_settings: boolean;
+  allow_admin_console: boolean;
+  allow_rag_upload: boolean;
+  allow_task_write: boolean;
+  tasks_scope: "assigned" | "all";
+  chat_provider: string;
+}
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  name: string;
+  role: Role;
+  role_label?: string;
+  active: boolean;
+  must_change_password?: boolean;
+  created_at?: number;
+  last_login?: number;
+  capabilities: Capabilities;
+}
+
+export interface AuthBootstrap {
+  users: number;
+  seeded: boolean;
+  auth_mode: string;
+  demo: boolean;
+  min_password: number;
+  credentials?: Array<{ username: string; role: Role; password: string }>;
+}
+
+export interface AdminUser {
+  id: string;
+  username: string;
+  name: string;
+  role: Role;
+  role_label?: string;
+  active: boolean;
+  must_change_password?: boolean;
+  created_at?: number;
+  last_login?: number;
+  tasks_total?: number;
+  tasks_done?: number;
+  sessions?: number;
+}
+
+/** Policy satu peran (dipakai tab Pipeline → Akses per peran). */
+export interface RolePolicy {
+  modes: Record<string, boolean>;
+  tools: Record<string, boolean>;
+  allow_offline_models: boolean;
+  allow_provider_settings: boolean;
+  allow_admin_console: boolean;
+  allow_rag_upload: boolean;
+  allow_task_write: boolean;
+  chat_provider: "openai" | "auto";
+  tasks_scope: "assigned" | "all";
 }
 
 export interface ChatMessage {
@@ -42,6 +118,11 @@ export interface SettingsInfo {
   max_steps: number;
   logprobs: boolean;
   search_backend: string;
+  /** ditambahkan backend: peran pemanggil & boleh-tidaknya mengubah setelan */
+  role?: Role;
+  can_manage?: boolean;
+  capabilities?: Capabilities;
+  auth_mode?: string;
   has_openai_key: boolean;
   has_hf_key?: boolean;
   has_hf_token?: boolean;
@@ -221,6 +302,8 @@ export interface PolicyInfo {
 export type FullPolicy = {
   modes: Record<string, boolean>;
   tools: Record<string, boolean>;
+  /** Izin per peran (admin | member) — diatur di tab Pipeline. */
+  roles: Record<Role, RolePolicy>;
   memory: { enabled: boolean; allow_ai_write: boolean };
   rag: {
     chunk_size: number;
@@ -515,4 +598,11 @@ export interface AdminOverview {
   admin_protected: boolean;
   quota?: QuotaOverview;
   instructions?: InstructionStats;
+  auth?: {
+    token_required: boolean;
+    token_ok: boolean;
+    auth_mode: string;
+    login_required: boolean;
+  };
+  users?: { n: number } | null;
 }
