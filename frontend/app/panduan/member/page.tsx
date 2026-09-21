@@ -66,9 +66,11 @@ export default function PanduanMemberPage() {
         <H3>Akun awal</H3>
         <P>
           Akun peserta hasil seed berbentuk <C>intern1…intern3</C> dengan password{" "}
-          <C>intern123</C>. <b>Ganti password bawaan pada hari pertama.</b> Bila admin membuat
-          akun untuk Anda dengan opsi “wajib ganti password”, aplikasi akan memaksa penggantian
-          saat login pertama.
+          <C>intern123</C>. Akun anak internship dibuat terpisah (mis.{" "}
+          <C>verisimb</C> / <C>verisimb@gmail.com</C>) dengan password acak yang diberikan
+          pembimbing — login boleh memakai <b>username atau email</b>.{" "}
+          <b>Ganti password bawaan pada hari pertama.</b> Bila akun Anda dibuat dengan opsi
+          “wajib ganti password”, aplikasi memaksa penggantian saat login pertama.
         </P>
         <H3>Ganti nama &amp; password sendiri</H3>
         <P>

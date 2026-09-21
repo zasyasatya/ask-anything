@@ -160,6 +160,15 @@ def _init_storage() -> None:
             if created_intern:
                 print(f"[tasks] {len(created_intern)} task proyek internship "
                       f"dimuat ke papan /internship", flush=True)
+            # Rencana internship yang ditulis ulang (PLAN_REVISION naik) harus
+            # ikut turun ke papan yang sudah ter-seed — progres dibawa pindah.
+            refreshed = tasks.refresh_plan_if_stale("internship")
+            if refreshed.get("changed") and not refreshed.get("first_seed"):
+                print(f"[tasks] rencana internship diperbarui ke revisi "
+                      f"{refreshed['revision']} "
+                      f"({len(refreshed.get('created') or [])} task, "
+                      f"{refreshed.get('restored', 0)} progres dipertahankan)",
+                      flush=True)
         except Exception as exc:  # noqa: BLE001
             startup.add("tasks", "Gagal memuat task proyek internship.",
                         detail=f"{type(exc).__name__}: {exc}")
@@ -170,10 +179,63 @@ def _init_storage() -> None:
         if seeded.get("created"):
             names = ", ".join(f"{u['username']} ({u['role']})"
                               for u in seeded["created"])
-            print(f"[auth] akun awal dibuat: {names} — ganti password di "
-                  f"Profil / Admin → Users", flush=True)
+            # ASCII saja: console Windows (cp1252) melempar UnicodeEncodeError
+            # untuk karakter seperti "->" berbentuk panah, dan exception itu
+            # dulu membuat seluruh seed akun dilaporkan gagal.
+            print(f"[auth] akun awal dibuat: {names} - ganti password di "
+                  f"Profil / Admin > Users", flush=True)
     except Exception as exc:  # noqa: BLE001 - login tetap bisa lewat token admin
         startup.add("auth", "Gagal membuat akun awal (login page).",
+                    detail=f"{type(exc).__name__}: {exc}")
+
+    # Akun anak internship (dibuat kapan pun belum ada, juga di DB lama).
+    try:
+        _ensure_intern_account()
+    except Exception as exc:  # noqa: BLE001
+        startup.add("auth", "Gagal membuat akun internship.",
+                    detail=f"{type(exc).__name__}: {exc}")
+
+
+def _ensure_intern_account() -> None:
+    """Buat akun intern; password yang tergenerate dicatat sekali saja.
+
+    Password acak hanya ada di memori sekali (setelahnya cuma hash yang
+    tersimpan), jadi ditulis ke log startup **dan** ke
+    `<folder data>/intern-credentials.txt` agar pembimbing bisa mengambilnya
+    setelah deploy. Hapus berkas itu setelah kredensialnya diserahkan.
+    """
+    result = users.ensure_intern_account(settings)
+    if not result.get("created"):
+        return
+    who = f"{result['username']} <{result.get('email') or '-'}>"
+    if not result.get("generated"):
+        print(f"[auth] akun internship dibuat: {who} (password dari "
+              f"ASK_INTERN_PASSWORD)", flush=True)
+        return
+
+    password = result["password"]
+    print(f"[auth] akun internship dibuat: {who} - password sekali-cetak: "
+          f"{password} (wajib diganti saat login pertama)", flush=True)
+    path = settings.resolved_db_path().parent / "intern-credentials.txt"
+    try:
+        path.write_text(
+            "Akun internship Ask Anything\n"
+            f"nama      : {result.get('name', '')}\n"
+            f"username  : {result['username']}\n"
+            f"email     : {result.get('email', '')}\n"
+            f"password  : {password}\n"
+            "catatan   : wajib diganti saat login pertama; hapus berkas ini\n"
+            "            setelah kredensial diserahkan.\n",
+            encoding="utf-8")
+        try:  # POSIX: hanya pemilik yang boleh membaca (diabaikan di Windows)
+            path.chmod(0o600)
+        except OSError:
+            pass
+        print(f"[auth] kredensial internship juga ditulis ke {path} - "
+              f"hapus setelah diserahkan.", flush=True)
+    except OSError as exc:
+        startup.add("auth", "Kredensial internship tidak bisa ditulis ke berkas.",
+                    hint="Ambil password dari log startup di atas.",
                     detail=f"{type(exc).__name__}: {exc}")
 
 

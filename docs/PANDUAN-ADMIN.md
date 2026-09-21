@@ -219,34 +219,51 @@ Rincian struktur data `workflow` dan `wireframe` ada di
 
 ## 8. Menjalankan program internship
 
-Rencana internship membangun **chatbot AI agent yang production-ready
-end-to-end** di `projects/ai-agent`: 36 task dalam 6 fase, total estimasi
-53.5 hari.
+Rencana internship membangun **prototipe chatbot LLM** (Python + Streamlit +
+SQLite) di `projects/ai-agent`: 29 task dalam 6 sprint, total estimasi 41 hari
+kerja. Fokusnya lapisan LLM — bukan infrastruktur — dan memetakan lima epic:
+konteks & memori, orkestrasi & tooling, guardrail, observability, performa.
 
-| Fase | Task | Fokus |
+Hanya task **Sprint 0** yang berada di kolom *To do*; sprint berikutnya menunggu
+di *Backlog* dan ditarik saat sprint sebelumnya ditutup. Gerbang Sprint 0: **PRD
+rampung dan disetujui** sebelum kode fitur ditulis.
+
+| Sprint | Task | Fokus |
 | --- | --- | --- |
-| **i0** Fondasi & Kontrak | `INT-001…007` | Spesifikasi produk, ADR tech stack, kontrak API & skema DB, kerangka backend/frontend, CI. |
-| **i1** Chat Inti & Streaming | `INT-008…012` | Endpoint chat, streaming token, persistensi percakapan, UI chat. |
-| **i2** Agent, Tool & Pengetahuan | `INT-013…019` | Loop agent, tool registry, RAG (ingest → chunk → embed → retrieve), sitasi. |
-| **i3** Memori & Konteks | `INT-020…023` | Memori jangka pendek/panjang, ringkasan percakapan, jendela konteks. |
-| **i4** Token, Kuota & Feedback | `INT-024…028` | Hitung token, limit per user, dashboard biaya, feedback 👍/👎 dan pemanfaatannya. |
-| **i5** Hardening & Rilis | `INT-029…036` | Evaluasi, keamanan, observability, load test, dokumentasi, demo, rilis. |
+| **i0** PRD & Kerangka | `INT-001…004` | PRD (persona, 10 user story, metrik berangka, 5 ADR) + kerangka Streamlit & mock provider. |
+| **i1** Chat, Sesi & Token | `INT-005…009` | Provider LLM + mock, UI streaming, CRUD sesi, hitung token (tiktoken), sliding window + ringkasan. |
+| **i2** RAG, Tool & Router | `INT-010…015` | Ingest + chunking, embedding numpy, jawaban bersitasi, function calling registry, router hemat biaya, memori jangka panjang. |
+| **i3** Guardrail | `INT-016…019` | Moderasi input (prompt injection), redaksi PII, validator output JSON + retry, system prompt terkelola. |
+| **i4** Observability | `INT-020…023` | Tracing span per tahap, dasbor token/biaya/TTFT, feedback 👍/👎 beralasan, set evaluasi 20 soal. |
+| **i5** Performa & Rilis | `INT-024…029` | Semantic cache, rate limit & kuota, fallback model, Docker + volume persisten, test, demo & runbook. |
+
+Rincian per task (prasyarat, hari, epic) ada di
+[`docs/internship/03-rencana-sprint.md`](internship/03-rencana-sprint.md) yang
+dihasilkan dari rencana lewat `python scripts/gen_internship_docs.py`.
+
+Akun peserta dibuat otomatis dari env `ASK_INTERN_USERNAME` /
+`ASK_INTERN_EMAIL` / `ASK_INTERN_NAME`. Bila `ASK_INTERN_PASSWORD` kosong,
+password acak dibuatkan sekali: dicetak di log startup dan ditulis ke
+`<folder data>/intern-credentials.txt` — serahkan, lalu hapus berkas itu. Akun
+wajib mengganti password saat login pertama, dan login menerima username
+maupun email.
 
 ![Papan proyek internship (admin)](images/44-admin-internship.png)
 
 *Halaman `/internship` versi admin: progres keseluruhan, pembagian kerja per
-peserta, filter fase, daftar task, dan kartu Materi & slide.*
+peserta, filter sprint, daftar task, dan kartu Materi & slide.*
 
 ### Ritme yang disarankan
 
-1. **Sebelum sprint** — pastikan task fase berikutnya punya workflow + wireframe,
-   lalu tugaskan assignee.
+1. **Sebelum sprint** — tarik task sprint berikutnya dari *Backlog* ke *To do*,
+   pastikan assignee-nya benar.
 2. **Harian** — periksa kolom *Review* lebih dulu; task yang menumpuk di sana
    memblokir dependensinya.
 3. **Saat review** — nilai dengan checklist kriteria penerimaan, bukan kesan
    umum. Kembalikan ke *In progress* dengan komentar spesifik bila belum lolos.
-4. **Akhir fase** — pakai halaman `/internship` untuk melihat apakah beban antar
-   peserta timpang, lalu seimbangkan penugasan fase berikutnya.
+4. **Akhir sprint** — demo 5-10 menit dari aplikasi yang berjalan, catat angka
+   metriknya, lalu buka sprint berikutnya. Task yang tidak selesai dipindahkan
+   secara sadar, bukan dibiarkan menggantung.
 
 > Kartu **Materi & slide** membaca dokumen langsung dari backend (folder
 > `docs/internship/`). Menambahkan berkas markdown baru di sana membuatnya muncul

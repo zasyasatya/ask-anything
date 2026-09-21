@@ -247,7 +247,7 @@ export default function InternshipConsole() {
               </div>
 
               <div className="rounded-2xl border border-zinc-200 bg-white p-4 md:col-span-2">
-                <h2 className="text-[13px] font-semibold text-zinc-800">Fase</h2>
+                <h2 className="text-[13px] font-semibold text-zinc-800">Sprint</h2>
                 <div className="mt-2 flex flex-wrap gap-2">
                   <button
                     onClick={() => setActivePhase("all")}
@@ -282,7 +282,7 @@ export default function InternshipConsole() {
 
             <section>
               <h2 className="mb-2 text-[13px] font-semibold text-zinc-800">
-                Task {activePhase === "all" ? "semua fase" : activePhase}
+                Task {activePhase === "all" ? "semua sprint" : activePhase}
               </h2>
               <ul className="grid gap-2 md:grid-cols-2">
                 {visible.map((task) => (

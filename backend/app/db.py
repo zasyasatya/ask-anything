@@ -193,6 +193,7 @@ CREATE INDEX IF NOT EXISTS idx_instruction_activations
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
     username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    email TEXT NOT NULL DEFAULT '',            -- opsional; bisa dipakai login
     name TEXT NOT NULL DEFAULT '',
     role TEXT NOT NULL DEFAULT 'member',      -- admin | member
     password_hash TEXT NOT NULL,              -- pbkdf2_sha256$iterasi$salt$hash
@@ -289,6 +290,7 @@ def init_db(path: str) -> None:
 #: ikut naik versi tanpa migrasi manual).
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("conversations", "user_id", "TEXT NOT NULL DEFAULT ''"),
+    ("users", "email", "TEXT NOT NULL DEFAULT ''"),
     ("tasks", "track", "TEXT NOT NULL DEFAULT 'platform'"),
     ("tasks", "workflow", "TEXT NOT NULL DEFAULT '[]'"),
     ("tasks", "wireframe", "TEXT NOT NULL DEFAULT ''"),

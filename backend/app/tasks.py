@@ -676,8 +676,97 @@ def seed_track_if_empty(track: str) -> list[str]:
         return []
     report = seed_tasks(track=track)
     if report["created"]:
+        # Papan baru diisi dari rencana versi ini - catat revisinya supaya
+        # `refresh_plan_if_stale()` tidak menulis ulang papan yang masih segar.
+        _store_revision(track, plan_revision_of(track))
         sync(silent=True)
     return report["created"]
+
+
+# ---------------------------------------------------------------------------
+# Pembaruan rencana (revisi) tanpa menghapus progres
+# ---------------------------------------------------------------------------
+
+def plan_revision_of(track: str) -> str:
+    """Versi rencana satu papan ('' bila modul rencananya tidak memberi versi)."""
+    if track == "internship":
+        return str(getattr(internship_plan, "PLAN_REVISION", "") or "")
+    return ""
+
+
+def _stored_revision(track: str) -> str:
+    row = db.query_one("SELECT value FROM admin_policy WHERE key=?",
+                       (f"plan_revision:{track}",))
+    return str(row["value"]) if row else ""
+
+
+def _store_revision(track: str, revision: str) -> None:
+    db.execute(
+        "INSERT INTO admin_policy(key,value) VALUES(?,?) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        (f"plan_revision:{track}", revision))
+
+
+def refresh_plan_if_stale(track: str) -> dict[str, Any]:
+    """Muat ulang rencana bila `PLAN_REVISION`-nya berubah.
+
+    Papan yang sudah ter-seed di deployment lama tidak pernah ikut berubah saat
+    rencananya ditulis ulang (seeder sengaja idempoten). Fungsi ini menutup
+    celah itu: task rencana ditulis ulang dari modul rencana, sementara
+    **progres dibawa pindah** untuk id yang masih ada — status, penanggung
+    jawab, branch/MR, dan centang kriteria selesai (dicocokkan per teks).
+    Task buatan tangan (``seeded=0``) tidak disentuh sama sekali.
+    """
+    track = track if track in TRACKS else DEFAULT_TRACK
+    revision = plan_revision_of(track)
+    if not revision or _stored_revision(track) == revision:
+        return {"changed": False, "revision": revision, "track": track}
+
+    row = db.query_one("SELECT COUNT(*) AS n FROM tasks WHERE track=? AND seeded=1",
+                       (track,))
+    had_tasks = bool(row and int(row["n"]) > 0)
+    if not had_tasks:
+        # Papan baru saja di-seed dari rencana yang sama - cukup catat revisinya.
+        _store_revision(track, revision)
+        return {"changed": False, "revision": revision, "track": track,
+                "first_seed": True}
+
+    kept: dict[str, dict[str, Any]] = {}
+    if had_tasks:
+        for old in list_tasks(track=track, seeded=True):
+            kept[old["id"]] = {
+                "status": old["status"],
+                "assignee": old["assignee"],
+                "branch": old["branch"],
+                "mr_url": old["mr_url"],
+                "position": old["position"],
+                "checked": {a["text"] for a in old["acceptance"] if a["done"]},
+            }
+
+    report = seed_tasks(reset=True, track=track)
+    restored = 0
+    for task_id, before in kept.items():
+        task = get_task(task_id)
+        if not task:
+            continue  # task lama dihapus dari rencana baru
+        patch: dict[str, Any] = {
+            "status": before["status"],
+            "branch": before["branch"],
+            "mr_url": before["mr_url"],
+        }
+        if before["assignee"]:
+            patch["assignee"] = before["assignee"]
+        if before["checked"]:
+            patch["acceptance"] = [
+                {"text": a["text"], "done": a["text"] in before["checked"]}
+                for a in task["acceptance"]]
+        update_task(task_id, patch)
+        restored += 1
+
+    _store_revision(track, revision)
+    return {"changed": True, "revision": revision, "track": track,
+            "created": report["created"], "restored": restored,
+            "first_seed": not had_tasks}
 
 
 # ---------------------------------------------------------------------------

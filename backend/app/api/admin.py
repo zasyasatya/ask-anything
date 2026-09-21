@@ -260,10 +260,12 @@ class UserIn(BaseModel):
     role: str = "member"
     active: bool = True
     must_change_password: bool = False
+    email: str = ""
 
 
 class UserPatch(BaseModel):
     name: str | None = None
+    email: str | None = None
     role: str | None = None
     active: bool | None = None
     must_change_password: bool | None = None

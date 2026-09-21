@@ -93,6 +93,15 @@ class Settings(BaseSettings):
     #: Password awalnya sama, bisa diganti user sendiri / direset admin.
     seed_members: str = "intern1,intern2,intern3"
     member_password: str = "intern123"
+    #: Akun anak internship (papan /internship, id task INT-NNN). Dibuat kapan
+    #: pun belum ada — bukan hanya saat tabel users kosong. Login boleh memakai
+    #: username ATAU email. Password kosong = dibuatkan acak sekali saat akun
+    #: dibuat, lalu dicetak ke log startup dan disimpan di
+    #: <folder data>/intern-credentials.txt (hapus berkas itu setelah diserahkan).
+    intern_username: str = "verisimb"
+    intern_email: str = "verisimb@gmail.com"
+    intern_name: str = "Very Irawan Simbolon"
+    intern_password: str = ""
     #: Masa berlaku sesi login (jam). Sesi disimpan di tabel `sessions`.
     session_hours: int = 168
     session_cookie: str = "ask_session"

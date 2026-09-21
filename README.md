@@ -68,13 +68,20 @@ sitasi karangan.
   **member** (playground teks/diagram/RAG dengan provider **OpenAI**, task yang
   ditugaskan, ganti password sendiri). Batasnya **ditegakkan server-side**
   (403), bukan hanya disembunyikan di UI; sesi = cookie HttpOnly `ask_session`.
-  Akun awal di-seed (`admin`, `intern1..3`) dan bisa dikelola di **Admin →
-  Users** (buat/nonaktifkan/hapus/peran/reset password).
+  Akun awal di-seed (`admin`, `intern1..3`, plus akun internship dari
+  `ASK_INTERN_*`) dan bisa dikelola di **Admin → Users**
+  (buat/nonaktifkan/hapus/peran/reset password). Login menerima **username
+  atau email**.
 - **Papan proyek internship (`/internship`)**: trek terpisah dengan id
-  `INT-NNN` (33 task, 6 fase) + statistik sendiri, berisi proyek “chatbot +
-  RAG dari nol” di `projects/rag-agent`; materi kerja dibaca langsung dari
-  `docs/internship/*.md` dan slide `slides-rag-agent.html`. Member hanya
-  melihat task yang ditugaskan kepadanya.
+  `INT-NNN` (29 task, **6 sprint**, ±41 hari kerja) + statistik sendiri,
+  berisi proyek **chatbot LLM prototipe** (Python + Streamlit + SQLite) di
+  `projects/ai-agent`. Isinya memetakan lima epic LLM: konteks & memori,
+  orkestrasi & tooling, guardrail, observability, dan performa. Hanya task
+  **Sprint 0 (PRD)** yang berada di kolom *To do*; sprint berikutnya menunggu
+  di *Backlog*. Materi kerja dibaca dari `docs/internship/*.md`
+  (`python scripts/gen_internship_docs.py` menghasilkan ringkasan sprint dari
+  rencana). Member hanya melihat task yang ditugaskan kepadanya, dan akun
+  intern (`ASK_INTERN_*`) dibuat otomatis dengan password acak sekali-cetak.
 - **Halaman Admin (`/admin`) — pipeline governance**: atur **mode** yang boleh
   dipakai user (teks, gambar, diagram, PPT, RAG, deep research) dan **tool**
   yang boleh dieksekusi agent (`web_search`, `fetch_url`, `create_diagram`,

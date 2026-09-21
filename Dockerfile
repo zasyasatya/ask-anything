@@ -66,7 +66,10 @@ FROM ${NODE_IMAGE} AS runtime
 #   rag/             → arsip PDF mentah mode RAG
 #   models/          → model offline yang diunduh (HuggingFace Hub)
 #   backups/         → salinan SQLite tiap start (dipangkas otomatis)
-# Tinggal mount SATU volume ke /app/data → redeploy tidak menghapus data.
+#   intern-credentials.txt → password akun internship yang digenerate sekali
+#                            (hapus setelah kredensialnya diserahkan)
+# Tinggal mount SATU volume ke /app/data → redeploy tidak menghapus data:
+# akun, papan task, percakapan, dan progres internship tetap utuh.
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     PYTHONUNBUFFERED=1 \

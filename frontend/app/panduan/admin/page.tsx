@@ -87,6 +87,15 @@ export default function PanduanAdminPage() {
           <C>ASK_ADMIN_PASSWORD</C>, <C>ASK_SEED_MEMBERS</C>, <C>ASK_MEMBER_PASSWORD</C>.{" "}
           <b>Ganti password bawaan sebelum dipakai bersama.</b>
         </P>
+        <P>
+          Akun <b>anak internship</b> dibuat terpisah dan tetap dibuat walau tabel akun sudah
+          berisi data (env <C>ASK_INTERN_USERNAME</C>, <C>ASK_INTERN_EMAIL</C>,{" "}
+          <C>ASK_INTERN_NAME</C>). Bila <C>ASK_INTERN_PASSWORD</C> dibiarkan kosong, password acak
+          dibuatkan sekali: dicetak di log startup dan ditulis ke{" "}
+          <C>&lt;folder data&gt;/intern-credentials.txt</C>. Serahkan kredensialnya, lalu{" "}
+          <b>hapus berkas itu</b> — akun wajib ganti password saat login pertama. Login menerima
+          username maupun email.
+        </P>
         <Note>
           Mode <C>ASK_AUTH_MODE=open</C> (demo/test) tidak mewajibkan login: semua request dianggap
           admin anonim sehingga demo &amp; test otomatis tetap jalan. Mode default adalah{" "}
@@ -299,18 +308,21 @@ export default function PanduanAdminPage() {
       <section className="space-y-4">
         <H2 id="internship">8. Menjalankan program internship</H2>
         <P>
-          Rencana internship membangun <b>chatbot AI agent yang production-ready end-to-end</b> di{" "}
-          <C>projects/ai-agent</C>: 36 task dalam 6 fase, total estimasi 53.5 hari.
+          Rencana internship membangun <b>prototipe chatbot LLM</b> (Python + Streamlit + SQLite)
+          di <C>projects/ai-agent</C>: 29 task dalam 6 sprint, total estimasi 41 hari. Fokusnya
+          lapisan LLM — konteks &amp; memori, tooling, guardrail, observability, performa — bukan
+          infrastruktur. Hanya task <b>Sprint 0 (PRD)</b> yang berada di kolom To do; sprint
+          berikutnya menunggu di Backlog.
         </P>
         <Table
-          head={["Fase", "Task", "Fokus"]}
+          head={["Sprint", "Task", "Fokus"]}
           rows={[
-            ["i0 Fondasi & Kontrak", "INT-001…007", "Spesifikasi produk, ADR tech stack, kontrak API & skema DB, kerangka backend/frontend, CI."],
-            ["i1 Chat Inti & Streaming", "INT-008…012", "Endpoint chat, streaming token, persistensi percakapan, UI chat."],
-            ["i2 Agent, Tool & Pengetahuan", "INT-013…019", "Loop agent, tool registry, RAG (ingest → chunk → embed → retrieve), sitasi."],
-            ["i3 Memori & Konteks", "INT-020…023", "Memori jangka pendek/panjang, ringkasan percakapan, jendela konteks."],
-            ["i4 Token, Kuota & Feedback", "INT-024…028", "Hitung token, limit per user, dashboard biaya, feedback 👍/👎 dan pemanfaatannya."],
-            ["i5 Hardening & Rilis", "INT-029…036", "Evaluasi, keamanan, observability, load test, dokumentasi, demo, rilis."],
+            ["i0 PRD & Kerangka", "INT-001…004", "PRD (persona, user story, metrik berangka, ADR) + kerangka Streamlit & mock provider. Gerbang: PRD disetujui."],
+            ["i1 Chat, Sesi & Token", "INT-005…009", "Provider LLM + mock, UI streaming, CRUD sesi, hitung token, sliding window & ringkasan."],
+            ["i2 RAG, Tool & Router", "INT-010…015", "Ingest + chunking, embedding numpy, sitasi, function calling registry, router hemat biaya, memori panjang."],
+            ["i3 Guardrail", "INT-016…019", "Moderasi input (prompt injection), redaksi PII, validator output JSON + retry, system prompt terkelola."],
+            ["i4 Observability", "INT-020…023", "Tracing span per tahap, dasbor token/biaya/TTFT, feedback 👍/👎 beralasan, set evaluasi 20 soal."],
+            ["i5 Performa & Rilis", "INT-024…029", "Semantic cache, rate limit & kuota, fallback model, Docker + volume persisten, test, demo & runbook."],
           ]}
         />
         <Shot

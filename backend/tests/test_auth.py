@@ -338,8 +338,9 @@ def test_login_throttled_after_repeated_failures(client, strict_auth, make_user,
         "username": user["username"], "password": "benar123"}).status_code == 429
 
 
-USER_COLS = ("id", "username", "name", "role", "password_hash", "active",
-             "must_change_password", "created_at", "updated_at", "last_login")
+USER_COLS = ("id", "username", "email", "name", "role", "password_hash",
+             "active", "must_change_password", "created_at", "updated_at",
+             "last_login")
 
 
 @pytest.fixture()
@@ -390,3 +391,57 @@ def test_password_hash_never_returned_and_verifies():
     assert users.verify_password(digest, "rahasia123") is True
     assert users.verify_password(digest, "salah") is False
     assert users.verify_password("hash-rusak", "rahasia123") is False
+
+
+# ---------------------------------------------------------------------------
+# Akun anak internship (login boleh memakai email)
+# ---------------------------------------------------------------------------
+
+def test_intern_account_is_seeded_with_email_and_generated_password(
+        monkeypatch, restore_users):
+    """Akun intern dibuat walau tabel users sudah berisi admin."""
+    from app import users as users_mod
+
+    db.execute("DELETE FROM users WHERE username=?", ("intern-uji",))
+    monkeypatch.setattr(settings, "intern_username", "intern-uji")
+    monkeypatch.setattr(settings, "intern_email", "intern.uji@example.com")
+    monkeypatch.setattr(settings, "intern_name", "Intern Uji")
+    monkeypatch.setattr(settings, "intern_password", "")
+
+    created = users_mod.ensure_intern_account(settings)
+    assert created["created"] is True
+    assert created["generated"] is True
+    assert len(created["password"]) >= 12
+
+    # login boleh pakai username ATAU email, dan wajib ganti password
+    by_name = users_mod.authenticate("intern-uji", created["password"])
+    assert by_name and by_name["role"] == "member"
+    assert by_name["must_change_password"] is True
+    by_mail = users_mod.authenticate("INTERN.UJI@example.com",
+                                     created["password"])
+    assert by_mail and by_mail["id"] == by_name["id"]
+    assert by_mail["name"] == "Intern Uji"
+
+    # idempoten: panggilan kedua tidak membuat akun baru / mengubah password
+    again = users_mod.ensure_intern_account(settings)
+    assert again["created"] is False
+    assert users_mod.authenticate("intern-uji", created["password"])
+
+
+def test_default_intern_account_uses_requested_identity():
+    """Identitas yang diminta pembimbing terpasang sebagai bawaan."""
+    assert settings.intern_username == "verisimb"
+    assert settings.intern_email == "verisimb@gmail.com"
+    assert settings.intern_name == "Very Irawan Simbolon"
+    assert settings.intern_password == "", "password awal harus tergenerate"
+
+
+def test_email_is_unique_across_accounts(restore_users):
+    from app import users as users_mod
+
+    first = users_mod.create_user(username="email-a", password="rahasia123",
+                                  email="sama@example.com")
+    assert first["email"] == "sama@example.com"
+    with pytest.raises(users_mod.UserError):
+        users_mod.create_user(username="email-b", password="rahasia123",
+                              email="SAMA@example.com")

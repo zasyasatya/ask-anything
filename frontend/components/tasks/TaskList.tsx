@@ -23,7 +23,8 @@ export default function TaskList({
   onMove: (task: Task, status: TaskStatus) => void;
 }) {
   const phaseName = (id: string) =>
-    phases.find((p) => p.id === id)?.name.replace(/^Fase \d+ — /, "") || id;
+    phases.find((p) => p.id === id)?.name.replace(/^(Fase|Sprint) \d+ — /, "") ||
+    id;
 
   return (
     <div className="overflow-x-auto rounded-2xl border border-zinc-200 bg-white">

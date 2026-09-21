@@ -30,6 +30,11 @@ services:
       # ---- Login (jangan biarkan default di server publik!) ----
       ASK_AUTH_MODE: ${ASK_AUTH_MODE:-required}
       ASK_ADMIN_PASSWORD: ${ASK_ADMIN_PASSWORD:-}
+      # ---- Akun anak internship (password kosong = digenerate sekali) ----
+      ASK_INTERN_USERNAME: ${ASK_INTERN_USERNAME:-verisimb}
+      ASK_INTERN_EMAIL: ${ASK_INTERN_EMAIL:-verisimb@gmail.com}
+      ASK_INTERN_NAME: ${ASK_INTERN_NAME:-Very Irawan Simbolon}
+      ASK_INTERN_PASSWORD: ${ASK_INTERN_PASSWORD:-}
       # ---- Persistence: JANGAN ubah kecuali paham risikonya ----
       ASK_DB_PATH: /app/data/ask_anything.db
       ASK_ARTIFACTS_DIR: /app/data/artifacts

@@ -1,22 +1,41 @@
-"""Rencana proyek internship — **Chatbot AI Agent production-ready, end to end**.
+"""Rencana proyek internship — **Chatbot LLM (AI agent) prototipe, fokus LLM**.
 
 Papan ini terpisah dari rencana platform (`tasks_plan.py`, id `ASK-NNN`): id di
 sini memakai prefix `INT-NNN` dan halaman-nya `/internship`.
 
-Sasaran papan (berbeda dari versi sebelumnya yang berhenti di prototipe):
-membangun **satu produk chatbot berbasis AI agent yang layak dipakai pengguna
-sungguhan** — lengkap dengan RAG, memori percakapan, akuntansi & limit token per
-pengguna, pencatatan feedback 👍/👎, observability, keamanan, dan peluncuran.
+Sasaran papan
+-------------
+Satu **prototipe chatbot LLM** yang bisa dipakai dan didemokan, dengan lima
+kemampuan inti (dipetakan dari lima epic): manajemen konteks & memori,
+orkestrasi & tooling, guardrail, observability, dan performa. Yang dinilai
+adalah kualitas lapisan LLM-nya — bukan kerumitan infrastruktur.
+
+Batasan arsitektur (sudah dikunci, intern tidak perlu memilih)
+--------------------------------------------------------------
+* **Python saja**: UI prototipe pakai **Streamlit** (`app.py`), logika di modul
+  `core/*.py`. Tidak ada Next.js/React, tidak ada microservice.
+* **SQLite** (stdlib `sqlite3`) untuk sesi, pesan, memori, trace, cache, kuota.
+  Tidak ada PostgreSQL/Redis/Milvus/Qdrant/Kafka/RabbitMQ.
+* **Vector store = file numpy + cosine similarity**, bukan vector DB.
+* **Tracing sendiri** (tabel `traces` + halaman Streamlit), bukan LangSmith /
+  Datadog / Phoenix.
+* Provider LLM = satu endpoint OpenAI-compatible + **mock provider offline**
+  supaya semua fitur tetap bisa diuji tanpa kuota API.
+
+Urutan kerja
+------------
+Papan dibagi menjadi **6 sprint** (satu sprint ≈ 1 minggu kerja). Hanya task
+**Sprint 0** yang berstatus `todo`; sprint berikutnya duduk di `backlog` dan
+baru ditarik saat sprintnya dibuka — supaya kolom To do tidak memanjang.
+Gerbang Sprint 0: **PRD rampung dan disetujui pembimbing** sebelum satu baris
+kode fitur ditulis.
 
 Tiap task ditulis agar bisa dikerjakan tanpa bertanya lagi:
 
   * ``description`` — konteks + keputusan teknis yang sudah ditetapkan,
-  * ``workflow``    — alur kerja bernomor ``{actor, action, result}``
-                      (siapa melakukan apa, hasilnya apa) — dipakai UI tab
-                      *Workflow* di panel detail task,
-  * ``wireframe``   — sketsa layout / bentuk data (ASCII) untuk task UI, atau
-                      diagram alur/skema untuk task backend,
-  * ``acceptance``  — kriteria selesai yang bisa dicentang & diuji,
+  * ``workflow``    — alur kerja bernomor ``{actor, action, result}``,
+  * ``wireframe``   — sketsa layout / bentuk data (ASCII),
+  * ``acceptance``  — kriteria selesai yang **berangka** dan bisa diuji,
   * ``evidence``    — berkas yang harus ada (diperiksa ``POST /api/tasks/sync``),
   * ``depends_on``  — prasyarat, supaya urutan pengerjaan jelas.
 
@@ -31,51 +50,72 @@ from .tasks_plan import PRIORITIES, STATUSES, STATUS_LABELS  # noqa: F401  (re-e
 #: Penanda papan (dipakai filter `/api/tasks?track=internship`).
 TRACK = "internship"
 
+#: Versi rencana. Naikkan setiap kali daftar TASKS berubah supaya papan yang
+#: sudah ter-seed di deployment lama ikut diperbarui (`tasks.sync_plan_revision`)
+#: tanpa menghapus progres (status/assignee/checklist dibawa pindah).
+PLAN_REVISION = "2026-09-21-sprint-llm-1"
+
 #: Folder proyek yang dibangun intern di dalam repo ini.
 PROJECT_DIR = "projects/ai-agent"
 
+#: Sprint = kolom "fase" di papan. Id `i0..i5` dipertahankan (dipakai data lama
+#: & nama branch), namanya yang berbicara sebagai sprint.
 PHASES: list[dict[str, str]] = [
-    {"id": "i0", "name": "Fase 0 — Fondasi & Kontrak",
-     "subtitle": "Repo, kontrak API, skema data, autentikasi, konfigurasi, CI."},
-    {"id": "i1", "name": "Fase 1 — Chat Inti & Streaming",
-     "subtitle": "Provider LLM, streaming SSE, persistensi percakapan, UI chat."},
-    {"id": "i2", "name": "Fase 2 — Agent, Tool & Pengetahuan",
-     "subtitle": "ReAct loop, tool registry, ingest + RAG, sitasi, guardrail."},
-    {"id": "i3", "name": "Fase 3 — Memori & Konteks",
-     "subtitle": "Jendela konteks, ringkasan otomatis, memori jangka panjang."},
-    {"id": "i4", "name": "Fase 4 — Token, Kuota & Feedback",
-     "subtitle": "Hitung token, limit per pengguna, 👍/👎, analitik kualitas."},
-    {"id": "i5", "name": "Fase 5 — Hardening, Observability & Rilis",
-     "subtitle": "Keamanan, logging, uji beban, deploy, runbook, serah terima."},
+    {"id": "i0", "name": "Sprint 0 — PRD & Kerangka",
+     "subtitle": "Gerbang: PRD disetujui. Repo, skeleton Streamlit, mock LLM."},
+    {"id": "i1", "name": "Sprint 1 — Chat, Sesi & Token",
+     "subtitle": "Epic 1: sesi percakapan, hitung token, sliding window, ringkasan."},
+    {"id": "i2", "name": "Sprint 2 — RAG, Tool & Router",
+     "subtitle": "Epic 2: retrieval, function calling, router hemat biaya, memori panjang."},
+    {"id": "i3", "name": "Sprint 3 — Guardrail",
+     "subtitle": "Epic 3: moderasi input, redaksi PII, validasi output terstruktur."},
+    {"id": "i4", "name": "Sprint 4 — Observability",
+     "subtitle": "Epic 4: tracing, dasbor biaya & latensi, feedback loop, evaluasi."},
+    {"id": "i5", "name": "Sprint 5 — Performa & Rilis",
+     "subtitle": "Epic 5: semantic cache, rate limit, fallback model, deploy & demo."},
 ]
 
 PHASE_IDS = tuple(p["id"] for p in PHASES)
 
-#: Rujukan dokumen pendamping.
+#: Label sprint (dipakai filter label di UI, sejajar dengan `phase`).
+SPRINT_LABELS: dict[str, str] = {
+    "i0": "sprint-0", "i1": "sprint-1", "i2": "sprint-2",
+    "i3": "sprint-3", "i4": "sprint-4", "i5": "sprint-5",
+}
+
+#: Label epic — persis lima epic yang diminta pembimbing.
+EPICS: list[dict[str, str]] = [
+    {"label": "epic-konteks", "name": "Epic 1 — Manajemen Konteks & Memori"},
+    {"label": "epic-tooling", "name": "Epic 2 — Orkestrasi & Tooling"},
+    {"label": "epic-guardrail", "name": "Epic 3 — Keamanan & Guardrails"},
+    {"label": "epic-observability", "name": "Epic 4 — Observability & LLMOps"},
+    {"label": "epic-performa", "name": "Epic 5 — Skalabilitas & Performa"},
+    {"label": "epic-prd", "name": "Epic 0 — Produk & PRD"},
+]
+
+#: Rujukan dokumen pendamping (dibaca halaman /internship dari `docs/internship`).
 _DOC = "docs/internship"
-_SPEC = f"{_DOC}/01-spesifikasi-produk.md"
-_ARCH = f"{_DOC}/02-arsitektur-dan-tech-stack.md"
-_API = f"{_DOC}/03-kontrak-api-dan-data.md"
-_SPRINT = f"{_DOC}/04-rencana-sprint-dan-task.md"
-_SUCCESS = f"{_DOC}/05-kriteria-sukses-dan-demo.md"
-_WORK = f"{_DOC}/06-panduan-kerja-dan-review.md"
+_KERJA = f"{_DOC}/00-panduan-kerja.md"
+_PRD = f"{_DOC}/01-template-prd.md"
+_ARCH = f"{_DOC}/02-arsitektur-prototipe.md"
+_SPRINT = f"{_DOC}/03-rencana-sprint.md"
+_DOD = f"{_DOC}/04-definition-of-done.md"
 
 #: Berkas referensi di **ask-anything** yang boleh dibaca sebagai contoh pola
-#: (bukan untuk disalin: proyek baru ditulis sendiri — lihat dokumen 06).
+#: (bukan untuk disalin: proyek intern ditulis sendiri, jauh lebih sederhana).
 REF = {
     "agent": "ask-anything: backend/app/agent/loop.py",
     "tools": "ask-anything: backend/app/tools/__init__.py",
     "rag": "ask-anything: backend/app/rag.py",
     "memory": "ask-anything: backend/app/memory.py",
+    "quota": "ask-anything: backend/app/quota.py",
+    "feedback": "ask-anything: backend/app/feedback.py",
     "db": "ask-anything: backend/app/db.py",
-    "auth": "ask-anything: backend/app/auth.py",
-    "stream": "ask-anything: frontend/lib/live.ts",
-    "feedback": "ask-anything: frontend/components/FeedbackButtons.tsx",
 }
 
 
 def _w(actor: str, action: str, result: str = "") -> dict[str, str]:
-    """Satu langkah workflow: siapa (actor) → melakukan apa → hasilnya apa."""
+    """Satu langkah workflow: siapa (actor) melakukan apa, hasilnya apa."""
     return {"actor": actor, "action": action, "result": result}
 
 
@@ -84,1539 +124,1250 @@ def _t(task_id: str, title: str, phase: str, *, priority: str = "medium",
        description: str = "", workflow: tuple[dict[str, str], ...] = (),
        wireframe: str = "", acceptance: tuple[str, ...] = (),
        evidence: tuple[str, ...] = (), depends_on: tuple[str, ...] = (),
-       source: str = "", status: str = "todo", assignee: str = "") -> dict[str, Any]:
+       source: str = "", status: str = "", assignee: str = "") -> dict[str, Any]:
+    """Buat satu task.
+
+    `status` kosong → otomatis: Sprint 0 = `todo` (dikerjakan sekarang),
+    sprint lain = `backlog` (belum dibuka). Label sprint ikut ditambahkan.
+    """
+    sprint_label = SPRINT_LABELS.get(phase, "")
+    all_labels = list(labels)
+    if sprint_label and sprint_label not in all_labels:
+        all_labels.append(sprint_label)
     return {
         "id": task_id, "title": title, "phase": phase, "priority": priority,
-        "estimate": estimate, "labels": list(labels),
+        "estimate": estimate, "labels": all_labels,
         "description": description.strip(),
         "workflow": [dict(step) for step in workflow],
         "wireframe": wireframe.strip("\n"),
         "acceptance": list(acceptance),
         "evidence": list(evidence), "depends_on": list(depends_on),
-        "source": source, "status": status, "assignee": assignee,
+        "source": source,
+        "status": status or ("todo" if phase == "i0" else "backlog"),
+        "assignee": assignee,
     }
 
 
 _L = ("internship",)
 B = (*_L, "backend")
-F = (*_L, "frontend")
+F = (*_L, "ui")
 
-#: Akun member contoh (dibuat otomatis saat backend pertama kali start).
-INTERNS: tuple[str, ...] = ("intern1", "intern2", "intern3")
+#: Akun intern yang mengerjakan papan ini (username login).
+INTERNS: tuple[str, ...] = ("verisimb",)
 
 P = PROJECT_DIR
 
 TASKS: list[dict[str, Any]] = [
-    # ================================================================== Fase 0
-    _t("INT-001", "Spesifikasi produk: persona, ruang lingkup, non-goals",
-       "i0", priority="critical", estimate=1, labels=(*_L, "produk", "docs"),
+    # ================================================================ Sprint 0
+    _t("INT-001", "PRD bagian A: masalah, persona, user story, non-goals",
+       "i0", priority="critical", estimate=1.5,
+       labels=(*_L, "epic-prd", "docs"),
        description=(
-           "Sebelum menulis kode, kunci dulu APA yang dibangun: chatbot AI agent "
-           "internal yang menjawab pertanyaan karyawan berdasarkan dokumen "
-           "perusahaan, bisa memakai tool (retrieval, kalkulator, pencarian), "
-           "mengingat konteks percakapan, dan dibatasi kuota token per pengguna. "
-           "Tulis 3 persona (karyawan biasa, power user, admin), 8-10 user story "
-           "berformat 'Sebagai … saya ingin … supaya …', metrik keberhasilan "
-           "(jawaban tergrounding >80%, p95 first-token <2 dtk, rasio 👍 >70%), "
-           "dan daftar NON-goal yang eksplisit (tanpa voice, tanpa multi-tenant, "
-           "tanpa fine-tuning model) supaya scope tidak melar."),
+           "Gerbang pertama internship: sebelum kode fitur ditulis, kunci APA "
+           "yang dibangun. Produk = chatbot LLM internal yang menjawab "
+           "pertanyaan berdasarkan dokumen perusahaan, punya ingatan "
+           "percakapan, bisa memanggil tool, dan tercatat biayanya. Tulis "
+           "bagian A dari PRD memakai template `docs/internship/01-template-prd.md`: "
+           "1 paragraf pernyataan masalah, 3 persona (karyawan biasa, power "
+           "user, admin) lengkap tujuan & titik nyeri, 10 user story berformat "
+           "'Sebagai <persona> saya ingin <aksi> supaya <manfaat>' yang tiap "
+           "storinya bisa diuji, dan daftar NON-goal eksplisit (tanpa suara, "
+           "tanpa multi-tenant, tanpa fine-tuning, tanpa mobile app) supaya "
+           "ruang lingkup tidak melar sampai akhir magang."),
        workflow=(
-           _w("Intern", "Wawancara/pahami kebutuhan dari pembimbing & dokumen slide",
-              "Catatan kebutuhan mentah"),
-           _w("Intern", "Rumuskan persona + user story + metrik + non-goals",
-              "Draf 01-spesifikasi-produk.md"),
-           _w("Pembimbing", "Review draf dan tandai scope yang ditolak",
+           _w("Intern", "Kumpulkan kebutuhan dari pembimbing + baca lima epic acuan",
+              "Catatan kebutuhan mentah di dokumen kerja"),
+           _w("Intern", "Rumuskan masalah, 3 persona, 10 user story, non-goals",
+              "Draf PRD bagian A"),
+           _w("Pembimbing", "Review draf, tandai story yang ambigu / di luar scope",
               "Komentar revisi di merge request"),
-           _w("Intern", "Revisi & kunci versi 1.0 spesifikasi",
-              "Dokumen disetujui, jadi acuan semua task berikutnya"),
+           _w("Intern", "Revisi sampai tiap story punya kriteria uji",
+              "PRD bagian A siap digabung dengan bagian B & C"),
        ),
        wireframe="""
-DOKUMEN 01 — SPESIFIKASI PRODUK
+PRD — BAGIAN A
++-------------------------------------------------------------+
+| A1. Pernyataan masalah            (<= 1 paragraf)            |
+| A2. Persona                                                   |
+|     +-------------+-------------+-------------+              |
+|     | Karyawan    | Power user  | Admin       |              |
+|     | tujuan      | tujuan      | tujuan      |              |
+|     | titik nyeri | titik nyeri | titik nyeri |              |
+|     +-------------+-------------+-------------+              |
+| A3. User story (10)                                           |
+|     US-01  Sebagai ... ingin ... supaya ...  | uji: ...      |
+| A4. NON-GOALS (daftar tegas)                                  |
++-------------------------------------------------------------+
+""",
+       acceptance=(
+           "Pernyataan masalah maksimal 1 paragraf dan menyebut pengguna nyata",
+           "3 persona lengkap (tujuan + titik nyeri), bukan hanya nama",
+           "Tepat 10 user story berformat baku, tiap story punya 1 baris cara uji",
+           "Minimal 5 non-goal ditulis eksplisit",
+           "Pembimbing menandai PRD bagian A 'approved' di merge request"),
+       evidence=(f"{_DOC}/01-template-prd.md", f"{P}/docs/PRD.md"),
+       source=_PRD),
+
+    _t("INT-002", "PRD bagian B: metrik sukses, anggaran token & biaya",
+       "i0", priority="critical", estimate=1,
+       labels=(*_L, "epic-prd", "docs"),
+       description=(
+           "Bagian B mengubah 'bagus' menjadi angka. Tetapkan target yang akan "
+           "diukur pada demo akhir: jawaban tergrounding (punya sitasi) >= 80% "
+           "dari 20 pertanyaan uji, p95 Time To First Token <= 3 detik pada "
+           "provider mock dan <= 6 detik pada provider nyata, rasio 👍 >= 70%, "
+           "biaya rata-rata <= Rp500 per percakapan, dan cache hit-rate >= 20% "
+           "pada pertanyaan berulang. Tulis juga anggaran token: batas context "
+           "window yang dipakai (8k), maksimum token jawaban (1024), kuota "
+           "harian per pengguna (50 pesan / 100k token), dan cara menghitung "
+           "biaya per 1k token dari harga provider."),
+       workflow=(
+           _w("Intern", "Kumpulkan harga provider + ukur baseline latensi mock",
+              "Tabel harga & latensi awal"),
+           _w("Intern", "Tetapkan 5 metrik target + anggaran token/kuota",
+              "PRD bagian B"),
+           _w("Pembimbing", "Uji kewajaran angka (tidak terlalu longgar/ketat)",
+              "Angka final disepakati"),
+           _w("Intern", "Tulis cara mengukur tiap metrik (alat & rumusnya)",
+              "Metrik bisa diverifikasi ulang siapa pun"),
+       ),
+       wireframe="""
+PRD — BAGIAN B (semua BERANGKA)
++---------------------------+-----------+---------------------+
+| Metrik                    | Target    | Cara ukur           |
++---------------------------+-----------+---------------------+
+| Jawaban tergrounding      | >= 80%    | set eval 20 soal    |
+| p95 TTFT (mock / nyata)   | <=3s/<=6s | tabel traces        |
+| Rasio 👍                   | >= 70%    | tabel feedback      |
+| Biaya per percakapan      | <= Rp500  | token x harga/1k    |
+| Cache hit-rate            | >= 20%    | tabel cache         |
++---------------------------+-----------+---------------------+
+ANGGARAN: context 8k | jawaban 1024 tok | kuota 50 pesan/hari
+""",
+       acceptance=(
+           "5 metrik punya angka target DAN cara ukur yang menyebut sumber data",
+           "Anggaran token & kuota harian tertulis sebagai angka",
+           "Rumus biaya per 1k token ditulis dengan contoh perhitungan",
+           "Tidak ada kata sifat tanpa angka ('cepat', 'akurat') di bagian ini"),
+       evidence=(f"{P}/docs/PRD.md",), depends_on=("INT-001",), source=_PRD),
+
+    _t("INT-003", "PRD bagian C: arsitektur prototipe + 5 ADR singkat",
+       "i0", priority="critical", estimate=1,
+       labels=(*_L, "epic-prd", "docs", "arsitektur"),
+       description=(
+           "Gambar alur data satu jawaban dari awal sampai akhir (UI → "
+           "guardrail input → router → retrieval/tool → LLM → validator output "
+           "→ trace + biaya → UI) dan tulis 5 ADR satu paragraf: (1) Streamlit "
+           "sebagai UI prototipe, (2) SQLite satu berkas sebagai satu-satunya "
+           "database, (3) embedding lokal + numpy cosine sebagai pengganti "
+           "vector DB, (4) tracing sendiri ke tabel `traces` alih-alih SaaS, "
+           "(5) mock provider wajib agar demo jalan tanpa kuota API. Tiap ADR "
+           "memuat konteks, keputusan, dan konsekuensi — termasuk kapan "
+           "keputusan itu perlu ditinjau ulang bila produk naik ke produksi."),
+       workflow=(
+           _w("Intern", "Gambar diagram alur satu request (ASCII/draw.io)",
+              "Diagram di PRD bagian C"),
+           _w("Intern", "Tulis 5 ADR: konteks, keputusan, konsekuensi",
+              "Daftar ADR"),
+           _w("Pembimbing", "Review: pastikan tidak ada komponen berlebih",
+              "Stack final dikunci"),
+           _w("Intern", "Kunci struktur folder projects/ai-agent",
+              "Peta modul yang akan diisi sprint berikutnya"),
+       ),
+       wireframe="""
+ALUR SATU JAWABAN
+ UI(Streamlit) -> guardrail_input -> router -> [retrieval | tool | langsung]
+     -> context_builder(token budget) -> LLM(provider) -> validator_output
+     -> trace + biaya -> UI(jawaban + sitasi + tombol 👍/👎)
+
+FOLDER
+ projects/ai-agent/
+   app.py            Streamlit (chat, riwayat, dasbor, trace)
+   core/  llm.py providers.py session.py tokens.py memory.py
+          rag.py tools.py router.py guardrail.py tracing.py
+          cache.py quota.py
+   data/  agent.db  index.npy  docs/
+   tests/ test_*.py
+""",
+       acceptance=(
+           "Diagram alur memuat 7 tahap dan bisa dibaca tanpa penjelasan lisan",
+           "5 ADR ditulis dengan konteks/keputusan/konsekuensi",
+           "Struktur folder final tertulis dan sama dengan repo nantinya",
+           "Tidak ada komponen di luar stack terkunci pada dokumen 02 (cek satu per satu)"),
+       evidence=(f"{P}/docs/PRD.md", f"{P}/docs/ADR.md"),
+       depends_on=("INT-002",), source=_ARCH),
+
+    _t("INT-004", "Kerangka proyek: repo, Streamlit 'hello chat', mock provider",
+       "i0", priority="high", estimate=1.5, labels=(*B, "epic-prd"),
+       description=(
+           "Buat kerangka `projects/ai-agent` yang bisa dijalankan orang lain "
+           "dalam < 5 menit: `requirements.txt` (streamlit, openai, tiktoken, "
+           "numpy, pydantic, pytest), `README.md` berisi cara jalan, `app.py` "
+           "Streamlit dengan kolom chat yang memantulkan jawaban dari **mock "
+           "provider** (echo + delay kecil), `core/config.py` membaca env "
+           "(AGENT_PROVIDER, AGENT_BASE_URL, AGENT_API_KEY, AGENT_MODEL, "
+           "AGENT_DB_PATH), dan `core/db.py` yang membuat SQLite di "
+           "`AGENT_DB_PATH` (default `data/agent.db`). Satu test smoke "
+           "memastikan aplikasi bisa diimpor dan DB terbentuk."),
+       workflow=(
+           _w("Intern", "Inisialisasi folder + requirements + README",
+              "Proyek bisa di-`pip install -r`"),
+           _w("Intern", "Tulis app.py Streamlit minimal + mock provider",
+              "`streamlit run app.py` menampilkan chat yang membalas"),
+           _w("Intern", "Tulis core/db.py + test smoke",
+              "`pytest` hijau, data/agent.db terbentuk"),
+           _w("Pembimbing", "Jalankan dari nol mengikuti README",
+              "Konfirmasi setup < 5 menit"),
+       ),
+       wireframe="""
 +--------------------------------------------------------------+
-| 1. Masalah & peluang            (1 paragraf)                  |
-| 2. Persona                                                    |
-|    +----------------+----------------+----------------+       |
-|    | Karyawan       | Power user     | Admin          |       |
-|    | tujuan / nyeri | tujuan / nyeri | tujuan / nyeri |       |
-|    +----------------+----------------+----------------+       |
-| 3. User story (8-10)  [ ] Sebagai ... ingin ... supaya ...    |
-| 4. Metrik sukses    grounded>80% | p95<2s | 👍>70% | biaya/hr |
-| 5. NON-GOALS (daftar tegas yang TIDAK dibuat)                 |
-| 6. Risiko & asumsi                                            |
+| AI Agent (prototipe)                         [mock provider]  |
++--------------------------------------------------------------+
+| riwayat:            |  Halo, saya asisten internal.           |
+|  (kosong)           |  > pertanyaan pengguna                  |
+|                     |  Jawaban echo dari mock...              |
++---------------------+----------------------------------------+
+| [ ketik pertanyaan .......................... ] [ Kirim ]     |
 +--------------------------------------------------------------+
 """,
-       acceptance=("3 persona lengkap dengan tujuan & titik nyeri",
-                   "Minimal 8 user story berformat baku dan bisa diuji",
-                   "Metrik sukses punya angka target, bukan kata sifat",
-                   "Daftar non-goal ditulis eksplisit dan disetujui pembimbing"),
-       evidence=(_SPEC,), source=_SPEC),
-
-    _t("INT-002", "Arsitektur & pemilihan tech stack (ADR)",
-       "i0", priority="critical", estimate=1, labels=(*_L, "arsitektur", "docs"),
-       description=(
-           "Gambar arsitektur target dan tulis 5 Architecture Decision Record "
-           "singkat: (1) FastAPI + SQLite/Postgres, (2) Next.js App Router + "
-           "Tailwind, (3) provider LLM di balik antarmuka `LLMProvider` supaya "
-           "bisa ditukar (OpenAI-compatible / Ollama lokal), (4) vector store "
-           "(Chroma persistent dengan fallback SQLite+cosine), (5) streaming "
-           "memakai SSE bukan WebSocket. Setiap ADR memuat konteks, opsi yang "
-           "dipertimbangkan, keputusan, dan konsekuensinya."),
-       workflow=(
-           _w("Intern", "Petakan komponen: UI → API → agent → tool → store → LLM",
-              "Diagram arsitektur (mermaid) di dokumen 02"),
-           _w("Intern", "Bandingkan minimal 2 opsi untuk tiap keputusan besar",
-              "Tabel perbandingan dengan kriteria (biaya, offline, kecepatan)"),
-           _w("Intern", "Tulis ADR-001..ADR-005 satu halaman masing-masing",
-              "Keputusan terdokumentasi, alasan bisa ditelusuri"),
-           _w("Pembimbing", "Setujui atau minta revisi ADR", "Stack terkunci"),
-       ),
-       wireframe="""
-ARSITEKTUR TARGET
- Browser
-   |  HTTPS
-   v
-+--------------------+       +--------------------------+
-|  Next.js (App)     | --->  |  FastAPI /api            |
-|  chat | sumber     |  SSE  |  auth · quota · agent    |
-+--------------------+       +------------+-------------+
-                                          |
-        +-------------+-------------+-----+-------+--------------+
-        v             v             v             v              v
-   LLMProvider   ToolRegistry   VectorStore   MemoryStore   Telemetry
-   (OpenAI/      (rag, calc,    (Chroma /     (ringkasan,   (log, metrik,
-    Ollama)       search)        SQLite)       fakta user)   biaya token)
-        |                            |
-        +--------- SQLite/Postgres: users, conversations, messages,
-                    feedback, token_usage, memories, documents, chunks
-""",
-       acceptance=("Diagram arsitektur bisa dibaca orang baru dalam 2 menit",
-                   "5 ADR ditulis dengan konteks-opsi-keputusan-konsekuensi",
-                   "Batas modul jelas: tidak ada komponen yang memanggil DB langsung dari UI",
-                   "Stack disetujui pembimbing sebelum Fase 1 dimulai"),
-       evidence=(_ARCH, f"{P}/docs/adr/ADR-001-llm-provider.md"),
-       depends_on=("INT-001",), source=_ARCH),
-
-    _t("INT-003", "Kontrak API & skema database v1",
-       "i0", priority="critical", estimate=1.5, labels=(*_L, "design", "docs"),
-       description=(
-           "Tulis kontrak REST + SSE lengkap dengan contoh request/response JSON "
-           "supaya frontend & backend bisa jalan paralel: auth, conversations, "
-           "messages (streaming), documents, feedback, usage/quota, admin. "
-           "Sertakan skema tabel lengkap: users, sessions, conversations, "
-           "messages, message_citations, documents, chunks, memories, feedback, "
-           "token_usage, quota_policies, audit_log — beserta index dan aturan "
-           "kaskade hapus. Kunci juga bentuk error standar "
-           "`{error: {code, message, detail}}` dan kode status yang dipakai."),
-       workflow=(
-           _w("Intern", "Daftar semua endpoint dari user story dokumen 01",
-              "Tabel endpoint × metode × peran"),
-           _w("Intern", "Tulis contoh request/response JSON tiap endpoint",
-              "Kontrak yang bisa dipakai membuat mock"),
-           _w("Intern", "Rancang tabel + relasi + index",
-              "DATA-MODEL.md berisi DDL siap pakai"),
-           _w("Frontend & Backend", "Sepakati kontrak dalam satu review bersama",
-              "Kontrak v1 dibekukan; perubahan wajib lewat MR"),
-       ),
-       wireframe="""
-ENDPOINT v1
-  POST   /api/auth/login             → {token, user}
-  GET    /api/conversations          → [{id, title, updated_at}]
-  POST   /api/conversations          → {id}
-  GET    /api/conversations/{id}     → {messages[], citations[]}
-  POST   /api/chat            (SSE)  → event: token|tool|citation|usage|done
-  POST   /api/documents/upload       → {document_id, status}
-  POST   /api/feedback               → {ok}  {message_id, rating, reason, note}
-  GET    /api/usage/me               → {used_tokens, limit, reset_at}
-  GET    /api/admin/analytics        → {csat, top_bad_answers, cost}
-
-SKEMA (inti)
-  users ──< conversations ──< messages ──< message_citations
-                                 |
-                                 +──< feedback (1 per user per message)
-  users ──< token_usage (harian)      users ──< memories
-  documents ──< chunks (vector)
-""",
-       acceptance=("Semua endpoint punya contoh request DAN response",
-                   "Skema tabel lengkap dengan tipe, index, dan aturan kaskade",
-                   "Format error & daftar kode status disepakati",
-                   "Kontrak direview bersama frontend + backend + pembimbing"),
-       evidence=(f"{P}/docs/API.md", f"{P}/docs/DATA-MODEL.md"),
-       depends_on=("INT-002",), source=_API),
-
-    _t("INT-004", "Kerangka backend: config, logging terstruktur, error handler",
-       "i0", priority="critical", estimate=1, labels=B,
-       description=(
-           "Aplikasi FastAPI dasar: `/api/health` (status, versi, provider, "
-           "koneksi DB), konfigurasi dari .env lewat pydantic-settings (tanpa "
-           "rahasia hardcoded), logging JSON terstruktur dengan `request_id` "
-           "yang mengalir dari middleware ke seluruh log, dan exception handler "
-           "yang selalu membalas JSON `{error:{code,message}}` — bukan traceback "
-           "HTML. Tambahkan middleware CORS dan timing (durasi tiap request)."),
-       workflow=(
-           _w("Browser", "Kirim request ke /api/*", "Middleware membuat request_id"),
-           _w("Middleware", "Catat mulai, teruskan ke handler, catat durasi",
-              "Log JSON {request_id, path, status, ms}"),
-           _w("Handler", "Lempar AppError bila input/bisnis salah",
-              "Exception handler mengubahnya jadi JSON 4xx"),
-           _w("Exception handler", "Tangkap error tak terduga",
-              "Log level error + balas 500 generik tanpa bocorkan internal"),
-       ),
-       wireframe="""
-BENTUK LOG & ERROR
-  log  → {"ts":"…","level":"info","request_id":"a1b2","path":"/api/chat",
-          "user":"u_12","status":200,"ms":842}
-  err  → HTTP 400
-         {"error":{"code":"invalid_input",
-                   "message":"pesan tidak boleh kosong",
-                   "detail":{"field":"message"}}}
-  health → {"status":"ok","version":"0.1.0","provider":"ollama",
-            "db":"ok","uptime_s":120}
-""",
-       acceptance=("/api/health membalas status, versi, provider, dan status DB",
-                   "Semua konfigurasi dibaca dari .env; .env.example lengkap",
-                   "Semua error 4xx/5xx berbentuk JSON dengan code+message",
-                   "request_id muncul di setiap baris log satu request",
-                   "pytest untuk health, config, dan error handler hijau"),
-       evidence=(f"{P}/backend/app/main.py", f"{P}/backend/app/config.py",
-                 f"{P}/backend/tests/test_health.py"),
+       acceptance=(
+           "`pip install -r requirements.txt` lalu `streamlit run app.py` jalan di mesin bersih",
+           "Chat membalas lewat mock provider tanpa API key sama sekali",
+           "`AGENT_DB_PATH` dihormati; default membuat data/agent.db otomatis",
+           "`pytest` berjalan dan minimal 1 test smoke hijau",
+           "README memuat langkah setup, env, dan cara menjalankan test"),
+       evidence=(f"{P}/README.md", f"{P}/requirements.txt", f"{P}/app.py",
+                 f"{P}/core/db.py", f"{P}/tests/test_smoke.py"),
        depends_on=("INT-003",), source=_ARCH),
 
-    _t("INT-005", "Autentikasi & peran (user / admin) + sesi aman",
-       "i0", priority="critical", estimate=1.5, labels=(*B, "security"),
+    # ================================================================ Sprint 1
+    _t("INT-005", "Provider LLM: OpenAI-compatible + mock, streaming & retry",
+       "i1", priority="critical", estimate=1.5, labels=(*B, "epic-konteks", "llm"),
        description=(
-           "Login berbasis username+password (hash Argon2/bcrypt, bukan plain), "
-           "sesi disimpan di cookie HttpOnly + SameSite=Lax dengan masa berlaku "
-           "dan pencabutan (logout menghapus baris sesi). Dua peran: `user` "
-           "(chat, lihat kuota & riwayat sendiri) dan `admin` (semua + analitik "
-           "+ atur kuota). Sediakan dependency `current_user` dan `require_admin` "
-           "yang dipakai seluruh endpoint, serta rate limit login (5 percobaan / "
-           "15 menit per IP) untuk menahan brute force."),
+           "Satu antarmuka `LLMProvider.stream(messages, **params) -> Iterator[str]` "
+           "dengan dua implementasi: `OpenAICompatProvider` (SDK openai, "
+           "base_url bisa diarahkan ke gateway atau server lokal) dan "
+           "`MockProvider` (jawaban deterministik untuk test & demo offline). "
+           "Provider menangani timeout (30 detik), retry 2x dengan backoff "
+           "eksponensial pada error 429/5xx, dan mengembalikan metadata "
+           "pemakaian token (prompt, completion) supaya biaya bisa dihitung di "
+           "task INT-021. Pemilihan provider lewat env, bukan hardcode."),
        workflow=(
-           _w("Pengguna", "Isi username & password lalu submit",
-              "POST /api/auth/login"),
-           _w("Backend", "Verifikasi hash password + cek rate limit IP",
-              "Gagal → 401 pesan generik; berhasil → buat baris sesi"),
-           _w("Backend", "Set cookie HttpOnly berisi token sesi acak 32 byte",
-              "Browser membawa cookie otomatis di request berikutnya"),
-           _w("Dependency current_user", "Baca cookie → cari sesi aktif → muat user",
-              "Handler menerima objek user; sesi kedaluwarsa → 401"),
-           _w("Pengguna", "Logout", "Baris sesi dihapus, cookie dikosongkan"),
+           _w("Intern", "Definisikan protokol LLMProvider + dataclass hasil",
+              "core/providers.py"),
+           _w("Intern", "Implementasi mock + OpenAI-compatible streaming",
+              "Dua provider lulus test yang sama"),
+           _w("Intern", "Tambahkan timeout, retry, dan pengukuran TTFT",
+              "Error sementara tidak menjatuhkan UI"),
+           _w("Pembimbing", "Uji dengan API key nyata dan tanpa key",
+              "Keduanya jalan"),
        ),
        wireframe="""
-HALAMAN LOGIN
-+--------------------------------------------+
-|            [logo]  Masuk                   |
-|  Username [________________________]       |
-|  Password [________________________] 👁     |
-|  [ Masuk ]                                 |
-|  ⚠ Username atau password salah            |
-|  ⚠ Terlalu banyak percobaan, coba 15 menit |
-+--------------------------------------------+
-""",
-       acceptance=("Password tersimpan sebagai hash; tidak ada plain text di DB/log",
-                   "Cookie sesi HttpOnly + SameSite dan punya kedaluwarsa",
-                   "Logout benar-benar mencabut sesi (request berikutnya 401)",
-                   "Endpoint admin menolak user biasa dengan 403",
-                   "Rate limit login terbukti lewat test"),
-       evidence=(f"{P}/backend/app/auth.py", f"{P}/backend/tests/test_auth.py"),
-       depends_on=("INT-004",), source=_API),
+LLMProvider
+  .stream(messages, temperature, max_tokens) -> yields token
+  .last_usage -> {prompt_tokens, completion_tokens, ttft_ms, model}
 
-    _t("INT-006", "Kerangka frontend Next.js + proxy /api + shell layout",
-       "i0", priority="high", estimate=1, labels=F,
-       description=(
-           "Next.js App Router + Tailwind: layout shell (sidebar riwayat, area "
-           "chat, header dengan indikator kuota), rewrite `/api/*` ke backend "
-           "supaya browser tidak pernah memanggil host backend langsung, "
-           "halaman login, dan guard klien yang mengalihkan ke /login saat 401. "
-           "Sediakan `lib/api.ts` (fetch wrapper: JSON, error terstandar, "
-           "credentials: include) yang dipakai seluruh halaman."),
-       workflow=(
-           _w("Pengguna", "Buka aplikasi", "Guard memanggil /api/auth/me"),
-           _w("Guard", "401 → arahkan ke /login; 200 → render shell",
-              "Tidak pernah ada layar chat tanpa identitas"),
-           _w("lib/api.ts", "Bungkus fetch: tambah header, parse error standar",
-              "Komponen cukup menangkap Error berisi pesan yang siap tampil"),
-       ),
-       wireframe="""
-SHELL APLIKASI (desktop)
-+----------------+---------------------------------------+
-| ☰ Percakapan   |  Judul percakapan      [kuota 62%]   |
-| + Baru         +---------------------------------------+
-| · Cuti tahunan |                                       |
-| · SOP klaim    |            area pesan                 |
-| · Onboarding   |                                       |
-|                +---------------------------------------+
-| [profil ▾]     |  [ tulis pesan ...............] [→]   |
-+----------------+---------------------------------------+
-mobile: sidebar jadi drawer, header tetap menampilkan sisa kuota
+env: AGENT_PROVIDER=mock|openai
+     AGENT_BASE_URL, AGENT_API_KEY, AGENT_MODEL
+retry: 429/5xx -> tunggu 1s, 2s (maks 2x) -> error rapi ke UI
 """,
-       acceptance=("npm run dev menampilkan shell + login",
-                   "Semua panggilan data lewat /api (relatif), bukan host absolut",
-                   "401 dari backend otomatis mengarahkan ke /login",
-                   "npm run build dan lint lolos tanpa warning baru"),
-       evidence=(f"{P}/frontend/app/layout.tsx", f"{P}/frontend/lib/api.ts",
-                 f"{P}/frontend/next.config.ts"),
-       depends_on=("INT-005",), source=_ARCH),
-
-    _t("INT-007", "docker-compose, seed data, dan pipeline CI",
-       "i0", priority="high", estimate=1, labels=(*_L, "devops"),
-       description=(
-           "Satu perintah untuk menjalankan semuanya: docker-compose (backend, "
-           "frontend, volume data) + `scripts/seed.py` idempoten yang membuat "
-           "user demo (user & admin), 1 dokumen contoh, dan kebijakan kuota "
-           "default. CI (GitHub Actions) menjalankan lint, pytest, dan vitest "
-           "pada setiap push/MR dan menolak merge bila merah."),
-       workflow=(
-           _w("Developer", "Jalankan `docker compose up`",
-              "Backend + frontend hidup, data persist di volume"),
-           _w("Developer", "Jalankan `python scripts/seed.py`",
-              "User demo, dokumen contoh, dan kuota default tersedia"),
-           _w("CI", "Pada push: install → lint → pytest → vitest → build",
-              "Status check hijau/merah menempel di merge request"),
-       ),
-       wireframe="""
-PIPELINE CI
-  push/MR ─► [lint ruff+eslint] ─► [pytest] ─► [vitest] ─► [build] ─► ✅/❌
-                    |                 |            |
-                 gagal → berhenti & laporkan langkah yang merah
-
-docker compose up
-  backend :8000  ── volume ./data
-  frontend :3000 ── proxy /api → backend:8000
-""",
-       acceptance=("`docker compose up` menjalankan kedua service tanpa langkah manual",
-                   "seed.py idempoten (dijalankan 2x tidak menggandakan data)",
-                   "CI gagal bila ada test merah atau lint error",
-                   "README memuat cara menjalankan dari nol"),
-       evidence=(f"{P}/docker-compose.yml", f"{P}/scripts/seed.py",
-                 f"{P}/.github/workflows/ci.yml"),
-       depends_on=("INT-004", "INT-006"), source=_WORK),
-
-    # ================================================================== Fase 1
-    _t("INT-008", "Abstraksi LLMProvider + fallback & retry",
-       "i1", priority="critical", estimate=1.5, labels=(*B, "llm"),
-       description=(
-           "Antarmuka `LLMProvider` dengan dua implementasi: OpenAI-compatible "
-           "(HTTP) dan Ollama lokal, plus `EchoProvider` untuk test offline. "
-           "Metode: `chat(messages, tools, stream)` mengembalikan potongan token "
-           "dan/atau permintaan tool. Tangani kegagalan secara dewasa: timeout, "
-           "retry dengan exponential backoff untuk 429/5xx (maks 2x), circuit "
-           "breaker sederhana, dan pesan ramah saat provider mati — bukan "
-           "stack trace ke pengguna."),
-       workflow=(
-           _w("Agent", "Panggil provider.chat(messages, tools)",
-              "Provider memilih implementasi sesuai .env"),
-           _w("Provider", "Kirim HTTP dengan timeout 60 dtk",
-              "Sukses → alirkan potongan; 429/5xx → retry backoff 1s, 3s"),
-           _w("Provider", "Setelah 3 kegagalan beruntun buka circuit 60 dtk",
-              "Request berikutnya langsung gagal cepat dengan pesan jelas"),
-           _w("Backend", "Ubah kegagalan jadi event SSE `error` yang sopan",
-              "UI menampilkan banner 'Layanan AI sedang sibuk, coba lagi'"),
-       ),
-       wireframe="""
-ALUR PROVIDER
-  chat() ─► [timeout 60s] ─► LLM
-             |  429/5xx
-             ├─ retry #1 (1s) ─► LLM
-             ├─ retry #2 (3s) ─► LLM
-             └─ gagal ─► circuit OPEN 60s ─► event SSE:
-                         {"type":"error","code":"llm_unavailable",
-                          "message":"Layanan AI sedang sibuk."}
-""",
-       acceptance=("Ganti provider cukup lewat .env tanpa mengubah kode pemanggil",
-                   "Retry & backoff terbukti lewat test dengan provider palsu",
-                   "Circuit breaker mencegah banjir request saat provider mati",
-                   "Kegagalan provider tidak pernah membocorkan URL/kunci API"),
-       evidence=(f"{P}/backend/app/llm/provider.py",
-                 f"{P}/backend/tests/test_provider.py"),
+       acceptance=(
+           "Kedua provider lulus satu set test kontrak yang sama",
+           "Streaming mengeluarkan token bertahap (bukan sekali kirim di akhir)",
+           "Timeout 30s dan retry 2x terbukti lewat test yang memalsukan error 429",
+           "`last_usage` mengisi prompt_tokens, completion_tokens, dan ttft_ms",
+           "Ganti provider cukup lewat env tanpa ubah kode"),
+       evidence=(f"{P}/core/providers.py", f"{P}/tests/test_providers.py"),
        depends_on=("INT-004",), source=_ARCH),
 
-    _t("INT-009", "Endpoint chat streaming SSE + persistensi percakapan",
-       "i1", priority="critical", estimate=2, labels=(*B, "chat"),
+    _t("INT-006", "UI chat streaming: bubble, status, dan penanganan error",
+       "i1", priority="high", estimate=1.5, labels=(*F, "epic-konteks"),
        description=(
-           "`POST /api/chat` menerima {conversation_id?, message} dan mengalirkan "
-           "Server-Sent Events bertipe: `start`, `token`, `tool`, `citation`, "
-           "`usage`, `done`, `error`. Percakapan & pesan disimpan sebelum dan "
-           "sesudah generasi sehingga refresh tidak kehilangan apa pun. Judul "
-           "percakapan dibuat otomatis dari pesan pertama. Batalkan generasi "
-           "dengan rapi bila klien memutus koneksi (hemat token)."),
+           "Halaman chat Streamlit yang layak dipakai: `st.chat_message` untuk "
+           "bubble pengguna/asisten, `st.write_stream` supaya jawaban muncul "
+           "bertahap, indikator status ('mengambil dokumen…', 'memanggil "
+           "tool…') yang dibaca dari event pipeline, tombol Stop untuk "
+           "menghentikan generasi, dan pesan error yang ramah (bukan "
+           "traceback) saat provider gagal. Sertakan tampilan kosong (empty "
+           "state) berisi 3 contoh pertanyaan yang bisa diklik."),
        workflow=(
-           _w("Pengguna", "Kirim pesan dari composer",
-              "POST /api/chat dengan conversation_id"),
-           _w("Backend", "Simpan pesan user + buat baris pesan assistant kosong",
-              "Riwayat aman walau proses terputus di tengah"),
-           _w("Backend", "Alirkan event start → token* → usage → done",
-              "UI menampilkan jawaban mengalir kata demi kata"),
-           _w("Backend", "Saat done: simpan teks final, token terpakai, sitasi",
-              "Pesan tersimpan utuh dan bisa dibuka lagi"),
-           _w("Pengguna", "Tutup tab di tengah jawaban",
-              "Server mendeteksi disconnect → hentikan generasi, simpan parsial"),
+           _w("Intern", "Bangun layout chat + state percakapan di st.session_state",
+              "Chat dua arah berjalan"),
+           _w("Intern", "Sambungkan streaming provider ke st.write_stream",
+              "Token muncul bertahap"),
+           _w("Intern", "Tambah status pipeline, tombol Stop, dan error handling",
+              "UI tidak pernah menampilkan traceback"),
+           _w("Pembimbing", "Coba 5 skenario termasuk provider mati",
+              "Semua skenario tertangani"),
        ),
        wireframe="""
-ALIRAN EVENT SSE
-  event: start     data: {"message_id":"m_9","conversation_id":"c_3"}
-  event: tool      data: {"name":"retrieve_knowledge","status":"running"}
-  event: citation  data: {"n":1,"doc":"SOP-Cuti.pdf","page":4}
-  event: token     data: {"text":"Cuti "}
-  event: token     data: {"text":"tahunan "}
-  event: usage     data: {"prompt":812,"completion":140,"total":952}
-  event: done      data: {"message_id":"m_9","finish":"stop"}
++--------------------------------------------------------------+
+| [sidebar]            |  👤 Apa kebijakan cuti tahunan?         |
+|  + Percakapan baru   |  🤖 ▌(streaming...)                     |
+|  - Cuti tahunan      |     status: mengambil dokumen (2)      |
+|  - Reimburse         |                                        |
+|                      |  [ Stop ]                              |
++----------------------+----------------------------------------+
+| empty state: [Cuti?] [Reimburse?] [Jam kerja?]                |
+| [ ketik ............................................ ] [Kirim]|
++--------------------------------------------------------------+
 """,
-       acceptance=("Jawaban tampil mengalir, bukan sekaligus di akhir",
-                   "Refresh halaman menampilkan percakapan lengkap dari DB",
-                   "Judul percakapan terisi otomatis dari pesan pertama",
-                   "Klien putus → generasi dihentikan dan teks parsial tersimpan",
-                   "Ada test SSE memakai provider palsu"),
-       evidence=(f"{P}/backend/app/api/chat.py",
-                 f"{P}/backend/tests/test_chat_stream.py"),
-       depends_on=("INT-008", "INT-005"), source=_API),
+       acceptance=(
+           "Jawaban tampil bertahap, bukan sekali muncul di akhir",
+           "Tombol Stop menghentikan generasi dalam <= 1 detik",
+           "Provider error menampilkan pesan ramah + tombol coba lagi, tanpa traceback",
+           "Empty state punya 3 contoh pertanyaan yang bisa diklik",
+           "Status pipeline berubah sesuai tahap (retrieval/tool/generasi)"),
+       evidence=(f"{P}/app.py", f"{P}/core/ui_chat.py"),
+       depends_on=("INT-005",), source=_ARCH),
 
-    _t("INT-010", "UI chat: composer, bubble streaming, status, dan error",
-       "i1", priority="critical", estimate=2, labels=F,
+    _t("INT-007", "Sesi percakapan: CRUD thread di SQLite + lanjut percakapan",
+       "i1", priority="critical", estimate=1.5, labels=(*B, "epic-konteks"),
        description=(
-           "Komponen chat lengkap: daftar pesan (markdown + blok kode + salin), "
-           "bubble assistant yang mengalir dengan kursor ketik, indikator "
-           "'sedang memakai tool …', tombol Hentikan, retry saat gagal, dan "
-           "composer yang mendukung Enter kirim / Shift+Enter baris baru serta "
-           "auto-resize. Fokus pada layar yang **tenang**: satu kolom utama, "
-           "detail teknis disembunyikan di balik panel yang bisa dibuka."),
+           "Epic 1 — Session Management. Tabel `sessions(id, user, title, "
+           "created_at, updated_at)` dan `messages(id, session_id, role, "
+           "content, tokens, created_at)` di SQLite, plus fungsi "
+           "`create/list/get/rename/delete` di `core/session.py`. Judul thread "
+           "dibuat otomatis dari 6 kata pertama pertanyaan pertama. Sidebar UI "
+           "menampilkan daftar thread terbaru, tombol ganti nama & hapus "
+           "(dengan konfirmasi), dan membuka thread lama akan memuat kembali "
+           "seluruh riwayatnya sehingga percakapan benar-benar bisa dilanjutkan "
+           "setelah aplikasi ditutup."),
        workflow=(
-           _w("Pengguna", "Ketik pertanyaan lalu tekan Enter",
-              "Bubble user muncul instan (optimistis)"),
-           _w("UI", "Buka koneksi SSE dan tambahkan token ke bubble assistant",
-              "Teks bertambah halus, auto-scroll mengikuti"),
-           _w("UI", "Tampilkan chip tool saat event `tool` diterima",
-              "Pengguna tahu agent sedang mencari dokumen"),
-           _w("Pengguna", "Klik Hentikan", "Koneksi ditutup, teks parsial tetap ada"),
-           _w("UI", "Saat event error", "Banner sopan + tombol Coba lagi"),
+           _w("Intern", "Buat skema tabel + migrasi ringan (CREATE IF NOT EXISTS)",
+              "core/db.py berisi skema"),
+           _w("Intern", "Implementasi CRUD sesi & pesan + judul otomatis",
+              "core/session.py + test"),
+           _w("Intern", "Sambungkan sidebar Streamlit ke CRUD",
+              "Thread bisa dibuat/dibuka/ganti nama/dihapus"),
+           _w("Intern", "Uji restart aplikasi: riwayat harus kembali utuh",
+              "Persistensi terbukti"),
        ),
        wireframe="""
-LAYAR CHAT
-+--------------------------------------------------------------+
-|  Kebijakan cuti                          [kuota 62% ▓▓▓░░]   |
-+--------------------------------------------------------------+
-|                            +-------------------------------+ |
-|                            | Berapa hari cuti tahunan?  🧑 | |
-|                            +-------------------------------+ |
-| +----------------------------------------------------------+ |
-| | 🤖  🔎 mencari dokumen…                                   | |
-| |     Cuti tahunan adalah 12 hari kerja [1]. ▌              | |
-| |     ─────────────────────────────────────                 | |
-| |     Sumber: [1] SOP-Cuti.pdf hal. 4                       | |
-| |     👍  👎   ⧉ salin                                       | |
-| +----------------------------------------------------------+ |
-+--------------------------------------------------------------+
-| [ Tulis pesan…                               ]  [Hentikan] → |
-+--------------------------------------------------------------+
-""",
-       acceptance=("Token tampil mengalir tanpa layar berkedip",
-                   "Enter mengirim, Shift+Enter baris baru, composer auto-resize",
-                   "Tombol Hentikan benar-benar memutus generasi",
-                   "Pesan error tampil sebagai banner ramah + tombol coba lagi",
-                   "Markdown & blok kode ter-render dengan tombol salin"),
-       evidence=(f"{P}/frontend/components/ChatView.tsx",
-                 f"{P}/frontend/components/Composer.tsx"),
-       depends_on=("INT-009", "INT-006"), source=_SPEC),
+sessions(id TEXT PK, user TEXT, title TEXT, created_at, updated_at)
+messages(id TEXT PK, session_id TEXT, role TEXT, content TEXT,
+         tokens INT, created_at)
 
-    _t("INT-011", "Riwayat percakapan: daftar, ganti nama, hapus, cari",
-       "i1", priority="high", estimate=1, labels=(*_L, "fullstack"),
+SIDEBAR
+ [+ Percakapan baru]
+ • Kebijakan cuti tahunan      ...  [✎] [🗑]
+ • Klaim reimburse             ...  [✎] [🗑]
+""",
+       acceptance=(
+           "Buat, buka, ganti nama, dan hapus thread bekerja dari UI",
+           "Judul otomatis terisi dari pertanyaan pertama (maks 6 kata)",
+           "Tutup lalu buka aplikasi: seluruh riwayat thread kembali utuh",
+           "Hapus thread meminta konfirmasi dan ikut menghapus pesannya",
+           "Test CRUD sesi hijau (minimal 5 kasus)"),
+       evidence=(f"{P}/core/session.py", f"{P}/tests/test_session.py"),
+       depends_on=("INT-004",), source=_ARCH),
+
+    _t("INT-008", "Hitung token real-time + indikator pemakaian context window",
+       "i1", priority="high", estimate=1, labels=(*B, "epic-konteks", "llm"),
        description=(
-           "Sidebar riwayat yang benar-benar terpakai: daftar percakapan milik "
-           "user (terbaru di atas, dikelompokkan Hari ini / 7 hari / Lebih lama), "
-           "ganti nama inline, hapus dengan konfirmasi, dan pencarian teks pada "
-           "judul + isi pesan. Backend menyediakan pagination (limit/cursor) "
-           "supaya daftar tetap ringan setelah ratusan percakapan."),
+           "Epic 1 — Token Limiter. Modul `core/tokens.py` memakai `tiktoken` "
+           "(encoding `cl100k_base`) untuk menghitung token pesan, dengan "
+           "fallback perkiraan `len(teks)/4` bila encoding tidak tersedia "
+           "offline. Hitung token system prompt, riwayat, konteks RAG, dan "
+           "draf pertanyaan yang sedang diketik; tampilkan di UI sebagai "
+           "'3.120 / 8.000 token' dengan bar warna (hijau <70%, kuning 70-90%, "
+           "merah >90%). Setiap pesan yang disimpan mencatat jumlah tokennya "
+           "supaya analitik biaya di Sprint 4 tidak perlu menghitung ulang."),
        workflow=(
-           _w("Pengguna", "Buka aplikasi", "Sidebar memuat 20 percakapan terbaru"),
-           _w("Pengguna", "Scroll ke bawah", "Halaman berikutnya dimuat lewat cursor"),
-           _w("Pengguna", "Ketik kata kunci di kolom cari",
-              "Backend mencari judul+isi, hasil ditandai"),
-           _w("Pengguna", "Klik hapus", "Dialog konfirmasi → percakapan & pesan terhapus"),
+           _w("Intern", "Bungkus tiktoken + fallback perkiraan",
+              "core/tokens.py"),
+           _w("Intern", "Hitung token per bagian prompt (system/riwayat/konteks)",
+              "Fungsi breakdown token"),
+           _w("Intern", "Tampilkan indikator + bar di UI",
+              "Pengguna tahu sisa ruang konteks"),
+           _w("Intern", "Simpan kolom tokens tiap pesan",
+              "Data siap dipakai dasbor biaya"),
        ),
        wireframe="""
-SIDEBAR RIWAYAT
-+--------------------------+
-| 🔍 cari percakapan...    |
-| + Percakapan baru        |
-|--------------------------|
-| HARI INI                 |
-| · Kebijakan cuti    ⋯    |
-| · Klaim kesehatan   ⋯    |
-| 7 HARI TERAKHIR          |
-| · Onboarding        ⋯    |
-| LEBIH LAMA               |
-| · Aturan lembur     ⋯    |
-|        [muat lagi]       |
-+--------------------------+
-menu ⋯ : Ganti nama · Hapus
-""",
-       acceptance=("Percakapan hanya terlihat oleh pemiliknya (diuji dengan 2 akun)",
-                   "Ganti nama & hapus bekerja dengan konfirmasi",
-                   "Pencarian menemukan kata pada isi pesan, bukan hanya judul",
-                   "Daftar memakai pagination, bukan memuat semuanya sekaligus"),
-       evidence=(f"{P}/backend/app/api/conversations.py",
-                 f"{P}/frontend/components/Sidebar.tsx"),
-       depends_on=("INT-009", "INT-010"), source=_API),
+count_tokens(text, model) -> int
+breakdown(session) -> {system, history, context, draft, total, limit}
 
-    _t("INT-012", "System prompt terkelola + parameter generasi",
-       "i1", priority="medium", estimate=1, labels=(*B, "llm"),
+UI (di atas composer)
+  [■■■■■■□□□□] 3.120 / 8.000 token  •  sisa ~4.880
+""",
+       acceptance=(
+           "Selisih hitungan terhadap usage provider <= 5% pada 10 contoh uji",
+           "Fallback jalan tanpa internet (tiktoken gagal diunduh) tanpa crash",
+           "Indikator berubah warna pada ambang 70% dan 90%",
+           "Kolom `tokens` terisi untuk setiap pesan tersimpan",
+           "Test hitung token hijau untuk teks ASCII dan non-ASCII"),
+       evidence=(f"{P}/core/tokens.py", f"{P}/tests/test_tokens.py"),
+       depends_on=("INT-007",), source=_ARCH),
+
+    _t("INT-009", "Sliding window + ringkasan otomatis riwayat lama",
+       "i1", priority="critical", estimate=1.5, labels=(*B, "epic-konteks", "llm"),
        description=(
-           "System prompt tidak boleh tersebar di banyak tempat: simpan sebagai "
-           "template berversi (`prompts/system.v1.md`) dengan placeholder "
-           "{persona}, {tanggal}, {aturan_sitasi}, {ringkasan_memori}. Admin bisa "
-           "mengubah suhu, max_tokens, dan memilih versi prompt aktif lewat "
-           "endpoint pengaturan; perubahan tercatat di audit log sehingga "
-           "perbedaan kualitas jawaban bisa ditelusuri ke versi prompt."),
+           "Epic 1 — Truncation. `core/context.py` menyusun prompt akhir dengan "
+           "anggaran tetap: system prompt + ringkasan + N pesan terbaru + "
+           "konteks RAG <= 8.000 token, menyisakan 1.024 token untuk jawaban. "
+           "Saat riwayat melewati 70% anggaran, pesan terlama dipangkas dan "
+           "diringkas satu kali oleh LLM (maks 200 token) menjadi memori "
+           "jangka menengah yang disimpan di kolom `sessions.summary`; "
+           "ringkasan lama digabung dengan ringkasan baru, bukan ditumpuk. "
+           "Pesan yang dipangkas tetap tersimpan di DB (hanya tidak dikirim)."),
        workflow=(
-           _w("Admin", "Ubah versi prompt / suhu di halaman pengaturan",
-              "PATCH /api/admin/settings tercatat di audit_log"),
-           _w("Backend", "Saat menyusun request, render template + placeholder",
-              "Prompt final konsisten untuk semua percakapan"),
-           _w("Backend", "Simpan `prompt_version` pada setiap pesan assistant",
-              "Analitik bisa membandingkan 👍/👎 antar versi prompt"),
+           _w("Intern", "Tulis algoritma anggaran token + pemilihan pesan",
+              "core/context.py"),
+           _w("Intern", "Tambah peringkas otomatis saat ambang 70% tercapai",
+              "sessions.summary terisi"),
+           _w("Intern", "Tandai di UI bahwa riwayat lama sudah diringkas",
+              "Pengguna paham konteks dipangkas"),
+           _w("Intern", "Uji percakapan 40 pesan: tidak pernah melebihi batas",
+              "Test panjang hijau"),
        ),
        wireframe="""
-prompts/system.v1.md
-  Kamu adalah asisten internal {persona}. Hari ini {tanggal}.
-  ATURAN:
-  1. Jawab hanya dari konteks yang diberikan.
-  2. Sertakan sitasi [n] untuk setiap klaim faktual.
-  3. Bila konteks tidak memuat jawabannya, katakan tidak tahu.
-  MEMORI PENGGUNA: {ringkasan_memori}
+ANGGARAN 8.000 token
+ [system 300][ringkasan <=200][konteks RAG <=2.500][riwayat sisa][jawaban 1.024]
 
-messages.prompt_version = "system.v1"   ← ikut tersimpan per jawaban
+ riwayat > 70%?  -> ambil 6 pesan terlama -> LLM ringkas (<=200 tok)
+                 -> gabung ke sessions.summary -> buang dari prompt
+UI: "ℹ️ 12 pesan lama diringkas untuk menghemat konteks"
 """,
-       acceptance=("Prompt tersimpan sebagai berkas berversi, bukan string di kode",
-                   "Admin bisa mengganti versi prompt & parameter tanpa deploy",
-                   "Setiap pesan assistant menyimpan prompt_version",
-                   "Perubahan pengaturan tercatat di audit log"),
-       evidence=(f"{P}/backend/app/llm/prompts.py",
-                 f"{P}/backend/app/prompts/system.v1.md"),
-       depends_on=("INT-009",), source=_SPEC),
+       acceptance=(
+           "Percakapan 40 pesan tidak pernah mengirim prompt > 8.000 token",
+           "Ringkasan terbentuk otomatis saat ambang 70% terlampaui",
+           "Ringkasan baru menggabungkan ringkasan lama (tidak beranak-pinak)",
+           "Pesan yang dipangkas tetap ada di DB dan tetap tampil di UI",
+           "UI memberi tahu bahwa riwayat lama telah diringkas"),
+       evidence=(f"{P}/core/context.py", f"{P}/tests/test_context.py"),
+       depends_on=("INT-008",), source=_ARCH),
 
-    # ================================================================== Fase 2
-    _t("INT-013", "Ingest dokumen: upload, parser, dan status pemrosesan",
-       "i2", priority="critical", estimate=2, labels=(*B, "rag"),
+    # ================================================================ Sprint 2
+    _t("INT-010", "Ingest dokumen: loader + chunking + status pemrosesan",
+       "i2", priority="critical", estimate=1.5, labels=(*B, "epic-tooling", "rag"),
        description=(
-           "`POST /api/documents/upload` menerima PDF/DOCX/MD/TXT (validasi tipe "
-           "& ukuran maks 20 MB), menyimpan berkas asli, lalu memproses di "
-           "background: parse structure-aware (heading berlevel, paragraf, tabel "
-           "utuh) menjadi `structure.json`. Status dokumen bergerak "
-           "`uploaded → parsing → chunking → embedding → ready | failed` dan bisa "
-           "dipantau dari UI. PDF hasil scan (tanpa teks) ditolak dengan pesan "
-           "yang jelas, bukan menghasilkan chunk kosong."),
+           "Epic 2 — RAG bagian 1. Halaman 'Pengetahuan' untuk mengunggah PDF, "
+           "TXT, dan Markdown (maks 10 MB per berkas). `core/ingest.py` "
+           "mengekstrak teks (pypdf untuk PDF), membersihkan header/footer "
+           "berulang, lalu memotong menjadi chunk ~500 token dengan overlap 50 "
+           "token yang tidak memutus kalimat. Tiap chunk menyimpan metadata "
+           "`{doc_id, judul, halaman, urutan}` supaya sitasi bisa menunjuk "
+           "halaman. Status pemrosesan (antre → ekstraksi → chunking → "
+           "embedding → siap) tampil per dokumen, termasuk pesan gagal yang "
+           "jelas bila PDF berupa hasil scan tanpa teks."),
        workflow=(
-           _w("Pengguna", "Seret berkas ke area upload", "POST multipart, status=uploaded"),
-           _w("Worker background", "Parse berkas sesuai tipe",
-              "structure.json: [{type, level, text, page, hierarchy}]"),
-           _w("Worker", "Pecah jadi chunk lalu hitung embedding",
-              "Status berpindah chunking → embedding"),
-           _w("Worker", "Selesai / gagal", "Status ready atau failed + alasan"),
-           _w("UI", "Polling status tiap 2 dtk", "Progress bar per dokumen"),
+           _w("Intern", "Buat halaman upload + validasi tipe/ukuran berkas",
+              "Dokumen masuk folder data/docs"),
+           _w("Intern", "Implementasi ekstraksi teks + pembersihan",
+              "Teks bersih per halaman"),
+           _w("Intern", "Implementasi chunking 500/50 sadar kalimat",
+              "Tabel chunks terisi"),
+           _w("Intern", "Tampilkan status & error per dokumen",
+              "Pengguna tahu dokumen siap atau gagal"),
        ),
        wireframe="""
-HALAMAN DOKUMEN
+HALAMAN PENGETAHUAN
 +--------------------------------------------------------------+
-|  ⬆  Seret berkas ke sini atau [pilih berkas]                 |
-|     PDF, DOCX, MD, TXT · maks 20 MB                          |
-+--------------------------------------------------------------+
-| Nama              | Ukuran | Status                | Aksi    |
-|-------------------|--------|-----------------------|---------|
-| SOP-Cuti.pdf      | 1.2 MB | ✅ ready · 84 chunk    | 🗑 ⧉    |
-| Panduan-HR.docx   | 3.4 MB | ⏳ embedding ▓▓▓░░ 60% | —       |
-| Scan-Lama.pdf     | 8.1 MB | ❌ gagal: tidak ada    | 🗑      |
-|                   |        |    teks (hasil scan)  |         |
-+--------------------------------------------------------------+
+| [ Unggah PDF/TXT/MD ]   maks 10 MB                            |
++---------------------+----------+----------+------------------+
+| Dokumen             | Halaman  | Chunk    | Status           |
++---------------------+----------+----------+------------------+
+| kebijakan-cuti.pdf  |    12    |    41    | ✅ siap           |
+| sop-reimburse.pdf   |     8    |     0    | ⏳ embedding      |
+| scan-lama.pdf       |     5    |     0    | ❌ tanpa teks     |
++---------------------+----------+----------+------------------+
 """,
-       acceptance=("PDF/DOCX/MD/TXT terparse jadi structure.json dengan hierarchy",
-                   "Tabel tidak terpotong dan tetap satu elemen",
-                   "Status dokumen terlihat bergerak sampai ready/failed",
-                   "Berkas terlalu besar / tipe salah ditolak dengan pesan jelas",
-                   "PDF hasil scan memberi pesan 'tidak ada lapisan teks'"),
-       evidence=(f"{P}/backend/app/ingest/pipeline.py",
-                 f"{P}/frontend/components/DocumentUploader.tsx",
-                 f"{P}/backend/tests/test_ingest.py"),
-       depends_on=("INT-004",), source=_SPEC),
+       acceptance=(
+           "PDF, TXT, dan MD bisa diunggah; tipe lain ditolak dengan pesan jelas",
+           "Chunk rata-rata 400-600 token dengan overlap 50 token",
+           "Setiap chunk menyimpan doc_id, judul, halaman, dan urutan",
+           "PDF hasil scan tanpa teks ditandai gagal, bukan menghasilkan chunk kosong",
+           "Status per dokumen berubah sampai 'siap' tanpa perlu refresh manual"),
+       evidence=(f"{P}/core/ingest.py", f"{P}/tests/test_ingest.py"),
+       depends_on=("INT-004",), source=_ARCH),
 
-    _t("INT-014", "Chunking structure-aware + embedding + vector store",
-       "i2", priority="critical", estimate=2, labels=(*B, "rag"),
+    _t("INT-011", "Embedding + indeks numpy + retrieval top-k berambang",
+       "i2", priority="critical", estimate=1.5, labels=(*B, "epic-tooling", "rag"),
        description=(
-           "Pecah struktur dokumen dengan menghormati batas semantik: tabel & "
-           "daftar langkah selalu utuh, heading menempel pada paragraf "
-           "pertamanya, sisanya sliding window ±400 token overlap 50. Embedding "
-           "memakai all-MiniLM-L6-v2 (384 dim) dengan fallback hashing "
-           "deterministik supaya test jalan offline. Simpan di Chroma persistent "
-           "(fallback tabel SQLite + cosine) beserta metadata doc_id, page, "
-           "hierarchy, type. Hapus dokumen → chunk & vektornya ikut terhapus."),
+           "Epic 2 — RAG bagian 2 (pengganti vector DB, cukup numpy). "
+           "`core/embed.py` membuat vektor dengan `sentence-transformers "
+           "all-MiniLM-L6-v2` (unduh sekali, jalan offline) dan menyimpannya "
+           "sebagai `data/index.npy` + peta id di SQLite; bila model tidak bisa "
+           "dimuat, fallback ke TF-IDF scikit-learn agar demo tetap jalan. "
+           "`search(query, k=5, min_score=0.35)` memakai cosine similarity "
+           "ternormalisasi dan membuang hasil di bawah ambang supaya jawaban "
+           "tidak mengarang dari potongan tak relevan. Re-embed ulang hanya "
+           "untuk dokumen baru/berubah, bukan seluruh indeks."),
        workflow=(
-           _w("Pipeline", "Terima structure.json", "Chunker menyusun potongan semantik"),
-           _w("Chunker", "Tabel/daftar → satu chunk; teks panjang → sliding window",
-              "Chunk + metadata hierarchy"),
-           _w("Embedder", "Hitung vektor per chunk (batch 32)",
-              "Vektor 384 dim, di-cache per hash isi"),
-           _w("Vector store", "Upsert chunk+vektor+metadata",
-              "Siap dicari; re-index otomatis saat dokumen diganti"),
+           _w("Intern", "Muat model embedding + simpan vektor ke index.npy",
+              "Indeks terbentuk"),
+           _w("Intern", "Implementasi cosine search + ambang skor",
+              "core/rag.py search()"),
+           _w("Intern", "Tambah fallback TF-IDF bila model gagal dimuat",
+              "Demo tetap jalan offline"),
+           _w("Intern", "Ukur waktu pencarian pada 1.000 chunk",
+              "Angka latensi tercatat di README"),
        ),
        wireframe="""
-BENTUK CHUNK
-{ "id":"ch_0042", "doc_id":"doc_7", "page":4, "type":"paragraph",
-  "hierarchy":["Kebijakan Cuti","Cuti Tahunan"],
-  "text":"Karyawan tetap berhak 12 hari kerja…",
-  "tokens":118, "vector":[0.013, -0.220, …384] }
+index.npy  -> matrix (n_chunk, 384) float32, sudah dinormalisasi
+chunk_map  -> SQLite: row_id <-> chunk_id
 
-ALUR: structure.json ─► chunker ─► embedder ─► store(Chroma|SQLite)
-      hapus dokumen  ─────────────────────────► hapus chunk + vektor
+search(q, k=5, min_score=0.35):
+   qv = embed(q)           # (384,)
+   skor = index @ qv       # cosine karena sudah dinormalisasi
+   ambil k tertinggi, buang skor < 0.35
+   -> [{chunk_id, skor, judul, halaman, teks}]
 """,
-       acceptance=("Tabel besar tidak pernah terbelah antar chunk",
-                   "Setiap chunk membawa hierarchy dan nomor halaman",
-                   "Fallback embedding offline dipakai otomatis bila model tak ada",
-                   "Menghapus dokumen membersihkan chunk & vektornya",
-                   "Unit test chunking + store (tambah, cari, hapus) hijau"),
-       evidence=(f"{P}/backend/app/rag/chunking.py",
-                 f"{P}/backend/app/rag/store.py",
-                 f"{P}/backend/tests/test_chunking.py"),
+       acceptance=(
+           "Pencarian pada 1.000 chunk selesai < 200 ms (dicatat di README)",
+           "Hasil di bawah skor 0.35 tidak pernah ikut ke prompt",
+           "Fallback TF-IDF terbukti jalan saat model embedding dinonaktifkan",
+           "Menambah 1 dokumen tidak memicu re-embed seluruh indeks",
+           "Test retrieval memastikan dokumen relevan masuk 3 besar untuk 5 query uji"),
+       evidence=(f"{P}/core/embed.py", f"{P}/core/rag.py",
+                 f"{P}/tests/test_rag.py"),
+       depends_on=("INT-010",), source=_ARCH),
+
+    _t("INT-012", "Jawaban tergrounding + sitasi yang bisa diklik",
+       "i2", priority="critical", estimate=1.5, labels=(*B, *F, "epic-tooling", "rag"),
+       description=(
+           "Epic 2 — RAG bagian 3. Prompt RAG menyusun konteks sebagai daftar "
+           "bernomor `[1] judul — hal. X` (maks 2.500 token) dan mewajibkan "
+           "model menulis sitasi `[n]` pada tiap klaim faktual serta menjawab "
+           "'informasi tidak ada di dokumen' bila konteks tidak memuat "
+           "jawabannya. Setelah jawaban selesai, verifikasi bahwa setiap nomor "
+           "sitasi benar-benar ada di konteks (sitasi halu dibuang) dan "
+           "tampilkan panel sumber yang bisa diklik untuk membuka kutipan "
+           "aslinya di UI."),
+       workflow=(
+           _w("Intern", "Susun template prompt RAG + aturan sitasi",
+              "core/prompts.py"),
+           _w("Intern", "Verifikasi nomor sitasi terhadap konteks",
+              "Sitasi halu dibuang"),
+           _w("Intern", "Bangun panel sumber yang bisa dibuka",
+              "Pengguna bisa cek kutipan asli"),
+           _w("Intern", "Uji 10 pertanyaan: 8 harus tergrounding",
+              "Angka tercatat untuk metrik PRD"),
+       ),
+       wireframe="""
+KONTEKS -> PROMPT
+ [1] kebijakan-cuti.pdf — hal. 3 : "Cuti tahunan 12 hari..."
+ [2] sop-reimburse.pdf  — hal. 1 : "Klaim maksimal 30 hari..."
+
+JAWABAN
+ Cuti tahunan 12 hari kerja per tahun [1]. Klaim ... [2].
+ ┌ Sumber ───────────────────────────────┐
+ │ [1] kebijakan-cuti.pdf hal.3  (buka)  │
+ │ [2] sop-reimburse.pdf hal.1   (buka)  │
+ └───────────────────────────────────────┘
+""",
+       acceptance=(
+           ">= 8 dari 10 pertanyaan uji dijawab dengan minimal satu sitasi valid",
+           "Pertanyaan di luar dokumen dijawab 'tidak ada di dokumen', bukan dikarang",
+           "Nomor sitasi yang tidak ada di konteks dibuang sebelum tampil",
+           "Panel sumber menampilkan judul + halaman dan bisa dibuka",
+           "Konteks RAG tidak pernah melebihi 2.500 token"),
+       evidence=(f"{P}/core/prompts.py", f"{P}/tests/test_grounding.py"),
+       depends_on=("INT-011", "INT-009"), source=_ARCH),
+
+    _t("INT-013", "Tool registry (function calling) + eksekusi aman",
+       "i2", priority="critical", estimate=2, labels=(*B, "epic-tooling", "llm"),
+       description=(
+           "Epic 2 — Function Calling Registry. `core/tools.py` menyediakan "
+           "dekorator `@tool` yang mendaftarkan nama, deskripsi, dan JSON "
+           "schema parameter (dibangun dari model pydantic) ke satu registry, "
+           "lalu mengekspornya ke format `tools=[...]` milik API "
+           "OpenAI-compatible. Sediakan 3 tool: `cari_dokumen(query, k)` "
+           "(membungkus retrieval), `kalkulator(ekspresi)` (parser aman lewat "
+           "`ast`, bukan `eval`), dan `waktu_sekarang(zona)`. Loop agent "
+           "menjalankan maksimal 3 iterasi tool, memvalidasi argumen terhadap "
+           "schema, dan menolak nama tool di luar registry."),
+       workflow=(
+           _w("Intern", "Bangun dekorator @tool + generator JSON schema",
+              "Registry berisi 3 tool"),
+           _w("Intern", "Implementasi loop panggil-tool maks 3 iterasi",
+              "core/agent.py"),
+           _w("Intern", "Validasi argumen + tolak tool tak dikenal",
+              "Panggilan liar gagal rapi"),
+           _w("Intern", "Tampilkan jejak pemanggilan tool di UI",
+              "Pengguna melihat tool apa yang dipakai"),
+       ),
+       wireframe="""
+@tool("kalkulator", "Hitung ekspresi aritmatika")
+def kalkulator(ekspresi: str) -> str: ...
+
+registry.schemas() -> [{"type":"function","function":{...json schema...}}]
+
+LOOP (maks 3 iterasi)
+ model -> tool_call(nama, args) -> validasi schema -> jalankan
+        -> hasil dikembalikan sebagai pesan role=tool -> model lanjut
+ iterasi ke-4 -> berhenti, jawab dengan info seadanya
+""",
+       acceptance=(
+           "3 tool terdaftar dan schema-nya lolos validasi JSON schema",
+           "Kalkulator memakai parser ast; `__import__` atau kode arbitrer ditolak",
+           "Argumen tidak sesuai schema ditolak dengan pesan ke model, bukan crash",
+           "Loop berhenti di iterasi ke-3 dan tetap memberi jawaban",
+           "UI menampilkan urutan tool yang dipanggil beserta durasinya"),
+       evidence=(f"{P}/core/tools.py", f"{P}/core/agent.py",
+                 f"{P}/tests/test_tools.py"),
+       depends_on=("INT-011",), source=_ARCH),
+
+    _t("INT-014", "Router / intent classifier: langsung, RAG, atau tool",
+       "i2", priority="high", estimate=1.5, labels=(*B, "epic-tooling", "llm"),
+       description=(
+           "Epic 2 — Router. `core/router.py` memutuskan rute tiap pertanyaan: "
+           "`smalltalk` (jawab langsung tanpa retrieval), `dokumen` (jalankan "
+           "RAG), atau `tool` (butuh hitung/waktu). Tahap pertama aturan murah "
+           "(sapaan, pertanyaan aritmatika, kata kunci domain); bila ragu, "
+           "panggil LLM kecil sekali dengan output JSON `{rute, alasan, "
+           "keyakinan}`. Tujuannya menghemat biaya: pertanyaan sapaan tidak "
+           "boleh memicu embedding + retrieval. Catat rute terpilih ke trace "
+           "supaya bisa dievaluasi, dan sediakan mode paksa (override) di UI "
+           "untuk pengujian."),
+       workflow=(
+           _w("Intern", "Kumpulkan 30 contoh pertanyaan berlabel rute",
+              "Berkas data uji router"),
+           _w("Intern", "Implementasi aturan murah + fallback LLM klasifikasi",
+              "core/router.py"),
+           _w("Intern", "Ukur akurasi terhadap 30 contoh",
+              "Angka akurasi tercatat"),
+           _w("Intern", "Sambungkan ke pipeline + catat rute di trace",
+              "Rute terlihat di trace viewer"),
+       ),
+       wireframe="""
+route(q) -> {"rute": "smalltalk|dokumen|tool", "alasan": "...", "keyakinan": 0.0-1.0}
+
+ aturan murah  : "halo/terima kasih"        -> smalltalk
+                 regex angka+operator       -> tool
+                 kata domain (cuti, sop...) -> dokumen
+ ragu (<0.6)   : 1x panggilan LLM klasifikasi (JSON)
+
+UI: [rute: dokumen ▾ (paksa: langsung / dokumen / tool)]
+""",
+       acceptance=(
+           "Akurasi router >= 80% pada 30 contoh berlabel",
+           ">= 90% pertanyaan smalltalk tidak memicu retrieval sama sekali",
+           "Rute, alasan, dan keyakinan tercatat di trace tiap permintaan",
+           "Override rute dari UI bekerja untuk pengujian",
+           "Biaya rata-rata per pertanyaan smalltalk turun terhadap baseline (angka dicatat)"),
+       evidence=(f"{P}/core/router.py", f"{P}/tests/test_router.py"),
+       depends_on=("INT-013", "INT-012"), source=_ARCH),
+
+    _t("INT-015", "Memori jangka panjang: fakta & preferensi pengguna",
+       "i2", priority="high", estimate=1.5, labels=(*B, "epic-konteks", "llm"),
+       description=(
+           "Epic 1 — Semantic Memory, versi sederhana tanpa vector DB terpisah. "
+           "Setelah percakapan selesai (atau tiap 10 pesan), LLM mengekstrak "
+           "maksimal 5 fakta stabil tentang pengguna (jabatan, divisi, "
+           "preferensi bahasa/format jawaban) ke tabel `memories(id, user, "
+           "kind, text, embedding, created_at)`. Saat percakapan baru dimulai, "
+           "ambil 3 memori paling mirip dengan pertanyaan (cosine, ambang "
+           "0.35) dan sisipkan ke system prompt maksimal 300 token. Memori "
+           "bisa dilihat, diedit, dan dihapus pengguna di halaman Memori — "
+           "ingatan yang tidak bisa dihapus adalah cacat privasi, bukan fitur."),
+       workflow=(
+           _w("Intern", "Buat tabel memories + ekstraksi fakta via LLM",
+              "Memori terisi otomatis"),
+           _w("Intern", "Ambil memori relevan secara semantik saat menyusun prompt",
+              "Prompt memuat memori terpilih"),
+           _w("Intern", "Bangun halaman Memori (lihat/edit/hapus)",
+              "Pengguna mengendalikan ingatannya"),
+           _w("Intern", "Uji percakapan baru: preferensi lama masih diingat",
+              "Demo memori berhasil"),
+       ),
+       wireframe="""
+memories(id, user, kind[fakta|preferensi], text, embedding BLOB, created_at)
+
+percakapan baru -> ambil 3 memori termirip (>=0.35) -> system prompt
+  "Yang diketahui tentang pengguna: divisi Finance; jawaban ringkas."
+
+HALAMAN MEMORI
+ • [fakta] Divisi Finance                 [edit] [hapus]
+ • [pref ] Suka jawaban poin-poin singkat [edit] [hapus]
+""",
+       acceptance=(
+           "Maksimal 5 fakta baru per ekstraksi dan tidak ada duplikat mirip (>0.9)",
+           "Percakapan baru terbukti memakai memori lama pada skenario demo",
+           "Blok memori di prompt tidak pernah melebihi 300 token",
+           "Pengguna bisa melihat, mengedit, dan menghapus tiap memori",
+           "Hapus memori langsung berpengaruh pada percakapan berikutnya"),
+       evidence=(f"{P}/core/memory.py", f"{P}/tests/test_memory.py"),
+       depends_on=("INT-011", "INT-009"), source=_ARCH),
+
+    # ================================================================ Sprint 3
+    _t("INT-016", "Guardrail input: prompt injection, jailbreak, dan toksisitas",
+       "i3", priority="critical", estimate=1.5, labels=(*B, "epic-guardrail"),
+       description=(
+           "Epic 3 — Input Guardrails. `core/guardrail.py` memeriksa setiap "
+           "pesan sebelum mencapai LLM utama: (1) pola prompt injection "
+           "('abaikan instruksi sebelumnya', 'tampilkan system prompt', "
+           "'kamu sekarang adalah…'), (2) kata/topik terlarang dari daftar "
+           "yang bisa disunting admin, (3) panjang wajar (maks 4.000 karakter). "
+           "Pesan yang diblokir mendapat jawaban penolakan yang sopan berisi "
+           "alasan, dan kejadiannya dicatat ke tabel `guardrail_events` untuk "
+           "ditinjau. Teks dokumen hasil retrieval juga diperlakukan sebagai "
+           "data tidak tepercaya: instruksi di dalam dokumen tidak boleh "
+           "dituruti (uji dengan dokumen jebakan)."),
+       workflow=(
+           _w("Intern", "Kumpulkan 20 contoh serangan + 20 pesan normal",
+              "Set uji guardrail"),
+           _w("Intern", "Implementasi aturan deteksi + daftar terlarang",
+              "core/guardrail.py"),
+           _w("Intern", "Tambah uji dokumen jebakan (injection lewat RAG)",
+              "Instruksi di dokumen tidak dituruti"),
+           _w("Intern", "Catat kejadian + tampilkan di halaman admin",
+              "Kejadian bisa ditinjau"),
+       ),
+       wireframe="""
+check_input(text) -> {ok, kategori, alasan}
+  kategori: injection | terlarang | terlalu_panjang | ok
+
+DITOLAK
+ 🤖 Maaf, permintaan ini saya tolak (terdeteksi prompt injection).
+    Coba tanyakan ulang tanpa meminta saya mengabaikan aturan.
+
+guardrail_events(id, session_id, kategori, cuplikan, created_at)
+""",
+       acceptance=(
+           ">= 18 dari 20 contoh serangan terblokir (recall >= 90%)",
+           "<= 1 dari 20 pesan normal ikut terblokir (false positive <= 5%)",
+           "Dokumen jebakan berisi instruksi tidak mengubah perilaku model (uji otomatis)",
+           "Setiap blokir tercatat di guardrail_events dengan kategori & cuplikan",
+           "Daftar kata terlarang bisa disunting tanpa mengubah kode"),
+       evidence=(f"{P}/core/guardrail.py", f"{P}/tests/test_guardrail.py"),
        depends_on=("INT-013",), source=_ARCH),
 
-    _t("INT-015", "Retrieval berkualitas: top-k, threshold, MMR, re-rank",
-       "i2", priority="critical", estimate=1.5, labels=(*B, "rag"),
+    _t("INT-017", "Redaksi PII sebelum konteks dikirim ke provider",
+       "i3", priority="critical", estimate=1.5, labels=(*B, "epic-guardrail"),
        description=(
-           "`POST /api/rag/query` mengembalikan chunk relevan beserta skor. "
-           "Kualitas dijaga dengan: top-k awal 20 → MMR untuk keberagaman → "
-           "re-rank sederhana (cross-encoder bila tersedia, kalau tidak skor "
-           "gabungan cosine + kecocokan kata kunci) → ambil 5 teratas → buang "
-           "yang di bawah threshold. Bila hasil kosong, kembalikan daftar kosong "
-           "secara eksplisit supaya agent menjawab 'tidak tahu', bukan mengarang."),
+           "Epic 3 — PII Redaction. `core/pii.py` menyensor data sensitif "
+           "Indonesia sebelum teks meninggalkan aplikasi: NIK 16 digit, nomor "
+           "kartu kredit (dengan validasi Luhn agar angka biasa tidak ikut "
+           "tersensor), email, nomor telepon (+62/08…), dan NPWP. Setiap "
+           "temuan diganti token stabil `[NIK_1]`, `[EMAIL_1]` dan dipetakan "
+           "di memori proses, sehingga jawaban model bisa dipulihkan kembali "
+           "ke nilai asli saat ditampilkan ke pengguna (tanpa pernah "
+           "menyimpan peta itu ke disk). Redaksi berlaku untuk pesan pengguna "
+           "DAN potongan dokumen hasil retrieval."),
        workflow=(
-           _w("Agent/UI", "Kirim pertanyaan + filter dokumen (opsional)",
-              "POST /api/rag/query"),
-           _w("Retriever", "Embed pertanyaan → cari 20 kandidat terdekat",
-              "Kandidat + skor cosine"),
-           _w("Retriever", "MMR (λ=0.7) buang kandidat yang saling duplikat",
-              "Kandidat beragam"),
-           _w("Re-ranker", "Urutkan ulang berdasar relevansi, ambil 5 teratas",
-              "Konteks final"),
-           _w("Retriever", "Buang skor < threshold (0.35)",
-              "Kosong → sinyal 'tidak ada dasar jawaban'"),
+           _w("Intern", "Tulis regex + validasi Luhn untuk 5 jenis PII",
+              "core/pii.py"),
+           _w("Intern", "Terapkan redaksi di jalur prompt (pesan + konteks RAG)",
+              "Provider tidak pernah menerima PII mentah"),
+           _w("Intern", "Implementasi pemulihan token saat menampilkan jawaban",
+              "Pengguna tetap melihat data aslinya"),
+           _w("Intern", "Uji 30 contoh positif + 30 negatif",
+              "Angka presisi/recall tercatat"),
        ),
        wireframe="""
-PIPELINE RETRIEVAL
- pertanyaan ─► embed ─► top-20 ─► MMR(λ=0.7) ─► re-rank ─► top-5 ─► ≥0.35?
-                                                                     │
-                                          ya ─► konteks + sitasi ────┘
-                                          tidak ─► [] → agent jawab "tidak tahu"
+redact("NIK saya 3201234567890123, email a@b.com")
+ -> "NIK saya [NIK_1], email [EMAIL_1]"  + peta {NIK_1: ..., EMAIL_1: ...}
 
-respons: {"hits":[{"chunk_id","doc","page","hierarchy","score","text"}],
-          "took_ms":38, "filtered_by_threshold":3}
+restore(jawaban, peta) -> jawaban dengan nilai asli (hanya di layar)
+
+DILINDUNGI: pesan pengguna, konteks RAG, memori jangka panjang
 """,
-       acceptance=("Pertanyaan di luar dokumen mengembalikan hasil kosong, bukan chunk asal",
-                   "MMR terbukti mengurangi chunk duplikat (diuji)",
-                   "Threshold & top-k bisa diatur lewat konfigurasi",
-                   "Waktu query p95 < 300 ms untuk 5.000 chunk",
-                   "Respons memuat skor sehingga bisa di-debug"),
-       evidence=(f"{P}/backend/app/rag/retriever.py",
-                 f"{P}/backend/tests/test_retriever.py"),
+       acceptance=(
+           "Recall >= 95% pada 30 contoh PII; false positive <= 5% pada 30 teks biasa",
+           "Kartu kredit hanya tersensor bila lolos Luhn",
+           "Payload yang dikirim provider terbukti bebas PII (uji menangkap payload)",
+           "Peta pemulihan tidak pernah ditulis ke disk atau ke tabel mana pun",
+           "Redaksi juga berlaku pada potongan dokumen hasil retrieval"),
+       evidence=(f"{P}/core/pii.py", f"{P}/tests/test_pii.py"),
+       depends_on=("INT-016",), source=_ARCH),
+
+    _t("INT-018", "Validator output terstruktur + retry otomatis",
+       "i3", priority="high", estimate=1.5, labels=(*B, "epic-guardrail", "llm"),
+       description=(
+           "Epic 3 — Structured Output Validator. Untuk jalur yang butuh JSON "
+           "(router, ekstraksi memori, alasan feedback, ringkasan), definisikan "
+           "model pydantic dan minta model menjawab JSON saja. `core/structured.py` "
+           "mem-parse hasil; bila gagal, kirim ulang ke LLM maksimal 2 kali "
+           "dengan pesan error parser yang spesifik ('field `rute` wajib, nilai "
+           "harus salah satu dari …'). Bila tetap gagal, pakai nilai default "
+           "yang aman dan catat kejadian — pipeline tidak boleh mati karena "
+           "model salah format."),
+       workflow=(
+           _w("Intern", "Definisikan skema pydantic untuk 4 jalur JSON",
+              "core/schemas.py"),
+           _w("Intern", "Implementasi parse + retry berpesan error",
+              "core/structured.py"),
+           _w("Intern", "Tambah default aman + pencatatan kegagalan",
+              "Pipeline tidak pernah crash"),
+           _w("Intern", "Uji dengan mock yang sengaja mengembalikan JSON rusak",
+              "Retry & fallback terbukti"),
+       ),
+       wireframe="""
+ask_json(prompt, schema=RouteDecision, retries=2)
+  attempt 1 -> "{rute: dokumen}"        (bukan JSON valid)
+  attempt 2 <- "JSON tidak valid: expecting property name in double quotes"
+            -> {"rute":"dokumen","alasan":"...","keyakinan":0.8}  ✅
+  gagal 3x  -> default {"rute":"dokumen","keyakinan":0.0} + catat
+""",
+       acceptance=(
+           "JSON rusak memicu retry maksimal 2 kali dengan pesan error spesifik",
+           "Kegagalan ketiga memakai default aman dan tercatat, tanpa exception ke UI",
+           "4 jalur JSON memakai skema pydantic, tidak ada parsing manual",
+           "Test memakai mock yang mengembalikan JSON rusak lalu benar",
+           "Jumlah retry tercatat di trace permintaan"),
+       evidence=(f"{P}/core/structured.py", f"{P}/core/schemas.py",
+                 f"{P}/tests/test_structured.py"),
        depends_on=("INT-014",), source=_ARCH),
 
-    _t("INT-016", "Agent loop (ReAct) + tool registry + batas iterasi",
-       "i2", priority="critical", estimate=2.5, labels=(*B, "agent"),
+    _t("INT-019", "System prompt terkelola + parameter generasi",
+       "i3", priority="medium", estimate=1, labels=(*B, *F, "epic-guardrail"),
        description=(
-           "Inti produk: loop agent yang memutuskan sendiri kapan memakai tool. "
-           "`ToolRegistry` mendaftarkan tool dengan JSON Schema parameter, "
-           "deskripsi, dan izin peran. Loop: LLM → (tool call?) → jalankan tool "
-           "→ masukkan hasil → ulangi. Batas keras: maks 5 iterasi, maks 30 detik, "
-           "maks 3 pemanggilan tool yang sama, dan setiap tool punya timeout "
-           "sendiri. Semua langkah dicatat sebagai `trace` yang bisa dilihat di UI "
-           "dan disimpan bersama pesan untuk audit."),
+           "Satu tempat untuk mengatur perilaku model: halaman Pengaturan "
+           "menyimpan system prompt (dengan versi dan catatan perubahan), "
+           "temperature, max_tokens, top_p, dan daftar tool yang diaktifkan. "
+           "Nilai tersimpan di SQLite sehingga bertahan setelah restart, "
+           "dengan tombol 'kembalikan ke bawaan'. Setiap jawaban mencatat "
+           "versi system prompt yang dipakai, supaya saat evaluasi kualitas "
+           "turun bisa dilacak prompt mana penyebabnya."),
        workflow=(
-           _w("Pengguna", "Ajukan pertanyaan", "Agent menerima pesan + riwayat + memori"),
-           _w("Agent", "Minta keputusan ke LLM beserta daftar tool",
-              "LLM membalas jawaban ATAU permintaan tool"),
-           _w("Agent", "Validasi argumen tool terhadap JSON Schema",
-              "Argumen tidak valid → hasil error dikembalikan ke LLM untuk diperbaiki"),
-           _w("Agent", "Jalankan tool dengan timeout, catat durasi",
-              "Hasil tool masuk ke konteks + event SSE `tool`"),
-           _w("Agent", "Ulangi sampai LLM menjawab atau batas tercapai",
-              "Batas tercapai → jawab dengan info terbaik + catatan keterbatasan"),
-           _w("Agent", "Simpan trace lengkap bersama pesan", "Bisa diaudit ulang"),
+           _w("Intern", "Buat tabel settings + nilai bawaan",
+              "Pengaturan tersimpan"),
+           _w("Intern", "Bangun halaman Pengaturan + validasi rentang nilai",
+              "Parameter bisa diubah aman"),
+           _w("Intern", "Catat versi prompt pada tiap jawaban",
+              "Trace memuat prompt_version"),
+           _w("Pembimbing", "Uji ubah prompt lalu restart aplikasi",
+              "Nilai tetap tersimpan"),
        ),
        wireframe="""
-SIKLUS AGENT (maks 5 iterasi / 30 dtk)
-   ┌──────────────────────────────────────────┐
-   │  pesan + riwayat + memori + daftar tool  │
-   └───────────────┬──────────────────────────┘
-                   v
-              [ LLM berpikir ]
-                   │
-        jawab ◄────┴────► panggil tool
-          │                   │
-          │        validasi schema → jalankan (timeout 10s)
-          │                   │
-          │              hasil tool ──┐
-          v                           │
-      jawaban final  ◄────────────────┘ (ulang, maks 5x)
-
-TRACE tersimpan:
- [{"i":1,"thought":"perlu cari SOP","tool":"retrieve_knowledge",
-   "args":{"q":"cuti tahunan"},"ms":42,"ok":true}, …]
+HALAMAN PENGATURAN
+ System prompt (v4)   [ textarea ........................ ]
+ temperature  [0.2]  max_tokens [1024]  top_p [1.0]
+ Tool aktif: [x] cari_dokumen  [x] kalkulator  [ ] waktu_sekarang
+ [ Simpan ]  [ Kembalikan ke bawaan ]   riwayat versi: v1 v2 v3 v4
 """,
-       acceptance=("Agent memakai tool hanya bila perlu (pertanyaan sapaan tidak memicu retrieval)",
-                   "Batas iterasi/waktu/pengulangan tool benar-benar berlaku & diuji",
-                   "Argumen tool divalidasi; argumen salah tidak membuat server error",
-                   "Trace tersimpan dan bisa ditampilkan ulang untuk pesan lama",
-                   "Loop diuji dengan provider palsu yang men-skenario-kan tool call"),
-       evidence=(f"{P}/backend/app/agent/loop.py",
-                 f"{P}/backend/app/agent/registry.py",
-                 f"{P}/backend/tests/test_agent_loop.py"),
-       depends_on=("INT-008", "INT-015"), source=REF["agent"]),
+       acceptance=(
+           "Perubahan bertahan setelah aplikasi direstart",
+           "Rentang nilai divalidasi (temperature 0-1, max_tokens 128-4096)",
+           "Versi system prompt naik tiap disimpan dan tercatat di trace jawaban",
+           "Tombol kembalikan ke bawaan mengembalikan seluruh nilai awal",
+           "Menonaktifkan tool membuat tool itu tidak dikirim ke model"),
+       evidence=(f"{P}/core/settings_store.py", f"{P}/tests/test_settings.py"),
+       depends_on=("INT-018",), source=_ARCH),
 
-    _t("INT-017", "Tool retrieve_knowledge + jawaban tergrounding & sitasi",
-       "i2", priority="critical", estimate=1.5, labels=(*B, "agent", "rag"),
+    # ================================================================ Sprint 4
+    _t("INT-020", "Tracing per permintaan: span DB, retrieval, LLM, tool",
+       "i4", priority="critical", estimate=2, labels=(*B, "epic-observability"),
        description=(
-           "Tool utama yang menyambungkan agent ke dokumen. Prompt grounded "
-           "mewajibkan: jawab hanya dari konteks, beri nomor sitasi [n] pada "
-           "setiap klaim, dan katakan tidak tahu bila konteks tidak memadai. "
-           "Setelah jawaban selesai, verifikasi sitasi: nomor yang tidak merujuk "
-           "chunk nyata ditandai `unverified`, dan rasio kalimat bersitasi dicatat "
-           "sebagai metrik grounding per jawaban."),
+           "Epic 4 — Request Tracing, dibuat sendiri (tanpa LangSmith/Datadog). "
+           "`core/tracing.py` membuat `trace_id` per permintaan dan mencatat "
+           "span bertingkat ke tabel `traces(trace_id, parent_id, nama, mulai, "
+           "durasi_ms, meta_json, status)` untuk tahap: guardrail, router, "
+           "retrieval, penyusunan konteks, panggilan LLM (termasuk TTFT), tiap "
+           "tool, dan validator output. Halaman 'Trace' menampilkan daftar "
+           "permintaan terbaru dan tampilan waterfall satu permintaan, plus "
+           "tombol salin trace_id. Overhead pencatatan harus < 5% dari total "
+           "durasi."),
        workflow=(
-           _w("Agent", "Panggil retrieve_knowledge(query, doc_ids?)",
-              "Konteks 5 chunk + daftar sitasi bernomor"),
-           _w("Agent", "Susun prompt grounded berisi konteks bernomor",
-              "LLM menjawab dengan penanda [1], [2]"),
-           _w("Verifier", "Cocokkan tiap [n] dengan chunk yang benar-benar dikirim",
-              "Sitasi liar ditandai unverified"),
-           _w("Backend", "Simpan message_citations + skor grounding",
-              "UI bisa menampilkan sumber yang bisa diklik"),
-           _w("UI", "Klik [1]", "Panel sumber terbuka pada kutipan yang disorot"),
+           _w("Intern", "Buat context manager span + tabel traces",
+              "core/tracing.py"),
+           _w("Intern", "Pasang span di 7 tahap pipeline",
+              "Satu jawaban menghasilkan pohon span lengkap"),
+           _w("Intern", "Bangun halaman Trace (daftar + waterfall)",
+              "Durasi tiap tahap terlihat"),
+           _w("Intern", "Ukur overhead tracing",
+              "Angka overhead tercatat"),
        ),
        wireframe="""
-JAWABAN + SUMBER
-+--------------------------------------------------------------+
-| 🤖 Cuti tahunan adalah 12 hari kerja per tahun [1] dan hangus |
-|    bila tidak diambil sampai 31 Maret tahun berikutnya [2].   |
-|    ─────────────────────────────────────────────────────────  |
-|    Sumber                                                     |
-|    [1] SOP-Cuti.pdf · hal. 4 · Kebijakan Cuti › Cuti Tahunan  |
-|    [2] SOP-Cuti.pdf · hal. 5 · … › Kedaluwarsa                |
-|    grounding 100% · 2/2 kalimat faktual bersitasi             |
-+--------------------------------------------------------------+
-klik [1] ▸ panel kanan menampilkan chunk penuh dengan sorotan
+TRACE  a1b2c3  total 2.410 ms
+ guardrail_input      ▌ 12 ms
+ router               ▌▌ 140 ms
+ retrieval            ▌▌▌▌ 310 ms   (k=5, skor 0.71/0.66/…)
+ build_context        ▌ 18 ms       (3.120 token)
+ llm_stream           ▌▌▌▌▌▌▌ 1.870 ms (TTFT 640 ms, 412 tok)
+ validate_output      ▌ 9 ms
 """,
-       acceptance=("Pertanyaan di luar dokumen dijawab 'tidak tahu', bukan karangan",
-                   "Setiap klaim faktual membawa sitasi yang bisa diklik",
-                   "Sitasi yang tidak cocok dengan konteks ditandai unverified",
-                   "Skor grounding tersimpan per jawaban",
-                   "Sitasi tetap benar saat percakapan lama dibuka kembali"),
-       evidence=(f"{P}/backend/app/tools/retrieve_knowledge.py",
-                 f"{P}/backend/app/agent/citations.py",
-                 f"{P}/frontend/components/CitationPanel.tsx"),
-       depends_on=("INT-016",), source=_SUCCESS),
+       acceptance=(
+           "Satu jawaban menghasilkan minimal 6 span dengan durasi terisi",
+           "trace_id tampil di UI dan bisa disalin",
+           "Halaman waterfall menampilkan urutan dan durasi tiap span",
+           "Overhead tracing < 5% dari total durasi (diukur dan dicatat)",
+           "Span gagal ditandai status=error beserta pesannya"),
+       evidence=(f"{P}/core/tracing.py", f"{P}/tests/test_tracing.py"),
+       depends_on=("INT-014",), source=_ARCH),
 
-    _t("INT-018", "Tool tambahan: kalkulator, waktu, dan pencarian web (opsional)",
-       "i2", priority="medium", estimate=1, labels=(*B, "agent"),
+    _t("INT-021", "Dasbor biaya & latensi: token, Rupiah, TTFT p50/p95",
+       "i4", priority="high", estimate=1.5, labels=(*B, *F, "epic-observability"),
        description=(
-           "Buktikan registry tool benar-benar generik dengan menambah tool "
-           "kedua & ketiga tanpa menyentuh loop: `calculator` (ekspresi aman, "
-           "tanpa eval Python), `current_time` (zona waktu Asia/Jakarta), dan "
-           "`web_search` yang dimatikan secara default lewat feature flag serta "
-           "hanya boleh dipakai peran tertentu. Tool web wajib punya domain "
-           "allowlist dan timeout ketat."),
+           "Epic 4 — Analitik Biaya & Latensi. Halaman Dasbor menampilkan, per "
+           "rentang waktu (hari ini / 7 hari / 30 hari): total token prompt & "
+           "completion, estimasi biaya dalam Rupiah (harga per 1k token dari "
+           "pengaturan), jumlah percakapan, biaya per percakapan, TTFT p50 dan "
+           "p95, serta 5 percakapan termahal. Semua angka dihitung dari tabel "
+           "`traces` dan `messages` — bukan dari log teks. Sertakan tombol "
+           "ekspor CSV supaya angka bisa dilampirkan di laporan akhir magang."),
        workflow=(
-           _w("Developer", "Daftarkan tool baru ke registry dengan schema",
-              "Tool otomatis muncul di daftar yang dikirim ke LLM"),
-           _w("Agent", "Panggil calculator('12*7.5')",
-              "Parser aman mengevaluasi; ekspresi berbahaya ditolak"),
-           _w("Admin", "Nyalakan web_search lewat feature flag",
-              "Hanya peran yang diizinkan bisa memicunya"),
+           _w("Intern", "Tulis query agregasi token/biaya/latensi",
+              "core/analytics.py"),
+           _w("Intern", "Bangun halaman dasbor + filter rentang waktu",
+              "Angka tampil per rentang"),
+           _w("Intern", "Tambah ekspor CSV",
+              "Data bisa dilampirkan ke laporan"),
+           _w("Pembimbing", "Cek satu percakapan manual vs angka dasbor",
+              "Selisih 0 token"),
        ),
        wireframe="""
-REGISTRY
- name: calculator
- desc: "Hitung ekspresi aritmetika sederhana."
- schema: {"expression": {"type":"string","maxLength":200}}
- roles: ["user","admin"]   enabled: true   timeout: 2s
-
- name: web_search
- roles: ["admin"]          enabled: false  timeout: 8s
- allowlist: ["*.go.id", "wikipedia.org"]
+DASBOR  [ hari ini | 7 hari | 30 hari ]            [ekspor CSV]
++----------------+----------------+----------------+-----------+
+| Token prompt   | Token jawaban  | Biaya (Rp)     | Percakapan|
+|    128.400     |     41.220     |    12.740      |    36     |
++----------------+----------------+----------------+-----------+
+| TTFT p50 0,8 s | TTFT p95 2,4 s | Rp/percakapan 354          |
++----------------+----------------+----------------------------+
+5 percakapan termahal: ...
 """,
-       acceptance=("Menambah tool tidak mengubah kode agent loop sama sekali",
-                   "Calculator menolak ekspresi berbahaya (tanpa eval)",
-                   "web_search mati secara default dan dibatasi peran + allowlist",
-                   "Setiap tool punya timeout dan tercatat di trace"),
-       evidence=(f"{P}/backend/app/tools/calculator.py",
-                 f"{P}/backend/tests/test_tools.py"),
-       depends_on=("INT-016",), source=REF["tools"]),
+       acceptance=(
+           "Angka token dasbor sama persis dengan penjumlahan manual satu percakapan uji",
+           "TTFT p50 dan p95 dihitung dari span llm_stream, bukan perkiraan",
+           "Filter 3 rentang waktu bekerja dan mengubah seluruh kartu angka",
+           "Ekspor CSV memuat kolom tanggal, sesi, token, biaya, TTFT",
+           "Harga per 1k token diambil dari pengaturan, bukan hardcode"),
+       evidence=(f"{P}/core/analytics.py", f"{P}/tests/test_analytics.py"),
+       depends_on=("INT-020",), source=_ARCH),
 
-    _t("INT-019", "Guardrail input & output: PII, prompt injection, topik terlarang",
-       "i2", priority="high", estimate=1.5, labels=(*B, "security"),
+    _t("INT-022", "Feedback 👍/👎 dengan alasan terstruktur + trace_id",
+       "i4", priority="high", estimate=1, labels=(*B, *F, "epic-observability"),
        description=(
-           "Lapisan keamanan konten di dua sisi. Input: tolak/pangkas pesan "
-           "terlalu panjang, deteksi pola prompt injection ('abaikan instruksi "
-           "sebelumnya', 'tampilkan system prompt') dan tandai, serta masker PII "
-           "(NIK, nomor rekening, email) sebelum dikirim ke provider eksternal. "
-           "Output: cegah kebocoran system prompt & kunci API, saring topik "
-           "terlarang sesuai kebijakan, dan selalu beri jalan keluar sopan. "
-           "Semua blokir dicatat ke audit log untuk ditinjau admin."),
+           "Epic 4 — User Feedback Loop. Tiap bubble jawaban punya tombol 👍 "
+           "dan 👎. Menekan 👎 membuka pilihan alasan terstruktur (tidak "
+           "akurat / tidak menjawab / sitasi salah / terlalu panjang / bahasa "
+           "aneh) plus komentar bebas opsional. Simpan ke tabel `feedback(id, "
+           "trace_id, session_id, message_id, nilai, alasan, komentar, "
+           "created_at)` supaya tiap penilaian bisa ditarik kembali ke trace "
+           "lengkapnya. Halaman Dasbor menampilkan rasio 👍 dan 5 alasan 👎 "
+           "terbanyak sebagai bahan perbaikan prompt."),
        workflow=(
-           _w("Pengguna", "Kirim pesan", "Guardrail input memeriksa panjang & pola"),
-           _w("Guardrail input", "Deteksi injeksi → tandai & netralkan",
-              "Instruksi berbahaya tidak diperlakukan sebagai perintah sistem"),
-           _w("Guardrail input", "Masker PII sebelum keluar ke provider",
-              "Log menyimpan versi termasker saja"),
-           _w("Guardrail output", "Periksa jawaban sebelum dikirim ke UI",
-              "Kebocoran prompt/kunci diblokir, diganti pesan aman"),
-           _w("Backend", "Catat kejadian blokir", "Admin bisa meninjau di audit log"),
+           _w("Intern", "Buat tabel feedback + API simpan",
+              "core/feedback.py"),
+           _w("Intern", "Tambah tombol 👍/👎 + dialog alasan di UI",
+              "Feedback bisa dikirim 1 klik"),
+           _w("Intern", "Tampilkan rasio & alasan terbanyak di dasbor",
+              "Kualitas terukur"),
+           _w("Intern", "Pastikan feedback menyimpan trace_id",
+              "Jawaban buruk bisa ditelusuri"),
        ),
        wireframe="""
-DUA GERBANG
-  pesan user ─► [guard IN] ─► agent ─► [guard OUT] ─► pengguna
-                  │                        │
-                  ├ panjang > batas        ├ bocor system prompt
-                  ├ pola injeksi           ├ kunci API / kredensial
-                  └ PII → masker           └ topik terlarang
-                            │                        │
-                            └────── audit_log ───────┘
+ 🤖 Cuti tahunan 12 hari [1].            [👍] [👎]
+      └ 👎 dipilih:
+        ( ) tidak akurat   ( ) tidak menjawab  ( ) sitasi salah
+        ( ) terlalu panjang ( ) bahasa aneh
+        [ komentar (opsional) ........................ ] [Kirim]
 
-contoh masker:  "NIK saya 3204xxxxxxxxxx" → "NIK saya [PII:NIK]"
+DASBOR: 👍 74%  (37/50)   alasan 👎 teratas: sitasi salah (6)
 """,
-       acceptance=("Pesan berisi upaya injeksi tidak membuat agent membocorkan system prompt",
-                   "PII termasker sebelum dikirim ke provider eksternal (diuji)",
-                   "Jawaban yang memuat kredensial diblokir sebelum sampai ke UI",
-                   "Setiap blokir tercatat di audit log dengan alasan",
-                   "Guardrail punya test untuk tiap pola yang didukung"),
-       evidence=(f"{P}/backend/app/safety/guardrails.py",
-                 f"{P}/backend/tests/test_guardrails.py"),
-       depends_on=("INT-016",), source=_SPEC),
+       acceptance=(
+           "👍 tersimpan dengan satu klik tanpa dialog tambahan",
+           "👎 mewajibkan pilih satu alasan dari 5 opsi sebelum tersimpan",
+           "Setiap baris feedback memuat trace_id yang valid dan bisa dibuka",
+           "Dasbor menampilkan rasio 👍 dan 5 alasan terbanyak",
+           "Feedback yang sama bisa diubah, tidak menghasilkan baris ganda"),
+       evidence=(f"{P}/core/feedback.py", f"{P}/tests/test_feedback.py"),
+       depends_on=("INT-020",), source=_ARCH),
 
-    # ================================================================== Fase 3
-    _t("INT-020", "Manajemen jendela konteks & penghitungan token",
-       "i3", priority="critical", estimate=1.5, labels=(*B, "memory"),
+    _t("INT-023", "Set evaluasi 20 soal + skrip eval offline",
+       "i4", priority="high", estimate=1.5, labels=(*B, "epic-observability", "llm"),
        description=(
-           "Tidak boleh ada request yang meledak karena konteks kepanjangan. "
-           "Buat `ContextBuilder` yang menyusun prompt dengan anggaran token "
-           "eksplisit: system (±800) + memori (±400) + konteks RAG (±2.000) + "
-           "riwayat (sisa) + ruang jawaban (1.000). Hitung token dengan tiktoken "
-           "(fallback estimasi 4 karakter/token). Bila melebihi, pangkas dari "
-           "pesan terlama, jangan pernah memotong system prompt atau pesan "
-           "terakhir pengguna."),
+           "Tanpa set evaluasi, 'kualitas' hanya perasaan. Susun 20 pertanyaan "
+           "uji dari dokumen yang diingest: 12 pertanyaan yang jawabannya ada "
+           "di dokumen (lengkap dengan kunci jawaban + dokumen/halaman yang "
+           "seharusnya disitasi), 5 pertanyaan di luar dokumen (model harus "
+           "mengaku tidak tahu), dan 3 pertanyaan yang butuh tool. Skrip "
+           "`eval.py` menjalankan semuanya lewat pipeline nyata dan mencetak "
+           "tabel: akurasi sitasi, tingkat 'mengaku tidak tahu', rata-rata "
+           "token, rata-rata latensi, dan biaya total satu putaran evaluasi."),
        workflow=(
-           _w("ContextBuilder", "Hitung token tiap bagian dengan tokenizer",
-              "Anggaran terpakai diketahui sebelum request"),
-           _w("ContextBuilder", "Bila melebihi, buang pesan terlama berpasangan",
-              "Riwayat mengecil, makna percakapan terjaga"),
-           _w("ContextBuilder", "Bila masih lebih, pangkas konteks RAG skor terendah",
-              "System prompt & pesan terakhir selalu utuh"),
-           _w("Backend", "Catat komposisi token per request",
-              "Bisa dianalisis: berapa token habis untuk RAG vs riwayat"),
+           _w("Intern", "Susun 20 soal + kunci jawaban + sumber yang benar",
+              "evalset.yaml"),
+           _w("Intern", "Tulis eval.py yang menjalankan pipeline & menilai",
+              "Laporan evaluasi tercetak"),
+           _w("Intern", "Jalankan baseline dan simpan hasilnya",
+              "Angka awal tercatat"),
+           _w("Intern", "Ulangi setelah perbaikan prompt",
+              "Perbandingan sebelum/sesudah"),
        ),
        wireframe="""
-ANGGARAN KONTEKS (model 8k)
- ┌─────────────────────────────────────────────────────────┐
- │ system 800 │ memori 400 │ RAG 2000 │ riwayat 3800 │ out │
- └─────────────────────────────────────────────────────────┘
- melebihi? urutan pemangkasan:
-   1. pesan riwayat terlama (berpasangan user+assistant)
-   2. chunk RAG dengan skor terendah
-   3. ringkasan memori dipendekkan
-   ✗ system prompt & pesan terakhir user TIDAK PERNAH dipangkas
+evalset.yaml
+ - id: E01
+   tanya: "Berapa hari cuti tahunan?"
+   kunci: "12 hari"
+   sumber: kebijakan-cuti.pdf#3
+   tipe: dokumen
 
-log: {"budget":8000,"system":760,"memory":318,"rag":1840,
-      "history":2210,"reserved_out":1000,"trimmed_msgs":4}
+python eval.py --run baseline
+ +------------------+--------+
+ | sitasi benar     | 10/12  |
+ | mengaku tdk tahu |  5/5   |
+ | tool benar       |  2/3   |
+ | rata token       | 1.840  |
+ | rata latensi     | 2,1 s  |
+ +------------------+--------+
 """,
-       acceptance=("Percakapan 100 pesan tidak pernah melebihi batas konteks model",
-                   "System prompt & pesan terakhir user tidak pernah terpangkas",
-                   "Komposisi token tercatat per request",
-                   "Penghitung token punya fallback saat tiktoken tidak tersedia",
-                   "Ada test dengan percakapan panjang buatan"),
-       evidence=(f"{P}/backend/app/memory/context.py",
-                 f"{P}/backend/app/llm/tokens.py",
-                 f"{P}/backend/tests/test_context_budget.py"),
-       depends_on=("INT-009",), source=_ARCH),
+       acceptance=(
+           "evalset berisi tepat 20 soal dengan komposisi 12/5/3",
+           "`python eval.py` berjalan end-to-end memakai mock provider tanpa API key",
+           "Laporan memuat 5 metrik dan disimpan ke berkas hasil bertanggal",
+           "Hasil baseline tersimpan di repo sebagai pembanding",
+           "Satu perbaikan prompt didokumentasikan dengan angka sebelum/sesudah"),
+       evidence=(f"{P}/eval.py", f"{P}/evalset.yaml", f"{P}/docs/EVAL.md"),
+       depends_on=("INT-022", "INT-012"), source=_ARCH),
 
-    _t("INT-021", "Ringkasan percakapan otomatis (memori jangka menengah)",
-       "i3", priority="high", estimate=1.5, labels=(*B, "memory"),
+    # ================================================================ Sprint 5
+    _t("INT-024", "Semantic cache: jawab pertanyaan berulang tanpa panggil LLM",
+       "i5", priority="high", estimate=1.5, labels=(*B, "epic-performa"),
        description=(
-           "Agar percakapan panjang tetap nyambung tanpa mengirim semua riwayat: "
-           "setiap 10 pesan (atau saat riwayat melewati 60% anggaran), jalankan "
-           "peringkasan di background yang memadatkan pesan lama menjadi "
-           "ringkasan ≤200 token berisi fakta, keputusan, dan preferensi. "
-           "Ringkasan disimpan per percakapan, diperbarui inkremental (ringkasan "
-           "lama + pesan baru → ringkasan baru), dan bisa dilihat pengguna."),
+           "Epic 5 — Semantic Caching, versi SQLite (tanpa Redis). Tabel "
+           "`cache(id, pertanyaan, embedding, jawaban, sumber_json, "
+           "prompt_version, created_at, hits)` menyimpan jawaban final. Sebelum "
+           "memanggil LLM, embed pertanyaan dan cari entri dengan cosine >= "
+           "0.92 yang usianya < 24 jam dan `prompt_version` sama; bila ketemu, "
+           "kembalikan jawaban itu dan tandai di UI sebagai 'dari cache'. "
+           "Cache dibatalkan otomatis saat dokumen sumbernya berubah atau "
+           "system prompt naik versi, dan tidak pernah dipakai untuk "
+           "pertanyaan yang memicu tool (hasilnya bisa berubah tiap saat)."),
        workflow=(
-           _w("Backend", "Setelah pesan ke-10 (kelipatan), antrekan peringkasan",
-              "Tugas background tidak memperlambat jawaban"),
-           _w("Summarizer", "Kirim ringkasan lama + 10 pesan terakhir ke LLM",
-              "Ringkasan baru ≤200 token"),
-           _w("Backend", "Simpan ke conversations.summary + versi",
-              "Pesan lama boleh dikeluarkan dari jendela konteks"),
-           _w("ContextBuilder", "Sisipkan ringkasan sebagai pesan system tambahan",
-              "Agent tetap ingat konteks awal percakapan"),
-           _w("Pengguna", "Buka 'Apa yang diingat?'", "Ringkasan tampil & bisa dihapus"),
+           _w("Intern", "Buat tabel cache + penyimpanan jawaban final",
+              "Cache terisi"),
+           _w("Intern", "Implementasi lookup cosine >= 0.92 + TTL 24 jam",
+              "Hit terdeteksi"),
+           _w("Intern", "Tambah invalidasi saat dokumen/prompt berubah",
+              "Jawaban basi tidak disajikan"),
+           _w("Intern", "Ukur hit-rate & penghematan biaya",
+              "Angka tercatat di dasbor"),
        ),
        wireframe="""
-PEMADATAN RIWAYAT
-  pesan 1..10  ─┐
-  pesan 11..20 ─┼─► [summarizer] ─► ringkasan v3 (≤200 token)
-  ringkasan v2 ─┘
+lookup(q):
+  qv = embed(q)
+  cari cache WHERE prompt_version = aktif AND umur < 24 jam
+  skor >= 0.92 ? -> HIT (hits += 1, 0 token dipakai)
+                 -> MISS (jalankan pipeline, simpan hasil)
 
-konteks yang dikirim:
-  [system] [ringkasan v3] [pesan 21..30 utuh] [pertanyaan baru]
-
-PANEL "APA YANG DIINGAT?"
-+------------------------------------------+
-| Ringkasan percakapan          v3 · 14:22 |
-| • User menanyakan kebijakan cuti         |
-| • Sudah dijelaskan 12 hari & kedaluwarsa |
-| • User bekerja di cabang Bandung         |
-|                       [perbarui] [hapus] |
-+------------------------------------------+
+UI: 🤖 ... jawaban ...   ⚡ dari cache (hemat ~1.800 token)
+INVALIDASI: dokumen di-ingest ulang | prompt_version naik | tool dipakai
 """,
-       acceptance=("Percakapan 50 pesan tetap menjawab konsisten soal hal di pesan awal",
-                   "Peringkasan berjalan di background, tidak menunda jawaban",
-                   "Ringkasan diperbarui inkremental, bukan menghitung ulang semua",
-                   "Pengguna bisa melihat & menghapus ringkasan percakapannya",
-                   "Ada test yang memverifikasi ringkasan ikut ke dalam konteks"),
-       evidence=(f"{P}/backend/app/memory/summarizer.py",
-                 f"{P}/backend/tests/test_summarizer.py"),
-       depends_on=("INT-020",), source=REF["memory"]),
+       acceptance=(
+           "Pertanyaan diulang persis menghasilkan cache hit dan 0 token LLM",
+           "Parafrase dekat (cosine >= 0.92) ikut hit; parafrase jauh tidak",
+           "Ingest dokumen baru atau naik versi prompt membatalkan cache terkait",
+           "Jawaban yang memakai tool tidak pernah di-cache",
+           "Dasbor menampilkan hit-rate dan estimasi token yang dihemat"),
+       evidence=(f"{P}/core/cache.py", f"{P}/tests/test_cache.py"),
+       depends_on=("INT-021",), source=_ARCH),
 
-    _t("INT-022", "Memori jangka panjang per pengguna (fakta & preferensi)",
-       "i3", priority="high", estimate=2, labels=(*B, "memory"),
+    _t("INT-025", "Rate limit & antrean sederhana per pengguna",
+       "i5", priority="high", estimate=1.5, labels=(*B, "epic-performa"),
        description=(
-           "Chatbot yang terasa personal: ekstrak fakta tahan lama dari "
-           "percakapan (jabatan, lokasi kerja, preferensi bahasa/gaya jawaban, "
-           "proyek yang sedang dikerjakan) ke tabel `memories` {user_id, kind, "
-           "key, value, confidence, source_message_id, created_at}. Saat "
-           "percakapan baru, ambil memori paling relevan (embedding + kebaruan) "
-           "maksimal 400 token. Wajib bisa dikendalikan pengguna: lihat, edit, "
-           "hapus satu per satu, hapus semua, dan matikan fitur memori."),
+           "Epic 5 — Rate Limiting, versi in-process (tanpa RabbitMQ/Kafka). "
+           "`core/quota.py` menerapkan tiga batas per pengguna: 10 pesan per "
+           "menit (token bucket), 50 pesan per hari, dan 100.000 token per "
+           "hari. Saat batas terlampaui, UI menampilkan pesan jelas berisi "
+           "sisa waktu tunggu — bukan error mentah. Permintaan yang masuk "
+           "bersamaan diserialisasi lewat antrean sederhana `queue.Queue` "
+           "dengan maksimal 2 pekerja, supaya provider tidak terkena burst. "
+           "Angka batas dibaca dari pengaturan agar bisa diubah tanpa deploy."),
        workflow=(
-           _w("Extractor", "Setelah jawaban selesai, periksa pesan user",
-              "Kandidat fakta + confidence"),
-           _w("Backend", "Deduplikasi terhadap memori yang ada (key sama)",
-              "Nilai diperbarui, bukan bertumpuk"),
-           _w("Retriever memori", "Saat percakapan baru, ambil top-5 memori relevan",
-              "Disisipkan ke system prompt (≤400 token)"),
-           _w("Pengguna", "Buka Pengaturan → Memori",
-              "Daftar memori bisa diedit/dihapus; ada tombol hapus semua"),
-           _w("Pengguna", "Matikan memori", "Ekstraksi & penyisipan berhenti seketika"),
+           _w("Intern", "Implementasi token bucket + penghitung harian di SQLite",
+              "core/quota.py"),
+           _w("Intern", "Sambungkan ke pipeline + pesan UI yang jelas",
+              "Batas terasa wajar, bukan error"),
+           _w("Intern", "Tambah antrean 2 pekerja untuk permintaan bersamaan",
+              "Burst tidak menembus provider"),
+           _w("Intern", "Uji 20 permintaan beruntun",
+              "Perilaku sesuai batas"),
        ),
        wireframe="""
-PENGATURAN › MEMORI
-+--------------------------------------------------------------+
-| Memori membantu asisten mengingat hal penting tentang Anda.  |
-| Aktifkan memori  [ ●—— ]                                     |
-|--------------------------------------------------------------|
-| Jenis     | Isi                              | Dari    |     |
-| profil    | Bekerja di cabang Bandung        | 12 Sep  | ✎ 🗑 |
-| preferensi| Suka jawaban ringkas & poin-poin | 14 Sep  | ✎ 🗑 |
-| proyek    | Sedang menyiapkan audit ISO      | 19 Sep  | ✎ 🗑 |
-|--------------------------------------------------------------|
-|                                    [ Hapus semua memori ]    |
-+--------------------------------------------------------------+
-""",
-       acceptance=("Fakta yang disebut di percakapan A terpakai di percakapan B",
-                   "Memori duplikat tidak bertumpuk (key sama → diperbarui)",
-                   "Pengguna bisa melihat, mengedit, dan menghapus memorinya",
-                   "Mematikan memori benar-benar menghentikan ekstraksi & penyisipan",
-                   "Memori satu pengguna tidak pernah bocor ke pengguna lain (diuji)"),
-       evidence=(f"{P}/backend/app/memory/long_term.py",
-                 f"{P}/frontend/components/MemorySettings.tsx",
-                 f"{P}/backend/tests/test_memory.py"),
-       depends_on=("INT-021",), source=REF["memory"]),
+BATAS (bisa diubah di Pengaturan)
+  10 pesan / menit   |  50 pesan / hari  |  100.000 token / hari
 
-    _t("INT-023", "Privasi memori: retensi, ekspor, dan hapus akun",
-       "i3", priority="medium", estimate=1, labels=(*B, "security"),
+UI saat kena batas
+ ⏳ Kuota per menit habis. Coba lagi dalam 24 detik.
+    Sisa hari ini: 18 pesan • 42.100 token
+
+ANTREAN: queue.Queue(maxsize=8), 2 worker -> "menunggu giliran (2)"
+""",
+       acceptance=(
+           "Permintaan ke-11 dalam satu menit ditolak dengan sisa waktu tunggu yang benar",
+           "Batas harian pesan dan token berlaku dan tereset lewat tengah malam",
+           "20 permintaan beruntun tidak menghasilkan error provider 429",
+           "Angka batas dibaca dari pengaturan, bukan hardcode",
+           "Penolakan kuota tercatat di trace dan terlihat di dasbor"),
+       evidence=(f"{P}/core/quota.py", f"{P}/tests/test_quota.py"),
+       depends_on=("INT-024",), source=_ARCH),
+
+    _t("INT-026", "Fallback model + timeout: layanan tetap menjawab",
+       "i5", priority="high", estimate=1, labels=(*B, "epic-performa", "llm"),
        description=(
-           "Kewajiban privasi yang sering dilupakan prototipe: kebijakan retensi "
-           "(percakapan & memori lebih tua dari N hari dihapus otomatis lewat job "
-           "harian, N dapat dikonfigurasi), ekspor data pribadi (semua percakapan, "
-           "memori, feedback → satu berkas JSON), dan penghapusan akun yang "
-           "benar-benar menghapus/menganonimkan seluruh jejak. Tulis juga halaman "
-           "kebijakan privasi singkat di dalam aplikasi."),
+           "Epic 5 — Model Fallback Strategy. Konfigurasi daftar model "
+           "berurutan (`AGENT_MODELS=utama,cadangan,mock`). Bila model utama "
+           "gagal (error 5xx, timeout 30 detik, atau tidak ada token pertama "
+           "dalam 10 detik), pipeline otomatis mencoba model berikutnya dan "
+           "menandai di UI model mana yang akhirnya menjawab. Mock selalu jadi "
+           "cadangan terakhir supaya demo tidak pernah gagal total. Setiap "
+           "peralihan dicatat ke trace dengan alasannya agar bisa dihitung "
+           "berapa sering model utama bermasalah."),
        workflow=(
-           _w("Job harian", "Cari data melebihi masa retensi", "Hapus permanen + catat jumlah"),
-           _w("Pengguna", "Klik 'Unduh data saya'",
-              "Backend menyusun JSON lengkap → unduhan"),
-           _w("Pengguna", "Klik 'Hapus akun' + konfirmasi ketik ulang username",
-              "Semua percakapan/memori/feedback dihapus, akun dinonaktifkan"),
-           _w("Backend", "Catat aksi ke audit log (tanpa isi data pribadi)",
-              "Bisa dibuktikan saat audit"),
+           _w("Intern", "Tambah daftar model + logika peralihan",
+              "core/llm.py"),
+           _w("Intern", "Uji dengan provider palsu yang sengaja gagal",
+              "Fallback terbukti"),
+           _w("Intern", "Tandai model penjawab di UI + trace",
+              "Transparan ke pengguna"),
+           _w("Pembimbing", "Matikan endpoint utama saat demo",
+              "Jawaban tetap keluar"),
        ),
        wireframe="""
-PENGATURAN › PRIVASI
-+--------------------------------------------------------------+
-| Retensi data     : percakapan disimpan 180 hari              |
-| Unduh data saya  [ ⬇ Ekspor JSON ]                            |
-|--------------------------------------------------------------|
-| Zona berbahaya                                               |
-| Menghapus akun menghapus semua percakapan & memori Anda.     |
-| Ketik ulang username untuk konfirmasi: [__________]          |
-|                                        [ Hapus akun saya ]   |
-+--------------------------------------------------------------+
+AGENT_MODELS = "gpt-4o-mini, llama3-lokal, mock"
+
+ utama  -> timeout 30s / 5xx / TTFT > 10s  ->  cadangan
+ cadangan gagal                            ->  mock (selalu berhasil)
+
+UI: 🤖 ... jawaban ...   (dijawab oleh: llama3-lokal — model utama timeout)
 """,
-       acceptance=("Job retensi berjalan terjadwal dan idempoten",
-                   "Ekspor memuat percakapan, memori, dan feedback pengguna",
-                   "Hapus akun menghilangkan seluruh data pribadi (diverifikasi test)",
-                   "Halaman kebijakan privasi tersedia di aplikasi"),
-       evidence=(f"{P}/backend/app/privacy.py",
-                 f"{P}/backend/tests/test_privacy.py"),
-       depends_on=("INT-022",), source=_SPEC),
-
-    # ================================================================== Fase 4
-    _t("INT-024", "Akuntansi token & biaya per pesan, percakapan, pengguna",
-       "i4", priority="critical", estimate=1.5, labels=(*B, "quota"),
-       description=(
-           "Setiap panggilan LLM dicatat: prompt_tokens, completion_tokens, "
-           "model, provider, latensi, dan biaya (dihitung dari tabel harga per "
-           "1K token yang dikonfigurasi). Simpan per pesan dan diagregasi harian "
-           "per pengguna di tabel `token_usage` (unik per user+tanggal) supaya "
-           "kueri kuota murah. Jika provider tidak mengembalikan usage, hitung "
-           "sendiri dengan tokenizer. Sediakan `GET /api/usage/me` dan agregat "
-           "admin per hari/pengguna/model."),
-       workflow=(
-           _w("Agent", "Selesai memanggil LLM", "Dapat usage dari provider / hitung sendiri"),
-           _w("Accountant", "Simpan baris usage per pesan + hitung biaya",
-              "messages.prompt_tokens, completion_tokens, cost"),
-           _w("Accountant", "UPSERT agregat harian user",
-              "token_usage(user_id, date) bertambah atomik"),
-           _w("Pengguna", "Buka halaman pemakaian", "Grafik 30 hari + sisa kuota"),
-           _w("Admin", "Buka analitik", "Biaya per pengguna & per model"),
-       ),
-       wireframe="""
-HALAMAN PEMAKAIAN SAYA
-+--------------------------------------------------------------+
-| Hari ini      12.480 / 50.000 token   ▓▓▓▓▓░░░░░░░░░  25%    |
-| Reset pukul 00:00 WIB                                        |
-|--------------------------------------------------------------|
-| 30 hari terakhir                                             |
-|  ▁▂▅▃▇▂▁▄▆▃▂▁▅▇▄▂▃▁▂▄▆▅▃▂▁▄▂▃▅                               |
-| Total bulan ini : 384.120 token · estimasi biaya Rp 96.000   |
-| Percakapan termahal: "Audit ISO" · 42.300 token              |
-+--------------------------------------------------------------+
-""",
-       acceptance=("Setiap pesan assistant menyimpan prompt & completion token",
-                   "Agregat harian akurat dibanding jumlah per pesan (diuji)",
-                   "Biaya dihitung dari tabel harga yang bisa dikonfigurasi",
-                   "Provider tanpa usage tetap menghasilkan angka (hitung sendiri)",
-                   "GET /api/usage/me mengembalikan pemakaian & sisa kuota"),
-       evidence=(f"{P}/backend/app/billing/usage.py",
-                 f"{P}/backend/tests/test_usage.py"),
-       depends_on=("INT-020",), source=_API),
-
-    _t("INT-025", "Kuota & rate limit per pengguna (harian, bulanan, per menit)",
-       "i4", priority="critical", estimate=2, labels=(*B, "quota"),
-       description=(
-           "Kebijakan kuota bertingkat yang ditegakkan SEBELUM memanggil LLM: "
-           "batas token harian & bulanan per peran (mis. user 50k/hari, admin "
-           "tanpa batas), batas pesan per menit (anti-spam, token bucket), dan "
-           "batas token per satu permintaan. Saat kuota hampir habis (80%) UI "
-           "memberi peringatan; saat habis, request ditolak 429 dengan pesan "
-           "jelas + waktu reset. Admin bisa mengatur kebijakan dan memberi "
-           "kuota tambahan sekali pakai ke pengguna tertentu."),
-       workflow=(
-           _w("Pengguna", "Kirim pesan", "Middleware kuota dijalankan lebih dulu"),
-           _w("Quota guard", "Estimasi token permintaan + cek sisa harian/bulanan",
-              "Cukup → lanjut; tidak cukup → 429 quota_exceeded"),
-           _w("Quota guard", "Cek token bucket per menit",
-              "Melebihi → 429 rate_limited + Retry-After"),
-           _w("UI", "Terima 429", "Banner jelas: batas harian tercapai, reset 00:00"),
-           _w("Admin", "Tambah kuota sekali pakai untuk user",
-              "Grant tercatat di audit log dan langsung berlaku"),
-       ),
-       wireframe="""
-GERBANG SEBELUM LLM
-  pesan ─► [rate limit/menit] ─► [kuota harian] ─► [kuota bulanan] ─► LLM
-              │ lewat                 │ habis            │ habis
-              v                       v                  v
-          429 rate_limited     429 quota_exceeded  429 quota_exceeded
-          Retry-After: 30      reset_at: 00:00     reset_at: 1 Okt
-
-UI SAAT 80%
-+--------------------------------------------------------------+
-| ⚠ Sisa kuota Anda 20% (10.000 token). Reset 00:00 WIB.       |
-+--------------------------------------------------------------+
-UI SAAT HABIS — composer dinonaktifkan + tombol "Minta tambahan"
-""",
-       acceptance=("Permintaan melebihi kuota ditolak 429 SEBELUM token terpakai",
-                   "Batas per menit, harian, dan bulanan semuanya berlaku & diuji",
-                   "UI memperingatkan di 80% dan menonaktifkan composer saat habis",
-                   "Admin bisa mengubah kebijakan per peran & memberi kuota tambahan",
-                   "Kuota tidak bisa ditembus dengan request paralel (diuji bersamaan)"),
-       evidence=(f"{P}/backend/app/billing/quota.py",
-                 f"{P}/backend/tests/test_quota.py",
-                 f"{P}/frontend/components/QuotaBanner.tsx"),
-       depends_on=("INT-024",), source=_API),
-
-    _t("INT-026", "Feedback 👍/👎 per jawaban + alasan terstruktur",
-       "i4", priority="critical", estimate=1.5, labels=(*_L, "fullstack", "feedback"),
-       description=(
-           "Mekanisme kualitas yang jadi bahan bakar perbaikan. Setiap jawaban "
-           "assistant punya tombol 👍/👎 (satu penilaian per pengguna per pesan, "
-           "bisa diubah atau dibatalkan). 👎 membuka dialog alasan terstruktur: "
-           "'tidak akurat', 'tidak relevan', 'sumber salah', 'terlalu panjang', "
-           "'bahasa/nada', 'lainnya' + catatan bebas (opsional, maks 500 "
-           "karakter). Simpan bersama snapshot konteks: message_id, model, "
-           "prompt_version, daftar chunk yang dipakai, dan trace tool — supaya "
-           "kasus buruk bisa direproduksi, bukan sekadar angka."),
-       workflow=(
-           _w("Pengguna", "Klik 👍", "POST /api/feedback {rating:+1}; ikon terisi seketika"),
-           _w("Pengguna", "Klik 👎", "Dialog alasan terbuka"),
-           _w("Pengguna", "Pilih alasan + catatan lalu kirim",
-              "POST /api/feedback {rating:-1, reason, note}"),
-           _w("Backend", "UPSERT unik (user_id, message_id)",
-              "Penilaian bisa diubah, tidak menggandakan baris"),
-           _w("Backend", "Lampirkan snapshot: model, prompt_version, chunk, trace",
-              "Kasus bisa direproduksi persis oleh tim"),
-           _w("UI", "Tampilkan konfirmasi halus 'Terima kasih atas masukannya'",
-              "Tidak mengganggu alur membaca"),
-       ),
-       wireframe="""
-DI BAWAH SETIAP JAWABAN
-   👍  👎   ⧉ salin   ⟲ jawab ulang
-
-DIALOG SETELAH 👎
-+--------------------------------------------------+
-|  Apa yang kurang tepat?                      [×] |
-|  ( ) Tidak akurat / salah fakta                  |
-|  ( ) Tidak relevan dengan pertanyaan             |
-|  ( ) Sumber/sitasi salah                         |
-|  ( ) Terlalu panjang atau bertele-tele           |
-|  ( ) Bahasa atau nada tidak sesuai               |
-|  ( ) Lainnya                                     |
-|  Catatan (opsional)                              |
-|  [____________________________________]  0/500   |
-|                        [Batal]  [Kirim masukan]  |
-+--------------------------------------------------+
-
-TERSIMPAN
- feedback{user_id, message_id, rating:-1, reason:"sumber_salah",
-          note:"…", model, prompt_version, chunk_ids[], trace_ref,
-          created_at}   UNIQUE(user_id, message_id)
-""",
-       acceptance=("Satu pengguna hanya punya satu penilaian per pesan (bisa diubah/dibatalkan)",
-                   "👎 selalu menawarkan alasan terstruktur + catatan opsional",
-                   "Snapshot model, prompt_version, chunk, dan trace ikut tersimpan",
-                   "Penilaian tetap terlihat saat percakapan lama dibuka kembali",
-                   "Aksi feedback tidak pernah memblokir atau mereset tampilan chat",
-                   "Ada test API (buat, ubah, batalkan) dan test komponen tombol"),
-       evidence=(f"{P}/backend/app/api/feedback.py",
-                 f"{P}/backend/tests/test_feedback.py",
-                 f"{P}/frontend/components/FeedbackButtons.tsx"),
-       depends_on=("INT-017",), source=REF["feedback"]),
-
-    _t("INT-027", "Dasbor analitik kualitas: CSAT, jawaban buruk, biaya",
-       "i4", priority="high", estimate=2, labels=(*_L, "admin", "feedback"),
-       description=(
-           "Halaman admin yang mengubah feedback jadi keputusan: skor kepuasan "
-           "(👍 / total) harian & 7-hari, sebaran alasan 👎, daftar jawaban "
-           "berperingkat buruk yang bisa dibuka lengkap dengan pertanyaan, "
-           "jawaban, sumber, dan trace tool, serta perbandingan CSAT antar versi "
-           "prompt/model. Tambahkan metrik operasional: p50/p95 latensi, rasio "
-           "jawaban 'tidak tahu', dan biaya token per hari. Semua bisa difilter "
-           "rentang tanggal dan diekspor CSV."),
-       workflow=(
-           _w("Admin", "Buka /admin/analytics", "Ringkasan 7 hari dimuat"),
-           _w("Admin", "Ubah rentang tanggal / filter model",
-              "Grafik & tabel dihitung ulang dari agregat"),
-           _w("Admin", "Klik satu baris jawaban buruk",
-              "Drawer menampilkan Q&A, sumber, trace, dan catatan pengguna"),
-           _w("Admin", "Tandai 'sudah ditindaklanjuti' + catatan",
-              "Status triase tersimpan supaya tidak ditinjau dua kali"),
-           _w("Admin", "Ekspor CSV", "Berkas untuk dianalisis lebih lanjut"),
-       ),
-       wireframe="""
-ADMIN › ANALITIK KUALITAS          [7 hari ▾] [semua model ▾] [⬇ CSV]
-+--------------------------------------------------------------+
-| CSAT 78%   👍 312  👎 88   | p95 1.8s | tidak tahu 9% | Rp412k |
-+--------------------------------------------------------------+
-| Tren CSAT                     Alasan 👎                       |
-|  ▁▃▄▆▅▇▆                      tidak akurat   ▓▓▓▓▓▓▓▓ 41%     |
-|                               sumber salah   ▓▓▓▓▓ 26%        |
-|                               tidak relevan  ▓▓▓ 18%          |
-+--------------------------------------------------------------+
-| JAWABAN BERPERINGKAT BURUK                                   |
-| Waktu  | Pertanyaan          | Alasan       | Model | Status  |
-| 09:12  | Berapa uang lembur? | tidak akurat | 4o-mini | 🔴 baru|
-| 11:40  | Syarat klaim rawat  | sumber salah | 4o-mini | ✅ beres|
-|            ▸ klik baris → drawer: Q&A + sumber + trace        |
-+--------------------------------------------------------------+
-""",
-       acceptance=("CSAT & sebaran alasan dihitung benar (dibandingkan data uji)",
-                   "Daftar jawaban buruk bisa dibuka lengkap dengan trace & sumber",
-                   "Perbandingan CSAT antar versi prompt/model tersedia",
-                   "Metrik latensi p50/p95, rasio 'tidak tahu', dan biaya tampil",
-                   "Filter tanggal dan ekspor CSV berfungsi",
-                   "Halaman hanya bisa diakses admin (user biasa 403)"),
-       evidence=(f"{P}/backend/app/api/analytics.py",
-                 f"{P}/frontend/app/admin/analytics/page.tsx"),
-       depends_on=("INT-026", "INT-024"), source=_SUCCESS),
-
-    _t("INT-028", "Regenerate, edit pertanyaan, dan set evaluasi dari feedback",
-       "i4", priority="medium", estimate=1.5, labels=(*_L, "fullstack"),
-       description=(
-           "Tutup lingkaran umpan balik. Di UI: tombol 'Jawab ulang' (regenerate) "
-           "dan 'Edit pertanyaan' yang membuat cabang jawaban baru tanpa "
-           "menghapus yang lama, sehingga pengguna bisa membandingkan. Di sisi "
-           "tim: setiap jawaban 👎 yang sudah ditriase bisa dipromosikan menjadi "
-           "kasus uji di `evals/dataset.jsonl` (pertanyaan, jawaban ideal, "
-           "dokumen sumber). Skrip `scripts/eval.py` menjalankan seluruh dataset "
-           "dan melaporkan skor grounding, kecocokan sumber, dan regresi terhadap "
-           "baseline."),
-       workflow=(
-           _w("Pengguna", "Klik 'Jawab ulang'",
-              "Jawaban baru dibuat sebagai varian, yang lama tetap bisa dilihat"),
-           _w("Admin", "Dari analitik, klik 'Jadikan kasus uji'",
-              "Baris baru ditambahkan ke evals/dataset.jsonl"),
-           _w("Developer", "Jalankan scripts/eval.py sebelum rilis",
-              "Laporan skor + daftar kasus yang memburuk"),
-           _w("CI", "Jalankan eval ringkas pada MR yang menyentuh prompt/agent",
-              "Regresi kualitas ketahuan sebelum merge"),
-       ),
-       wireframe="""
-VARIAN JAWABAN
-  🤖 Jawaban A (14:02)  👍 👎      ‹ 1/2 ›
-  🤖 Jawaban B (14:03)  👍 👎   ← hasil "jawab ulang"
-
-evals/dataset.jsonl
- {"q":"Berapa hari cuti tahunan?",
-  "expect_contains":["12 hari kerja"],
-  "expect_source":"SOP-Cuti.pdf#p4",
-  "from_feedback":"fb_2291"}
-
-laporan: grounding 0.86 (+0.04) · sumber tepat 0.91 · regresi: 2 kasus
-""",
-       acceptance=("Jawab ulang membuat varian tanpa menghapus jawaban sebelumnya",
-                   "Edit pertanyaan membuat cabang baru yang bisa dibandingkan",
-                   "Jawaban 👎 bisa dipromosikan jadi kasus uji satu klik",
-                   "scripts/eval.py melaporkan skor & regresi terhadap baseline",
-                   "Dataset evaluasi punya minimal 20 kasus nyata"),
-       evidence=(f"{P}/scripts/eval.py", f"{P}/evals/dataset.jsonl"),
-       depends_on=("INT-027",), source=_SUCCESS),
-
-    # ================================================================== Fase 5
-    _t("INT-029", "Observability: log terstruktur, metrik, dan trace request",
-       "i5", priority="high", estimate=1.5, labels=(*B, "ops"),
-       description=(
-           "Saat produksi bermasalah, tim harus bisa menjawab 'apa yang terjadi "
-           "pada request jam 09:12' dalam hitungan menit. Sediakan: log JSON "
-           "berkorelasi `request_id`+`conversation_id`, endpoint `/metrics` "
-           "(Prometheus) berisi jumlah request, latensi histogram, token "
-           "terpakai, error per tipe, dan tool per nama, serta trace per "
-           "percakapan yang bisa dibuka admin. Pastikan log TIDAK memuat isi "
-           "pesan pengguna secara utuh (hanya panjang & hash) demi privasi."),
-       workflow=(
-           _w("Backend", "Setiap request menghasilkan log terkorelasi",
-              "Bisa dicari dengan satu request_id"),
-           _w("Backend", "Perbarui metrik Prometheus di setiap tahap",
-              "/metrics siap di-scrape"),
-           _w("Admin", "Buka trace satu percakapan",
-              "Urutan langkah, durasi, token, dan error terlihat"),
-           _w("Tim", "Saat insiden, telusuri dari metrik → log → trace",
-              "Akar masalah ditemukan tanpa menebak"),
-       ),
-       wireframe="""
-METRIK YANG DIEKSPOR
-  chat_requests_total{status}          counter
-  chat_latency_seconds{phase}          histogram (retrieval|llm|total)
-  llm_tokens_total{type,model}         counter (prompt|completion)
-  tool_calls_total{name,ok}            counter
-  quota_rejections_total{kind}         counter
-  feedback_total{rating}               counter
-
-PRIVASI LOG
-  ✗ {"message":"gaji saya berapa"}
-  ✓ {"message_len":18,"message_hash":"9f2c…"}
-""",
-       acceptance=("Satu request bisa ditelusuri lengkap lewat request_id",
-                   "/metrics mengekspor minimal 6 metrik di atas",
-                   "Trace percakapan bisa dibuka admin dari UI",
-                   "Log tidak memuat isi pesan pengguna secara utuh",
-                   "Ada dokumen singkat 'cara menyelidiki insiden'"),
-       evidence=(f"{P}/backend/app/observability.py",
-                 f"{P}/docs/RUNBOOK.md"),
+       acceptance=(
+           "Model utama yang sengaja dimatikan memicu fallback < 31 detik",
+           "Mock sebagai cadangan terakhir membuat demo tidak pernah gagal total",
+           "UI menampilkan model mana yang menjawab bila bukan model utama",
+           "Setiap peralihan tercatat di trace beserta alasannya",
+           "Test fallback memakai provider palsu yang melempar 500 dan timeout"),
+       evidence=(f"{P}/core/llm.py", f"{P}/tests/test_fallback.py"),
        depends_on=("INT-025",), source=_ARCH),
 
-    _t("INT-030", "Uji keamanan & pengerasan (hardening) sebelum rilis",
-       "i5", priority="critical", estimate=1.5, labels=(*B, "security"),
+    _t("INT-027", "Docker + volume persisten untuk prototipe intern",
+       "i5", priority="critical", estimate=1, labels=(*B, "epic-performa", "docs"),
        description=(
-           "Checklist keamanan yang dikerjakan, bukan sekadar dibaca: header "
-           "keamanan (CSP, X-Frame-Options, HSTS), CORS ketat ke domain yang "
-           "dikenal, validasi ukuran & tipe semua input, proteksi IDOR (uji "
-           "akses lintas pengguna untuk percakapan/pesan/feedback/dokumen), "
-           "rahasia hanya dari environment, dependensi dipindai (pip-audit & npm "
-           "audit), dan tidak ada kunci API yang pernah sampai ke browser. Tulis "
-           "hasil pengujian di dokumen SECURITY.md."),
+           "Bungkus prototipe menjadi satu image yang bisa dideploy ulang tanpa "
+           "kehilangan data. Dockerfile: base `python:3.11-slim`, install "
+           "requirements, `EXPOSE 8501`, jalankan `streamlit run app.py "
+           "--server.address=0.0.0.0`. SELURUH state (agent.db, index.npy, "
+           "dokumen mentah, model embedding yang diunduh) harus berada di "
+           "bawah `/app/data` yang di-mount sebagai named volume, dengan env "
+           "`AGENT_DB_PATH=/app/data/agent.db`, `AGENT_INDEX_PATH=/app/data/index.npy`, "
+           "`AGENT_DOCS_DIR=/app/data/docs`. Sertakan docker-compose.yml, "
+           "HEALTHCHECK, dan bukti uji: rebuild + redeploy, percakapan lama "
+           "tetap ada."),
        workflow=(
-           _w("Intern", "Jalankan checklist OWASP ringkas terhadap aplikasi",
-              "Daftar temuan dengan tingkat keparahan"),
-           _w("Intern", "Uji IDOR: akun A mencoba membuka data akun B",
-              "Semua percobaan harus 403/404, dibuktikan test otomatis"),
-           _w("Intern", "Jalankan pip-audit & npm audit, perbaiki yang kritis",
-              "Tidak ada kerentanan kritis tersisa"),
-           _w("Intern", "Tulis SECURITY.md + sisa risiko yang diterima",
-              "Pembimbing menyetujui rilis"),
+           _w("Intern", "Tulis Dockerfile + .dockerignore",
+              "Image ter-build"),
+           _w("Intern", "Arahkan semua path state ke /app/data + VOLUME",
+              "Tidak ada state di dalam layer image"),
+           _w("Intern", "Tulis docker-compose.yml dengan named volume",
+              "`docker compose up -d` jalan"),
+           _w("Intern", "Uji redeploy: build ulang lalu cek data lama",
+              "Bukti persistensi di docs/DEPLOY.md"),
        ),
        wireframe="""
-CHECKLIST HARDENING
-  [ ] Header: CSP, X-Frame-Options, X-Content-Type-Options, HSTS
-  [ ] CORS allowlist domain produksi saja
-  [ ] IDOR: /conversations/{id}, /messages/{id}, /feedback, /documents
-  [ ] Upload: batas ukuran, tipe MIME diverifikasi, nama file disanitasi
-  [ ] Rahasia: hanya dari env; .env tidak pernah di-commit
-  [ ] Dependensi: pip-audit ✅  npm audit ✅ (tak ada kritis)
-  [ ] Tidak ada kunci API di bundle frontend (dicek grep build)
+Dockerfile
+  FROM python:3.11-slim
+  ENV AGENT_DB_PATH=/app/data/agent.db  AGENT_INDEX_PATH=/app/data/index.npy \\
+      AGENT_DOCS_DIR=/app/data/docs
+  RUN pip install --no-cache-dir -r requirements.txt
+  VOLUME /app/data
+  EXPOSE 8501
+  HEALTHCHECK CMD curl -fsS http://127.0.0.1:8501/_stcore/health || exit 1
+  CMD ["streamlit","run","app.py","--server.address=0.0.0.0"]
+
+compose: volumes: [ agent-data:/app/data ]
 """,
-       acceptance=("Semua header keamanan terpasang & diverifikasi",
-                   "Test otomatis membuktikan tidak ada IDOR di 4 endpoint utama",
-                   "Tidak ada kerentanan dependensi tingkat kritis",
-                   "Grep pada bundle frontend tidak menemukan kunci API",
-                   "SECURITY.md memuat temuan, perbaikan, dan risiko yang diterima"),
-       evidence=(f"{P}/docs/SECURITY.md",
-                 f"{P}/backend/tests/test_authorization.py"),
-       depends_on=("INT-019", "INT-025"), source=_WORK),
-
-    _t("INT-031", "Uji beban & optimasi performa",
-       "i5", priority="high", estimate=1.5, labels=(*B, "performance"),
-       description=(
-           "Ukur sebelum menebak. Skenario k6/locust: 20 pengguna bersamaan "
-           "mengirim pertanyaan selama 5 menit dengan provider tiruan berlatensi "
-           "realistis. Targetnya p95 first-token < 2 dtk dan p95 retrieval < 300 "
-           "ms. Perbaiki temuan yang biasa muncul: index DB yang hilang, N+1 "
-           "query pada riwayat, embedding dihitung ulang, dan koneksi HTTP yang "
-           "tidak di-pool. Catat hasil sebelum-sesudah di dokumen performa."),
-       workflow=(
-           _w("Intern", "Tulis skenario beban + provider tiruan",
-              "Beban bisa diulang kapan saja"),
-           _w("Intern", "Jalankan baseline & kumpulkan metrik", "Angka awal tercatat"),
-           _w("Intern", "Profil titik lambat (query, embedding, serialisasi)",
-              "Daftar perbaikan berdasar data"),
-           _w("Intern", "Terapkan perbaikan lalu jalankan ulang",
-              "Tabel sebelum-sesudah membuktikan peningkatan"),
-       ),
-       wireframe="""
-HASIL UJI BEBAN (20 VU, 5 menit)
- Metrik                    | Sebelum | Sesudah | Target
- first token p95           | 3.4 s   | 1.7 s   | < 2 s     ✅
- retrieval p95             | 520 ms  | 180 ms  | < 300 ms  ✅
- error rate                | 2.1 %   | 0.0 %   | < 1 %     ✅
- memori puncak backend     | 780 MB  | 410 MB  | < 512 MB  ✅
- Perbaikan: index (user_id,created_at) · cache embedding · pool HTTP
-""",
-       acceptance=("Skenario beban tersimpan di repo dan bisa dijalankan ulang",
-                   "p95 first-token < 2 dtk dan retrieval p95 < 300 ms tercapai",
-                   "Tabel sebelum-sesudah beserta perbaikan terdokumentasi",
-                   "Tidak ada error rate > 1% pada beban target"),
-       evidence=(f"{P}/loadtest/chat.js", f"{P}/docs/PERFORMANCE.md"),
-       depends_on=("INT-029",), source=_SUCCESS),
-
-    _t("INT-032", "Aksesibilitas, responsif, dan status kosong/gagal yang rapi",
-       "i5", priority="medium", estimate=1.5, labels=F,
-       description=(
-           "Merapikan pengalaman agar layak dipakai sehari-hari: navigasi penuh "
-           "dengan keyboard (Tab, Esc menutup dialog, fokus terjebak di modal), "
-           "label ARIA pada tombol ikon termasuk 👍/👎, kontras teks memenuhi "
-           "WCAG AA, pengumuman live region saat jawaban selesai mengalir, "
-           "layout yang tetap nyaman di layar 360 px, serta status kosong / "
-           "memuat / gagal yang informatif di setiap layar (chat, dokumen, "
-           "riwayat, analitik)."),
-       workflow=(
-           _w("Intern", "Audit dengan keyboard saja dan pembaca layar",
-              "Daftar masalah aksesibilitas"),
-           _w("Intern", "Perbaiki fokus, label ARIA, dan kontras", "Audit ulang bersih"),
-           _w("Intern", "Rancang state kosong/memuat/gagal tiap layar",
-              "Tidak ada layar putih tanpa penjelasan"),
-           _w("Intern", "Uji di lebar 360/768/1440 px", "Tidak ada elemen terpotong"),
-       ),
-       wireframe="""
-STATUS KOSONG — CHAT
-+--------------------------------------------------------------+
-|                        💬                                     |
-|            Mulai percakapan pertama Anda                     |
-|   Coba: "Berapa hari cuti tahunan?"  "Cara klaim kesehatan?" |
-|                  [ gunakan contoh ]                          |
-+--------------------------------------------------------------+
-STATUS GAGAL — DOKUMEN
-+--------------------------------------------------------------+
-|  ⚠ Gagal memuat dokumen. Periksa koneksi Anda.   [Coba lagi] |
-+--------------------------------------------------------------+
-Keyboard: Tab ▸ fokus terlihat · Esc ▸ tutup dialog · ⏎ ▸ kirim
-""",
-       acceptance=("Seluruh alur utama bisa diselesaikan tanpa mouse",
-                   "Tombol ikon (termasuk 👍/👎) punya label yang terbaca pembaca layar",
-                   "Kontras teks memenuhi WCAG AA pada mode terang",
-                   "Setiap layar punya status kosong, memuat, dan gagal",
-                   "Layout utuh pada lebar 360 px"),
-       evidence=(f"{P}/frontend/components/EmptyState.tsx",
-                 f"{P}/docs/ACCESSIBILITY.md"),
-       depends_on=("INT-010", "INT-027"), source=_SPEC),
-
-    _t("INT-033", "Uji menyeluruh: unit, integrasi, dan end-to-end",
-       "i5", priority="critical", estimate=2, labels=(*_L, "test"),
-       description=(
-           "Jaring pengaman sebelum rilis. Unit test untuk chunking, retriever, "
-           "context budget, kuota, dan guardrail. Integrasi: alur upload → ingest "
-           "→ tanya → jawab bersitasi → 👍/👎 → pemakaian token bertambah, "
-           "dijalankan dengan provider tiruan. E2E Playwright untuk tiga skenario "
-           "pengguna: login → tanya → beri 👎 dengan alasan; unggah dokumen → "
-           "tanya isinya; habiskan kuota → lihat pesan 429. Target: seluruh jalur "
-           "kritis tercakup dan CI menjalankan semuanya."),
-       workflow=(
-           _w("Developer", "Jalankan `make test`",
-              "Unit + integrasi + e2e berjalan berurutan"),
-           _w("CI", "Jalankan suite yang sama pada setiap MR",
-              "Merah → merge diblokir"),
-           _w("Tim", "Tambah test regresi setiap kali bug ditemukan",
-              "Bug yang sama tidak kembali"),
-       ),
-       wireframe="""
-PIRAMIDA UJI
-        ╱╲      E2E (3 skenario Playwright)
-       ╱──╲     Integrasi (alur ingest→chat→feedback→usage)
-      ╱────╲    Unit (chunking, retriever, konteks, kuota, guardrail)
-
-SKENARIO E2E
- 1. login → tanya → jawaban bersitasi muncul → klik 👎 → pilih alasan → tersimpan
- 2. unggah PDF → tunggu ready → tanya isinya → jawaban menyebut dokumen itu
- 3. set kuota 100 token → kirim pesan → banner 429 + composer nonaktif
-""",
-       acceptance=("Unit test mencakup 5 modul inti di atas",
-                   "Test integrasi menjalankan alur lengkap dengan provider tiruan",
-                   "3 skenario E2E Playwright hijau",
-                   "Satu perintah menjalankan seluruh suite",
-                   "CI memblokir merge saat ada test merah"),
-       evidence=(f"{P}/backend/tests/test_e2e_flow.py",
-                 f"{P}/frontend/e2e/chat.spec.ts", f"{P}/Makefile"),
-       depends_on=("INT-026", "INT-025", "INT-022"), source=_SUCCESS),
-
-    _t("INT-034", "Deploy produksi + backup, migrasi, dan rollback",
-       "i5", priority="critical", estimate=1.5, labels=(*_L, "devops"),
-       description=(
-           "Bawa aplikasi ke lingkungan nyata: Dockerfile multi-stage yang "
-           "ramping, docker-compose produksi di belakang reverse proxy dengan "
-           "HTTPS, migrasi database berversi (Alembic) yang dijalankan otomatis "
-           "saat start, backup harian database + folder dokumen ke lokasi "
-           "terpisah beserta prosedur restore yang SUDAH PERNAH DIUJI, health "
-           "check untuk orkestrator, dan prosedur rollback ke versi sebelumnya "
-           "dalam < 10 menit."),
-       workflow=(
-           _w("CI", "Build image saat tag rilis dibuat", "Image ter-push ke registry"),
-           _w("Deployer", "Jalankan compose produksi",
-              "Migrasi dijalankan, health check hijau, trafik dialihkan"),
-           _w("Cron", "Backup harian DB + dokumen", "Arsip tersimpan & terverifikasi"),
-           _w("Deployer", "Bila rilis bermasalah, jalankan prosedur rollback",
-              "Versi sebelumnya aktif < 10 menit, data utuh"),
-           _w("Intern", "Uji restore dari backup ke lingkungan kosong",
-              "Bukti bahwa backup benar-benar bisa dipulihkan"),
-       ),
-       wireframe="""
-ALUR RILIS
-  tag v1.0.0 ─► CI build ─► registry ─► deploy ─► migrasi ─► health ✅
-                                              │
-                                        gagal ─┴─► rollback ke v0.9.x
-
-BACKUP
-  02:00 setiap hari → data.db + data/documents → arsip terenkripsi
-  retensi 14 hari · uji restore minimal 1x sebelum serah terima
-""",
-       acceptance=("Aplikasi berjalan di lingkungan produksi/staging lewat HTTPS",
-                   "Migrasi database berversi dan dijalankan otomatis saat start",
-                   "Backup harian berjalan dan restore SUDAH diuji sekali",
-                   "Prosedur rollback tertulis dan pernah dicoba",
-                   "Health check dipakai orkestrator untuk menahan trafik saat belum siap"),
-       evidence=(f"{P}/Dockerfile", f"{P}/docker-compose.prod.yml",
+       acceptance=(
+           "`docker compose up -d --build` menghasilkan aplikasi yang bisa dibuka",
+           "Semua path state berada di /app/data (dibuktikan lewat env & docker inspect)",
+           "Rebuild + redeploy: percakapan, dokumen, dan indeks lama tetap ada",
+           "`docker compose down` lalu `up` tidak menghapus data",
+           "HEALTHCHECK berstatus healthy dalam 60 detik"),
+       evidence=(f"{P}/Dockerfile", f"{P}/docker-compose.yml",
                  f"{P}/docs/DEPLOY.md"),
-       depends_on=("INT-030", "INT-033"), source=_ARCH),
+       depends_on=("INT-026",), source=_ARCH),
 
-    _t("INT-035", "Dokumentasi, runbook, dan serah terima",
-       "i5", priority="high", estimate=1.5, labels=(*_L, "docs"),
+    _t("INT-028", "Uji menyeluruh: unit, integrasi pipeline, dan smoke UI",
+       "i5", priority="high", estimate=1.5, labels=(*B, "epic-performa"),
        description=(
-           "Produk yang tidak bisa dijalankan orang lain belum selesai. Lengkapi: "
-           "README (arsitektur, setup dari nol, variabel environment, perintah "
-           "umum), panduan pengguna singkat (cara bertanya yang baik, arti "
-           "sitasi, arti 👍/👎, kuota), runbook operasional (gejala → penyebab "
-           "→ tindakan untuk 6 insiden umum: LLM mati, kuota habis massal, "
-           "ingest macet, DB penuh, latensi naik, error rate naik), dan catatan "
-           "utang teknis + rekomendasi lanjutan yang jujur."),
+           "Kumpulkan pengujian menjadi satu perintah `pytest` yang hijau di "
+           "mesin bersih tanpa API key (semua lewat mock provider). Minimal: "
+           "unit test untuk tokens, chunking, retrieval, guardrail, PII, "
+           "structured output, quota, dan cache; satu test integrasi yang "
+           "menjalankan pipeline penuh dari pertanyaan sampai jawaban "
+           "bersitasi plus baris trace; dan satu smoke test yang mengimpor "
+           "aplikasi Streamlit untuk memastikan halaman tidak error saat "
+           "dimuat. Target cakupan modul `core/` >= 70% dan waktu jalan "
+           "seluruh test < 60 detik."),
        workflow=(
-           _w("Intern", "Tulis README & panduan pengguna",
-              "Orang baru bisa menjalankan dari nol"),
-           _w("Intern", "Tulis runbook 6 insiden dengan langkah konkret",
-              "Operator tahu harus apa jam 2 pagi"),
-           _w("Orang lain", "Ikuti README dari mesin bersih tanpa bertanya",
-              "Berhasil jalan → dokumentasi lulus uji"),
-           _w("Intern", "Catat utang teknis & rencana lanjutan", "Serah terima jujur"),
+           _w("Intern", "Rapikan test yang sudah ada + tambah yang kurang",
+              "Satu perintah pytest"),
+           _w("Intern", "Tulis test integrasi pipeline penuh",
+              "Jalur utama terlindungi"),
+           _w("Intern", "Ukur cakupan dengan pytest-cov",
+              "Angka cakupan tercatat"),
+           _w("Pembimbing", "Jalankan di mesin bersih tanpa API key",
+              "Hijau tanpa konfigurasi tambahan"),
        ),
        wireframe="""
-STRUKTUR DOKUMEN
-  README.md              ringkasan, setup, env, perintah
-  docs/USER-GUIDE.md     cara pakai untuk karyawan
-  docs/RUNBOOK.md        insiden → gejala → tindakan
-  docs/DEPLOY.md         rilis, backup, rollback
-  docs/SECURITY.md       temuan & risiko
-  docs/HANDOVER.md       utang teknis, rekomendasi lanjutan
-
-RUNBOOK (contoh baris)
-  Gejala: banyak 429 quota_exceeded mendadak
-  Cek   : /metrics quota_rejections_total, kebijakan kuota terbaru
-  Aksi  : naikkan batas sementara via admin, umumkan, telusuri penyebab
+pytest -q
+ tests/test_tokens.py ....      tests/test_guardrail.py ....
+ tests/test_rag.py ....         tests/test_pii.py ....
+ tests/test_pipeline.py .       (integrasi: tanya -> jawab + sitasi + trace)
+ tests/test_smoke_ui.py .
+ 42 passed in 38s   coverage core/: 74%
 """,
-       acceptance=("Orang di luar tim berhasil menjalankan proyek hanya dari README",
-                   "Panduan pengguna menjelaskan sitasi, feedback, dan kuota",
-                   "Runbook memuat minimal 6 insiden dengan langkah konkret",
-                   "Utang teknis & rekomendasi lanjutan ditulis jujur",
-                   "Semua dokumen tertaut dari README"),
-       evidence=(f"{P}/README.md", f"{P}/docs/RUNBOOK.md", f"{P}/docs/HANDOVER.md"),
-       depends_on=("INT-034",), source=_WORK),
+       acceptance=(
+           "`pytest` hijau di mesin bersih tanpa API key apa pun",
+           "Cakupan modul core/ >= 70% (laporan pytest-cov dilampirkan)",
+           "Ada 1 test integrasi pipeline penuh yang memeriksa sitasi & trace",
+           "Seluruh test selesai < 60 detik",
+           "Cara menjalankan test tertulis di README"),
+       evidence=(f"{P}/tests/test_pipeline.py", f"{P}/tests/test_smoke_ui.py",
+                 f"{P}/docs/TESTING.md"),
+       depends_on=("INT-027",), source=_DOD),
 
-    _t("INT-036", "Demo akhir & review terhadap kriteria sukses",
-       "i5", priority="medium", estimate=0.5, labels=(*_L, "review"),
+    _t("INT-029", "Dokumentasi, runbook, dan demo akhir 10 menit",
+       "i5", priority="critical", estimate=1.5, labels=(*_L, "docs", "epic-performa"),
        description=(
-           "Tutup proyek dengan demo 10 menit yang menunjukkan produk bekerja "
-           "utuh: unggah dokumen → tanya → jawaban bersitasi → 👎 dengan alasan → "
-           "admin melihatnya di analitik → kuota berkurang → memori dipakai di "
-           "percakapan berikutnya. Bandingkan hasil akhir dengan metrik di "
-           "dokumen 01 secara apa adanya, rekam videonya, dan sepakati status "
-           "akhir setiap task di papan ini."),
+           "Penutup magang. Lengkapi README (arsitektur, cara jalan, env, "
+           "batasan yang diketahui), tulis runbook singkat (cara menambah "
+           "dokumen, mengganti model, membaca trace, mengatasi 5 masalah "
+           "tersering, cara backup `/app/data`), dan susun skrip demo 10 menit "
+           "yang menunjukkan kelima epic secara berurutan. Tutup dengan tabel "
+           "metrik nyata vs target dari PRD bagian B — diisi apa adanya, "
+           "termasuk yang meleset, beserta penjelasan singkat penyebab dan "
+           "rencana perbaikannya."),
        workflow=(
-           _w("Intern", "Susun skrip demo 10 menit berurutan",
-              "Tidak ada bagian yang improvisasi"),
-           _w("Intern", "Latih & rekam demo", "Video tersimpan di dokumen"),
-           _w("Intern", "Bandingkan metrik nyata vs target dokumen 01",
-              "Tabel jujur: tercapai / tidak + alasannya"),
-           _w("Pembimbing", "Review dan tentukan kelanjutan proyek",
-              "Papan task ditutup dengan status akhir"),
+           _w("Intern", "Lengkapi README + runbook",
+              "Orang baru bisa melanjutkan proyek"),
+           _w("Intern", "Susun skrip demo 10 menit per epic",
+              "docs/DEMO.md"),
+           _w("Intern", "Ukur ulang 5 metrik PRD dan isi tabel nyata vs target",
+              "Hasil jujur tercatat"),
+           _w("Pembimbing", "Tonton demo & review dokumen",
+              "Serah terima selesai"),
        ),
        wireframe="""
-SKRIP DEMO (10 MENIT)
-  0:00 masalah & sasaran                      (1 mnt)
-  1:00 unggah SOP → status ready              (1 mnt)
-  2:00 tanya → jawaban mengalir + sitasi      (2 mnt)
-  4:00 klik sumber → chunk asli tersorot      (1 mnt)
-  5:00 beri 👎 + alasan                        (1 mnt)
-  6:00 admin: analitik menampilkan kasus itu  (1.5 mnt)
-  7:30 kuota berkurang; batas → 429           (1 mnt)
-  8:30 percakapan baru: memori masih ingat    (1 mnt)
-  9:30 metrik vs target + rencana lanjutan    (0.5 mnt)
+SKRIP DEMO (10 menit)
+ 0:00 masalah & produk (PRD)              1 mnt
+ 1:00 chat + sesi lama dilanjutkan        1,5 mnt  (Epic 1)
+ 2:30 tanya dokumen + sitasi + tool       2 mnt    (Epic 2)
+ 4:30 coba prompt injection & PII         1,5 mnt  (Epic 3)
+ 6:00 trace waterfall + dasbor biaya      2 mnt    (Epic 4)
+ 8:00 cache hit + matikan model utama     1,5 mnt  (Epic 5)
+ 9:30 metrik nyata vs target + rencana    0,5 mnt
 """,
-       acceptance=("Demo berjalan tanpa langkah yang gagal",
-                   "Tabel metrik nyata vs target diisi apa adanya",
-                   "Video/rekaman demo tersimpan di repo atau tautan di dokumen",
-                   "Semua task di papan punya status akhir yang benar"),
-       evidence=(f"{P}/docs/DEMO.md",),
-       depends_on=("INT-035",), source=_SUCCESS),
+       acceptance=(
+           "README memuat arsitektur, setup, env, dan batasan yang diketahui",
+           "Runbook memuat 5 masalah tersering beserta langkah penanganannya",
+           "Skrip demo mencakup kelima epic dan selesai <= 10 menit saat dilatih",
+           "Tabel metrik nyata vs target terisi angka, termasuk yang meleset",
+           "Semua task papan berstatus akhir yang benar saat serah terima"),
+       evidence=(f"{P}/README.md", f"{P}/docs/RUNBOOK.md", f"{P}/docs/DEMO.md"),
+       depends_on=("INT-028", "INT-023"), source=_DOD),
 ]
 
 
-def _assign_round_robin() -> None:
-    """Isi `assignee` yang belum di-set: intern1 → intern2 → intern3 → …"""
+def _assign_default_owner() -> None:
+    """Isi `assignee` yang belum di-set dengan intern pertama."""
     for index, task in enumerate(TASKS):
         if not task.get("assignee"):
             task["assignee"] = INTERNS[index % len(INTERNS)]
 
 
-_assign_round_robin()
+_assign_default_owner()
 
 
 def for_assignee(assignee: str) -> list[dict[str, Any]]:
@@ -1625,16 +1376,23 @@ def for_assignee(assignee: str) -> list[dict[str, Any]]:
     return [t for t in TASKS if (t.get("assignee") or "").lower() == name]
 
 
+def by_phase(phase: str) -> list[dict[str, Any]]:
+    """Task satu sprint (dipakai panduan & test)."""
+    return [t for t in TASKS if t["phase"] == phase]
+
+
 def summary() -> dict[str, Any]:
     """Ringkasan rencana intern (dipakai test, API, dan halaman /internship)."""
     per_phase: dict[str, int] = {p["id"]: 0 for p in PHASES}
     per_priority: dict[str, int] = {p: 0 for p in PRIORITIES}
     per_assignee: dict[str, int] = {}
     per_label: dict[str, int] = {}
+    per_status: dict[str, int] = {s: 0 for s in STATUSES}
     days = 0.0
     for t in TASKS:
         per_phase[t["phase"]] = per_phase.get(t["phase"], 0) + 1
         per_priority[t["priority"]] = per_priority.get(t["priority"], 0) + 1
+        per_status[t["status"]] = per_status.get(t["status"], 0) + 1
         days += float(t["estimate"] or 0)
         if t.get("assignee"):
             per_assignee[t["assignee"]] = per_assignee.get(t["assignee"], 0) + 1
@@ -1643,12 +1401,15 @@ def summary() -> dict[str, Any]:
     return {
         "track": TRACK,
         "project_dir": PROJECT_DIR,
+        "revision": PLAN_REVISION,
         "phases": PHASES,
+        "epics": EPICS,
         "total": len(TASKS),
         "per_phase": per_phase,
         "per_priority": per_priority,
         "per_assignee": per_assignee,
         "per_label": per_label,
+        "per_status": per_status,
         "estimate_days": round(days, 1),
         "statuses": list(STATUSES),
         "status_labels": dict(STATUS_LABELS),

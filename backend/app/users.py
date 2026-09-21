@@ -119,6 +119,7 @@ def _row(row: dict[str, Any]) -> dict[str, Any]:
     user["active"] = bool(user.get("active"))
     user["must_change_password"] = bool(user.get("must_change_password"))
     user["role_label"] = ROLE_LABELS.get(user["role"], user["role"])
+    user["email"] = str(user.get("email") or "")
     return user
 
 
@@ -138,6 +139,27 @@ def list_users() -> list[dict]:
 def get_user(user_id: str) -> dict | None:
     row = db.query_one("SELECT * FROM users WHERE id=?", (user_id or "",))
     return _row(row) if row else None
+
+
+def normalise_email(email: str) -> str:
+    return (email or "").strip().lower()[:120]
+
+
+def get_user_by_email(email: str) -> dict | None:
+    mail = normalise_email(email)
+    if not mail:
+        return None
+    row = db.query_one(
+        "SELECT * FROM users WHERE email=? COLLATE NOCASE", (mail,))
+    return _row(row) if row else None
+
+
+def get_user_by_login(login: str) -> dict | None:
+    """Cari akun lewat username **atau** email (halaman login menerima keduanya)."""
+    text = (login or "").strip()
+    if "@" in text:
+        return get_user_by_email(text)
+    return get_user_by_username(text)
 
 
 def get_user_by_username(username: str) -> dict | None:
@@ -168,6 +190,7 @@ def create_user(
     role: str = "member",
     active: bool = True,
     must_change_password: bool = False,
+    email: str = "",
 ) -> dict:
     uname = validate_username(username)
     validate_password(password)
@@ -175,13 +198,16 @@ def create_user(
         raise UserError(f"role harus salah satu dari: {', '.join(ROLES)}")
     if get_user_by_username(uname):
         raise UserError(f"username '{uname}' sudah dipakai")
+    mail = normalise_email(email)
+    if mail and get_user_by_email(mail):
+        raise UserError(f"email '{mail}' sudah dipakai")
     uid = f"u-{uuid.uuid4().hex[:10]}"
     ts = db.now()
     db.execute(
-        "INSERT INTO users(id,username,name,role,password_hash,active,"
+        "INSERT INTO users(id,username,email,name,role,password_hash,active,"
         "must_change_password,created_at,updated_at,last_login) "
-        "VALUES(?,?,?,?,?,?,?,?,?,0)",
-        (uid, uname, (name or "").strip()[:80] or uname, role,
+        "VALUES(?,?,?,?,?,?,?,?,?,?,0)",
+        (uid, uname, mail, (name or "").strip()[:80] or uname, role,
          hash_password(password), 1 if active else 0,
          1 if must_change_password else 0, ts, ts),
     )
@@ -199,6 +225,13 @@ def update_user(user_id: str, patch: dict[str, Any]) -> dict | None:
     if patch.get("name") is not None:
         fields.append("name=?")
         params.append(str(patch["name"]).strip()[:80] or user["username"])
+    if patch.get("email") is not None:
+        mail = normalise_email(patch["email"])
+        other = get_user_by_email(mail) if mail else None
+        if other and other["id"] != user_id:
+            raise UserError(f"email '{mail}' sudah dipakai akun lain")
+        fields.append("email=?")
+        params.append(mail)
     if patch.get("role") is not None:
         role = str(patch["role"]).strip().lower()
         if role not in ROLES:
@@ -262,9 +295,15 @@ def verify_user_password(user_id: str, password: str) -> bool:
 
 def authenticate(username: str, password: str) -> dict | None:
     """Verifikasi kredensial. `None` bila salah/nonaktif (pesan seragam)."""
-    uname = normalise_username(username)
-    row = db.query_one(
-        "SELECT * FROM users WHERE username=? COLLATE NOCASE", (uname,))
+    login = (username or "").strip()
+    if "@" in login:
+        row = db.query_one(
+            "SELECT * FROM users WHERE email=? COLLATE NOCASE",
+            (normalise_email(login),))
+    else:
+        row = db.query_one(
+            "SELECT * FROM users WHERE username=? COLLATE NOCASE",
+            (normalise_username(login),))
     if not row:
         # Tetap lakukan satu hash agar waktu respons tidak membocorkan
         # apakah username-nya ada (timing side channel sederhana).
@@ -308,6 +347,60 @@ def ensure_seed_users(settings) -> dict[str, Any]:
             continue
         created.append({"username": member["username"], "role": "member"})
     return {"created": created, "skipped": False}
+
+
+def generate_password(length: int = 14) -> str:
+    """Password acak yang mudah disalin (tanpa karakter ambigu)."""
+    alphabet = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+
+
+def ensure_intern_account(settings) -> dict[str, Any]:
+    """Buat/segarkan akun anak internship (idempoten).
+
+    Berbeda dari `ensure_seed_users()` yang hanya jalan saat tabel `users`
+    masih kosong: akun intern dibuat kapan pun belum ada, termasuk di database
+    lama yang sudah berisi admin. Password diambil dari `ASK_INTERN_PASSWORD`;
+    bila kosong, satu password acak dibuatkan dan **dikembalikan sekali** oleh
+    fungsi ini (pemanggil yang mencetak/menyimpannya) — setelah itu hanya
+    hash-nya yang tersimpan.
+    """
+    username = normalise_username(settings.intern_username or "")
+    if not username:
+        return {"created": False, "reason": "dinonaktifkan (ASK_INTERN_USERNAME kosong)"}
+    email = normalise_email(settings.intern_email or "")
+
+    existing = get_user_by_username(username) or (
+        get_user_by_email(email) if email else None)
+    if existing:
+        patch: dict[str, Any] = {}
+        if email and not existing.get("email"):
+            patch["email"] = email
+        if settings.intern_name and existing.get("name") != settings.intern_name:
+            patch["name"] = settings.intern_name
+        if patch:
+            update_user(existing["id"], patch)
+        return {"created": False, "username": existing["username"],
+                "email": email or existing.get("email", ""),
+                "reason": "akun sudah ada"}
+
+    password = (settings.intern_password or "").strip()
+    generated = not password
+    if generated:
+        password = generate_password()
+    user = create_user(
+        username=username,
+        password=password,
+        name=settings.intern_name or username,
+        role="member",
+        email=email,
+        # Password awal hanya dipegang pembimbing → intern wajib menggantinya
+        # pada login pertama (halaman Profil).
+        must_change_password=True,
+    )
+    return {"created": True, "username": user["username"],
+            "email": user.get("email", ""), "name": user.get("name", ""),
+            "password": password, "generated": generated}
 
 
 def default_credentials(settings) -> list[dict[str, str]]:

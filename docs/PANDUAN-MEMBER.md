@@ -309,9 +309,14 @@ git push -u origin int-014-tool-registry
 
 ## 11. Halaman /internship & materi
 
-Halaman `/internship` adalah rumah proyek Anda: progres per fase, task milik
+Halaman `/internship` adalah rumah proyek Anda: progres per sprint, task milik
 Anda, dan kartu **Materi & slide**. Kartu materi membaca dokumen langsung dari
 repo (folder `docs/internship/`), jadi yang tampil selalu versi terbaru.
+
+Mulai dari `00-panduan-kerja.md` (cara bekerja), lalu `01-template-prd.md`
+(pekerjaan Sprint 0), `02-arsitektur-prototipe.md` (stack yang sudah dikunci),
+`03-rencana-sprint.md` (seluruh task per sprint), dan `04-definition-of-done.md`
+(kapan sebuah task boleh disebut selesai).
 
 ![Papan internship versi member](images/38-member-internship.png)
 

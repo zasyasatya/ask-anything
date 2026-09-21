@@ -274,15 +274,15 @@ def test_seeded_internship_tasks_expose_workflow_and_wireframe(client):
 
 def test_member_cannot_edit_workflow_or_wireframe(client, strict_auth):
     """Member hanya menggerakkan status — rancangan task milik admin."""
-    from app.config import settings
-    from app import internship_plan
+    from app import internship_plan, users
 
     client.post("/api/tasks/seed", params={"track": "internship"})
-    # INT-001 ditugaskan ke intern pertama (round-robin di internship_plan)
     intern = internship_plan.INTERNS[0]
+    account = users.get_user_by_username(intern)
+    assert account, "akun intern dibuat otomatis saat startup"
+    users.set_password(account["id"], "rahasia123")
     assert client.post("/api/auth/login", json={
-        "username": intern,
-        "password": settings.member_password}).status_code == 200
+        "username": intern, "password": "rahasia123"}).status_code == 200
     before = client.get("/api/tasks/INT-001").json()["task"]
     assert before["assignee"] == intern
     client.patch("/api/tasks/INT-001", json={"wireframe": "diubah member",

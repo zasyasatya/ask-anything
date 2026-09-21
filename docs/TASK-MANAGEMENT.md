@@ -107,6 +107,13 @@ Papan punya **dua trek** (`track=platform` → `ASK-NNN`, `track=internship` →
 `INT-NNN`) dengan statistik dan seeder terpisah; ringkasan trek internship juga
 tersedia lewat `GET /api/internship/overview` (otomatis menyesuaikan peran).
 
+Rencana internship dikunci versinya lewat `internship_plan.PLAN_REVISION`. Saat
+rencana ditulis ulang dan revisinya naik, `tasks.refresh_plan_if_stale()` (jalan
+otomatis saat backend start) menulis ulang task rencana di papan **tanpa
+membuang progres**: status, penanggung jawab, branch/MR, dan centang kriteria
+selesai dipindahkan ke task dengan id yang sama; task buatan tangan
+(`seeded=0`) tidak disentuh.
+
 ```text
 GET    /api/tasks?track=&status=&phase=&assignee=&priority=&label=&q=&seeded=
        → { tasks, stats, plan, statuses, repo, track, scope }
@@ -134,7 +141,8 @@ acceptance_done/total, blocked_by, ready`.
 | Berkas | Isi |
 |---|---|
 | `backend/app/tasks_plan.py` | Data rencana platform (6 fase, 54 task) + fase/status/prioritas yang dikenal |
-| `backend/app/internship_plan.py` | Data rencana **chatbot AI agent production-ready** (6 fase `i0`–`i5`, 36 task `INT-NNN` ±54 hari kerja, penugasan round-robin peserta). Tiap task memuat deskripsi, workflow, dan wireframe |
+| `backend/app/internship_plan.py` | Data rencana **prototipe chatbot LLM** (6 sprint `i0`–`i5`, 29 task `INT-NNN`, ±41 hari kerja). Hanya Sprint 0 (PRD) berstatus `todo`; sisanya `backlog`. Tiap task memuat deskripsi, workflow, wireframe, kriteria berangka, label sprint + epic, dan `PLAN_REVISION` |
+| `scripts/gen_internship_docs.py` | Menghasilkan `docs/internship/03-rencana-sprint.md` dari rencana di atas (`--check` memverifikasi dokumen tidak basi) |
 | `backend/app/tasks.py` | Logika: CRUD, kolom & posisi, checklist, komentar, statistik, seeder, `sync()` git, `branch_name()` |
 | `backend/app/api/tasks.py` | Router `/api/tasks/*` (Pydantic + guard `X-Admin-Token`) |
 | `backend/app/startup.py` | Catatan startup (dipakai juga oleh `/api/health` & `run.py`) |

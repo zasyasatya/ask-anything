@@ -58,26 +58,78 @@ def test_intern_plan_is_well_formed():
             assert step["action"].strip(), f"{task['id']} punya langkah kosong"
 
 
-def test_intern_plan_covers_production_chatbot_end_to_end():
-    """Rencana harus mencakup seluruh rantai produk, bukan prototipe saja."""
+def test_intern_plan_covers_the_five_llm_epics():
+    """Rencana harus memuat kelima epic LLM yang diminta pembimbing."""
     blob = " ".join(f"{t['title']} {t['description']} {t['source']}"
                     for t in internship_plan.TASKS).lower()
     for keyword in (
-        # fondasi & chat
-        "kontrak api", "autentikasi", "streaming", "sse",
-        # agent & pengetahuan
-        "agent", "tool", "chunking", "embedding", "retrieval", "sitasi",
-        "guardrail",
-        # memori
-        "memori", "ringkasan", "jendela konteks",
-        # token, kuota, feedback
-        "token", "kuota", "rate limit", "feedback", "analitik",
-        # rilis
-        "observability", "keamanan", "uji beban", "deploy", "runbook", "demo",
+        # Epic 0 — produk
+        "prd", "persona", "user story", "non-goal",
+        # Epic 1 — konteks & memori
+        "sesi", "token", "sliding window", "ringkas", "memori",
+        # Epic 2 — orkestrasi & tooling
+        "function calling", "json schema", "chunk", "embedding", "retrieval",
+        "sitasi", "router",
+        # Epic 3 — guardrail
+        "prompt injection", "pii", "redaksi", "validator",
+        # Epic 4 — observability
+        "trace", "latensi", "biaya", "feedback", "evaluasi",
+        # Epic 5 — performa & rilis
+        "cache", "rate limit", "fallback", "docker", "volume", "demo",
     ):
         assert keyword in blob, keyword
     phases = {t["phase"] for t in internship_plan.TASKS}
     assert phases == set(internship_plan.PHASE_IDS)
+
+
+def test_plan_stays_simple_python_prototype():
+    """Arsitektur sengaja sederhana: infra berat tidak pernah jadi pekerjaan.
+
+    Kata seperti "Kafka" boleh muncul di deskripsi sebagai penjelasan *apa yang
+    TIDAK dipakai*; yang diuji di sini adalah pekerjaan nyatanya — kriteria
+    selesai, berkas bukti, dan judul task.
+    """
+    blob = " ".join(
+        f"{t['title']} {' '.join(t['acceptance'])} {' '.join(t['evidence'])}"
+        for t in internship_plan.TASKS).lower()
+    for banned in ("postgresql", "milvus", "qdrant", "kafka", "rabbitmq",
+                   "kubernetes", "langsmith", "redis"):
+        assert banned not in blob, f"{banned} seharusnya di luar ruang lingkup"
+    # Prototipe = Python + Streamlit + SQLite.
+    plan_blob = " ".join(f"{t['description']} {t['wireframe']}"
+                         for t in internship_plan.TASKS).lower()
+    for expected in ("streamlit", "sqlite", "numpy"):
+        assert expected in plan_blob, expected
+
+
+def test_sprint_zero_is_the_only_open_column():
+    """Kolom To do hanya berisi Sprint 0 (PRD); sisanya menunggu di backlog."""
+    for task in internship_plan.TASKS:
+        if task["phase"] == "i0":
+            assert task["status"] == "todo", task["id"]
+        else:
+            assert task["status"] == "backlog", task["id"]
+    sprint0 = internship_plan.by_phase("i0")
+    assert len(sprint0) >= 3
+    # Gerbang sprint 0 = PRD rampung.
+    assert sum(1 for t in sprint0 if "prd" in t["title"].lower()) >= 3
+
+
+def test_every_task_carries_sprint_and_epic_label():
+    epic_labels = {e["label"] for e in internship_plan.EPICS}
+    for task in internship_plan.TASKS:
+        sprint_label = internship_plan.SPRINT_LABELS[task["phase"]]
+        assert sprint_label in task["labels"], task["id"]
+        assert epic_labels & set(task["labels"]), f"{task['id']} tanpa label epic"
+
+
+def test_acceptance_criteria_are_measurable():
+    """Kriteria selesai harus berangka, bukan kata sifat."""
+    for task in internship_plan.TASKS:
+        assert len(task["acceptance"]) >= 4, task["id"]
+        assert any(any(ch.isdigit() for ch in item)
+                   for item in task["acceptance"]), (
+            f"{task['id']} tidak punya kriteria berangka")
 
 
 def test_intern_plan_details_feedback_memory_and_quota_tasks():
@@ -91,14 +143,14 @@ def test_intern_plan_details_feedback_memory_and_quota_tasks():
     # manajemen memori: jangka menengah (ringkasan) & panjang (fakta pengguna)
     assert "jangka panjang" in joined
     # limit token per pengguna
-    assert "kuota" in joined and "429" in joined
+    assert "kuota" in joined and "token per hari" in joined
 
 
-def test_every_phase_has_at_least_three_tasks():
+def test_every_sprint_has_at_least_three_tasks():
     per_phase = internship_plan.summary()["per_phase"]
     assert set(per_phase) == set(internship_plan.PHASE_IDS)
     for phase_id, count in per_phase.items():
-        assert count >= 3, f"fase {phase_id} hanya punya {count} task"
+        assert count >= 3, f"sprint {phase_id} hanya punya {count} task"
 
 
 def test_dependencies_point_to_existing_earlier_tasks():
@@ -187,12 +239,16 @@ def test_overview_for_admin_lists_everything(client):
 
 def test_overview_for_member_only_own_tasks(client, strict_auth):
     """Member melihat task miliknya saja; akun intern di-seed otomatis startup."""
-    from app.config import settings
+    from app import users
 
     _intern_board(client)
     intern = internship_plan.INTERNS[0]
+    account = users.get_user_by_username(intern)
+    assert account, "akun intern harus dibuat otomatis saat startup"
+    # Password awalnya acak (hanya dicetak sekali) — set ulang untuk tes ini.
+    users.set_password(account["id"], "rahasia123")
     res = client.post("/api/auth/login", json={
-        "username": intern, "password": settings.member_password})
+        "username": intern, "password": "rahasia123"})
     assert res.status_code == 200, res.text
 
     data = client.get("/api/internship/overview").json()
@@ -201,7 +257,9 @@ def test_overview_for_member_only_own_tasks(client, strict_auth):
     for task in data["tasks"]:
         assert task["assignee"].lower() == intern.lower()
     assert data["stats"]["total"] == len(data["tasks"])
-    assert data["stats"]["total"] < len(internship_plan.TASKS)
+    # Satu intern memegang seluruh papan; admin tetap bisa menugaskan ulang.
+    assert data["stats"]["total"] == len(
+        internship_plan.for_assignee(intern))
 
 
 def test_overview_shows_progress_counts(client):
@@ -242,3 +300,48 @@ def test_track_helper_and_labels():
     assert tasks.track_of("INT-004") == "internship"
     assert tasks.track_of("ASK-004") == "platform"
     assert tasks.TRACK_LABELS["internship"].startswith("Proyek Internship")
+
+
+# ---------------------------------------------------------------------------
+# Pembaruan rencana (revisi) — papan lama ikut naik versi tanpa kehilangan progres
+# ---------------------------------------------------------------------------
+
+def test_refresh_plan_keeps_progress_when_revision_changes(client):
+    """Rencana ditulis ulang → papan diperbarui, status & centang bertahan."""
+    client.post("/api/tasks/seed", params={"track": "internship"})
+    db.execute("DELETE FROM admin_policy WHERE key=?",
+               ("plan_revision:internship",))
+
+    tasks.update_task("INT-002", {"status": "in_progress",
+                                  "assignee": "verisimb",
+                                  "branch": "feat/INT-002-prd-metrik"})
+    before = tasks.get_task("INT-002")
+    first_criterion = before["acceptance"][0]["text"]
+    tasks.update_task("INT-002", {"acceptance": [
+        {"text": a["text"], "done": a["text"] == first_criterion}
+        for a in before["acceptance"]]})
+
+    report = tasks.refresh_plan_if_stale("internship")
+    assert report["changed"] is True
+    assert report["restored"] >= 1
+
+    after = tasks.get_task("INT-002")
+    assert after["status"] == "in_progress"
+    assert after["branch"] == "feat/INT-002-prd-metrik"
+    assert {a["text"] for a in after["acceptance"] if a["done"]} == {
+        first_criterion}
+    assert len(tasks.list_tasks(track="internship", seeded=True)) == len(
+        internship_plan.TASKS)
+
+    # kedua kali: revisi sudah tersimpan → tidak ada pekerjaan ulang
+    assert tasks.refresh_plan_if_stale("internship")["changed"] is False
+
+
+def test_refresh_plan_leaves_handmade_tasks_alone(client):
+    client.post("/api/tasks/seed", params={"track": "internship"})
+    mine = tasks.create_task(title="Catatan saya sendiri", track="internship",
+                             phase="i0")
+    db.execute("DELETE FROM admin_policy WHERE key=?",
+               ("plan_revision:internship",))
+    tasks.refresh_plan_if_stale("internship")
+    assert tasks.get_task(mine["id"]) is not None

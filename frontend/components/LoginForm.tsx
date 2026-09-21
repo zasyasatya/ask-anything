@@ -44,7 +44,7 @@ export default function LoginForm() {
       const text = String(err);
       setError(
         text.includes("401")
-          ? "Username atau password salah."
+          ? "Username/email atau password salah."
           : text.includes("429")
             ? "Terlalu banyak percobaan login. Tunggu sebentar lalu coba lagi."
             : `Tidak bisa masuk: ${text}`
@@ -75,7 +75,7 @@ export default function LoginForm() {
           </p>
 
           <label className="mt-4 block text-[12px] font-medium text-zinc-600">
-            Username
+            Username atau email
             <input
               data-testid="login-username"
               value={username}
@@ -83,7 +83,7 @@ export default function LoginForm() {
               autoFocus
               onChange={(e) => setUsername(e.target.value)}
               className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-accent-ring focus:ring-2 focus:ring-accent-soft"
-              placeholder="mis. intern1"
+              placeholder="mis. verisimb atau verisimb@gmail.com"
             />
           </label>
 
