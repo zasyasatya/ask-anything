@@ -42,6 +42,8 @@ class TaskIn(BaseModel):
     depends_on: list[str] = Field(default_factory=list)
     evidence: list[str] = Field(default_factory=list)
     source: str = ""
+    workflow: list[Any] = Field(default_factory=list)
+    wireframe: str = ""
     task_id: str = ""
     branch: str = ""
     track: str = ""
@@ -60,6 +62,8 @@ class TaskPatch(BaseModel):
     depends_on: list[str] | None = None
     evidence: list[str] | None = None
     source: str | None = None
+    workflow: list[Any] | None = None
+    wireframe: str | None = None
     branch: str | None = None
     mr_url: str | None = None
 
@@ -228,7 +232,8 @@ async def patch_task(task_id: str, patch: TaskPatch,
         # Member boleh memindahkan status & menandai kriteria, bukan mengubah
         # penugasan/prioritas/branch — itu keputusan admin.
         for field in ("assignee", "phase", "priority", "depends_on", "evidence",
-                      "branch", "mr_url", "source", "estimate"):
+                      "branch", "mr_url", "source", "estimate", "workflow",
+                      "wireframe"):
             values.pop(field, None)
     try:
         updated = tasks.update_task(task["id"], values)

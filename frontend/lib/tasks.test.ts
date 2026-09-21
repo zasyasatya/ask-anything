@@ -27,6 +27,8 @@ function task(over: Partial<Task>): Task {
     depends_on: [],
     evidence: [],
     source: "",
+    workflow: [],
+    wireframe: "",
     branch: "",
     mr_url: "",
     commits: [],

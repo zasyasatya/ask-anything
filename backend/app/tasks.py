@@ -114,6 +114,8 @@ def _row(row: dict[str, Any]) -> dict[str, Any]:
         for a in acceptance
     ]
     task["evidence"] = [str(x) for x in _loads(task.get("evidence"), [])]
+    task["workflow"] = _clean_workflow(_loads(task.get("workflow"), []))
+    task["wireframe"] = str(task.get("wireframe") or "")
     task["seeded"] = bool(task.get("seeded"))
     task["track"] = task.get("track") or track_of(task.get("id", ""))
     task["track_label"] = TRACK_LABELS.get(task["track"], task["track"])
@@ -293,6 +295,27 @@ def _clean_acceptance(items: Iterable[Any]) -> list[dict]:
     return out
 
 
+def _clean_workflow(items: Iterable[Any]) -> list[dict]:
+    """Normalisasi langkah workflow → [{step, actor, action, result}].
+
+    Menerima dict (`{actor, action, result}`) maupun string bebas; string
+    diperlakukan sebagai `action` tanpa aktor supaya rencana lama tetap valid.
+    """
+    out: list[dict] = []
+    for item in items or []:
+        if isinstance(item, dict):
+            actor = str(item.get("actor", "")).strip()[:80]
+            action = str(item.get("action", "")).strip()[:400]
+            result = str(item.get("result", "")).strip()[:400]
+        else:
+            actor, action, result = "", str(item).strip()[:400], ""
+        if not (actor or action or result):
+            continue
+        out.append({"step": len(out) + 1, "actor": actor,
+                    "action": action, "result": result})
+    return out[:40]
+
+
 def create_task(*, title: str, description: str = "", phase: str = "f0",
                 status: str = "todo", priority: str = "medium",
                 assignee: str = "", estimate: float = 0,
@@ -300,6 +323,7 @@ def create_task(*, title: str, description: str = "", phase: str = "f0",
                 acceptance: Iterable[Any] | None = None,
                 depends_on: Iterable[str] | None = None,
                 evidence: Iterable[str] | None = None, source: str = "",
+                workflow: Iterable[Any] | None = None, wireframe: str = "",
                 task_id: str = "", seeded: bool = False,
                 branch: str = "", position: int | None = None,
                 track: str = "") -> dict:
@@ -328,15 +352,18 @@ def create_task(*, title: str, description: str = "", phase: str = "f0",
     ts = db.now()
     db.execute(
         "INSERT INTO tasks(id,title,description,phase,status,priority,assignee,"
-        "estimate,labels,acceptance,depends_on,evidence,source,branch,mr_url,"
-        "commits,position,seeded,track,created_at,updated_at,completed_at) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?)",
+        "estimate,labels,acceptance,depends_on,evidence,source,workflow,"
+        "wireframe,branch,mr_url,commits,position,seeded,track,created_at,"
+        "updated_at,completed_at) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'[]',?,?,?,?,?,?)",
         (tid, title[:300], description or "", phase, status, priority,
          assignee or "", float(estimate or 0), json.dumps(list(labels or [])),
          json.dumps(_clean_acceptance(acceptance or [])),
          json.dumps([_norm(d) for d in (depends_on or [])]),
          json.dumps([str(e) for e in (evidence or [])]),
-         source or "", branch or "", "", int(position), 1 if seeded else 0,
+         source or "", json.dumps(_clean_workflow(workflow or [])),
+         str(wireframe or "")[:6000],
+         branch or "", "", int(position), 1 if seeded else 0,
          track, ts, ts, 0.0 if status != "done" else ts),
     )
     return get_task(tid) or {}
@@ -344,7 +371,8 @@ def create_task(*, title: str, description: str = "", phase: str = "f0",
 
 EDITABLE = ("title", "description", "phase", "status", "priority", "assignee",
             "estimate", "labels", "acceptance", "depends_on", "evidence",
-            "source", "branch", "mr_url", "position", "commits")
+            "source", "workflow", "wireframe", "branch", "mr_url",
+            "position", "commits")
 
 
 def update_task(task_id: str, patch: dict[str, Any]) -> dict | None:
@@ -378,6 +406,10 @@ def update_task(task_id: str, patch: dict[str, Any]) -> dict | None:
                                 for x in (value or [])])
         elif key == "acceptance":
             value = json.dumps(_clean_acceptance(value))
+        elif key == "workflow":
+            value = json.dumps(_clean_workflow(value))
+        elif key == "wireframe":
+            value = str(value or "")[:6000]
         elif key == "commits":
             value = json.dumps([
                 {"sha": str(c.get("sha", ""))[:40],

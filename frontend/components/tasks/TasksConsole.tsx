@@ -66,6 +66,11 @@ export default function TasksConsole() {
   const [repo, setRepo] = useState("");
   const [filters, setFilters] = useState<TaskFilters>(EMPTY_FILTERS);
   const [view, setView] = useState<"board" | "list">("board");
+  // Header dulu memuat semua tombol & filter sekaligus sehingga terasa ramai.
+  // Sekarang: aksi admin dilipat ke menu, filter lanjutan disembunyikan
+  // sampai dibutuhkan.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const [grouped, setGrouped] = useState(false);
   const [detail, setDetail] = useState<Task | null>(null);
   const [creating, setCreating] = useState(false);
@@ -205,6 +210,13 @@ export default function TasksConsole() {
     }
   };
 
+  const activeFilterCount = [
+    filters.phase,
+    filters.assignee,
+    filters.priority,
+    filters.label,
+  ].filter(Boolean).length;
+
   const statusChips = COLUMNS.map((s) => ({
     status: s,
     count: stats?.per_status?.[s] ?? 0,
@@ -220,22 +232,23 @@ export default function TasksConsole() {
           >
             ← Chat
           </Link>
-          <h1 className="text-[15px] font-semibold text-zinc-800">
-            {track === "internship"
-              ? "Papan Proyek Internship (INT-NNN)"
-              : "Task Management — Rencana RAG & Platform"}
-          </h1>
+          <div className="min-w-0">
+            <h1 className="truncate text-[15px] font-semibold text-zinc-800">
+              {track === "internship"
+                ? "Chatbot AI Agent — Rencana Produksi"
+                : "Platform Ask Anything — Rencana RAG"}
+            </h1>
+            <p className="truncate text-[11px] text-zinc-400">
+              {track === "internship"
+                ? "Fondasi → chat → agent & RAG → memori → token & feedback → rilis"
+                : "Rencana RAG × AI Agent untuk platform ask-anything"}
+            </p>
+          </div>
           {scope === "assigned" && (
             <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
               menampilkan task untuk Anda
             </span>
           )}
-          <span
-            className="hidden rounded-lg border border-zinc-200 px-2 py-1 font-mono text-[11px] text-zinc-400 lg:inline"
-            title="Folder repo yang dipakai untuk sinkronisasi branch/commit"
-          >
-            {repo || "repo: —"}
-          </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
             <div className="flex overflow-hidden rounded-lg border border-zinc-200">
                 {["platform", "internship"].map((t) => (
@@ -253,50 +266,74 @@ export default function TasksConsole() {
                 ))}
             </div>
             {isAdmin && (
-            <button
-              onClick={() => setTokenOpen((v) => !v)}
-              className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
-              title="Token admin (ASK_ADMIN_TOKEN) bila backend dilindungi"
-            >
-              🔑 Token
-            </button>
+              <button
+                onClick={() => setCreating(true)}
+                className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:brightness-95"
+              >
+                + Task
+              </button>
             )}
             {isAdmin && (
-            <>
-            <button
-              onClick={() => handleSeed(false)}
-              disabled={busy}
-              className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
-            >
-              Muat rencana RAG
-            </button>
-            <button
-              onClick={() => handleSeed(true)}
-              disabled={busy}
-              className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
-              title="Hapus task rencana lalu buat ulang dari tasks_plan.py"
-            >
-              Reset rencana
-            </button>
-            </>
-            )}
-            {isAdmin && (
-            <button
-              onClick={handleSync}
-              disabled={busy}
-              className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50 disabled:opacity-40"
-              title="Selaraskan status dengan branch/commit git & berkas implementasi"
-            >
-              {busy ? "…" : "⟳ Sync git"}
-            </button>
-            )}
-            {isAdmin && (
-            <button
-              onClick={() => setCreating(true)}
-              className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:brightness-95"
-            >
-              + Task baru
-            </button>
+              <div className="relative">
+                <button
+                  onClick={() => setMenuOpen((v) => !v)}
+                  aria-label="Aksi papan"
+                  aria-expanded={menuOpen}
+                  className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
+                >
+                  ⋯
+                </button>
+                {menuOpen && (
+                  <>
+                    <button
+                      aria-label="Tutup menu"
+                      onClick={() => setMenuOpen(false)}
+                      className="fixed inset-0 z-10 cursor-default"
+                    />
+                    <div className="absolute right-0 z-20 mt-1 w-60 overflow-hidden rounded-xl border border-zinc-200 bg-white py-1 shadow-lg">
+                      {[
+                        {
+                          label: busy ? "Menyinkronkan…" : "⟳ Sync git",
+                          hint: "Selaraskan status dengan branch & commit",
+                          run: handleSync,
+                        },
+                        {
+                          label: "Muat rencana",
+                          hint: "Tambahkan task rencana yang belum ada",
+                          run: () => handleSeed(false),
+                        },
+                        {
+                          label: "Reset rencana",
+                          hint: "Kembalikan task hasil seed ke kondisi awal",
+                          run: () => handleSeed(true),
+                        },
+                        {
+                          label: "🔑 Token admin",
+                          hint: "Bila backend memakai ASK_ADMIN_TOKEN",
+                          run: () => setTokenOpen((v) => !v),
+                        },
+                      ].map((item) => (
+                        <button
+                          key={item.label}
+                          disabled={busy}
+                          onClick={() => {
+                            setMenuOpen(false);
+                            item.run();
+                          }}
+                          className="block w-full px-3 py-2 text-left hover:bg-zinc-50 disabled:opacity-40"
+                        >
+                          <span className="block text-[12.5px] font-medium text-zinc-700">
+                            {item.label}
+                          </span>
+                          <span className="block text-[11px] text-zinc-400">
+                            {item.hint}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -323,116 +360,67 @@ export default function TasksConsole() {
           </div>
         )}
 
-        {/* statistik ringkas */}
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-5 pb-2">
-          <div className="flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-1.5">
-            <span className="text-[11px] text-zinc-500">Progres</span>
-            <div className="h-2 w-28 overflow-hidden rounded-full bg-zinc-100">
+        {/* satu baris kendali: progres · kolom · cari · filter lanjutan */}
+        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-5 pb-3">
+          <div className="flex items-center gap-2 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5">
+            <div className="h-1.5 w-20 overflow-hidden rounded-full bg-zinc-100">
               <div
                 className="h-full rounded-full bg-emerald-500"
                 style={{ width: `${stats?.progress ?? 0}%` }}
               />
             </div>
-            <b className="text-[12px] text-zinc-700">{stats?.progress ?? 0}%</b>
+            <b className="text-[11.5px] text-zinc-700">{stats?.progress ?? 0}%</b>
+            <span className="text-[11px] text-zinc-400">
+              {stats?.done ?? 0}/{stats?.total ?? 0}
+            </span>
           </div>
-          {statusChips.map(({ status, count }) => (
-            <button
-              key={status}
-              onClick={() => setFilters((f) => ({ ...f, status: f.status === status ? "" : status }))}
-              className={`rounded-xl border px-2.5 py-1.5 text-[11.5px] font-medium transition ${
-                filters.status === status
-                  ? STATUS_META[status].chip
-                  : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50"
-              }`}
-              title={`Saring kolom ${STATUS_META[status].label}`}
-            >
-              {STATUS_META[status].label} {count}
-            </button>
-          ))}
-          <span className="rounded-xl border border-zinc-200 bg-white px-2.5 py-1.5 text-[11.5px] text-zinc-500">
-            {formatDays(plan?.estimate_days ?? 0)} total rencana
-          </span>
-          {!!stats?.blocked && (
-            <span className="rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-[11.5px] text-rose-600">
-              ⛔ {stats.blocked} task menunggu prasyarat
-            </span>
-          )}
-          {!!stats?.ready && (
-            <span className="rounded-xl border border-emerald-200 bg-emerald-50 px-2.5 py-1.5 text-[11.5px] text-emerald-700">
-              ▶ {stats.ready} siap dikerjakan
-            </span>
-          )}
-        </div>
 
-        {/* filter */}
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 px-5 pb-3">
+          <div className="flex overflow-hidden rounded-lg border border-zinc-200 bg-white">
+            {statusChips.map(({ status, count }) => (
+              <button
+                key={status}
+                onClick={() =>
+                  setFilters((f) => ({
+                    ...f,
+                    status: f.status === status ? "" : status,
+                  }))
+                }
+                title={`Saring kolom ${STATUS_META[status].label}`}
+                className={`border-r border-zinc-100 px-2.5 py-1.5 text-[11.5px] font-medium transition last:border-r-0 ${
+                  filters.status === status
+                    ? "bg-zinc-900 text-white"
+                    : "text-zinc-500 hover:bg-zinc-50"
+                }`}
+              >
+                {STATUS_META[status].label}{" "}
+                <span className="font-mono opacity-70">{count}</span>
+              </button>
+            ))}
+          </div>
+
           <input
             aria-label="Cari task"
             value={filters.q}
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
-            placeholder="cari id, judul, label, branch…"
-            className="w-56 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[12px]"
+            placeholder="cari id, judul, label…"
+            className="w-52 rounded-lg border border-zinc-200 px-2.5 py-1.5 text-[12px]"
           />
-          <select
-            aria-label="Filter fase"
-            value={filters.phase}
-            onChange={(e) => setFilters((f) => ({ ...f, phase: e.target.value }))}
-            className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
-          >
-            <option value="">Semua fase</option>
-            {phases.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter assignee"
-            value={filters.assignee}
-            onChange={(e) => setFilters((f) => ({ ...f, assignee: e.target.value }))}
-            className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
-          >
-            <option value="">Semua orang</option>
-            {assignees.map((a) => (
-              <option key={a} value={a}>
-                {a}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Filter prioritas"
-            value={filters.priority}
-            onChange={(e) => setFilters((f) => ({ ...f, priority: e.target.value }))}
-            className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
-          >
-            <option value="">Semua prioritas</option>
-            {["low", "medium", "high", "critical"].map((p) => (
-              <option key={p} value={p}>
-                {p}
-              </option>
-            ))}
-          </select>
-          {!!labels.length && (
-            <select
-              aria-label="Filter label"
-              value={filters.label}
-              onChange={(e) => setFilters((f) => ({ ...f, label: e.target.value }))}
-              className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
-            >
-              <option value="">Semua label</option>
-              {labels.map((l) => (
-                <option key={l} value={l}>
-                  #{l}
-                </option>
-              ))}
-            </select>
-          )}
+
           <button
-            onClick={() => setFilters(EMPTY_FILTERS)}
-            className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[12px] text-zinc-500 hover:bg-zinc-50"
+            onClick={() => setFiltersOpen((v) => !v)}
+            aria-expanded={filtersOpen}
+            className={`rounded-lg border px-2.5 py-1.5 text-[12px] font-medium transition ${
+              activeFilterCount
+                ? "border-accent-ring bg-accent-soft text-accent"
+                : "border-zinc-200 bg-white text-zinc-500 hover:bg-zinc-50"
+            }`}
           >
-            Bersihkan
+            Filter
+            {activeFilterCount > 0 && (
+              <span className="ml-1 font-mono">{activeFilterCount}</span>
+            )}
           </button>
+
           <div className="ml-auto flex items-center gap-1 rounded-lg border border-zinc-200 bg-white p-0.5">
             {(["board", "list"] as const).map((v) => (
               <button
@@ -446,18 +434,92 @@ export default function TasksConsole() {
               </button>
             ))}
           </div>
-          {view === "board" && (
-            <label className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[12px] text-zinc-500">
-              <input
-                type="checkbox"
-                checked={grouped}
-                onChange={(e) => setGrouped(e.target.checked)}
-                className="h-3.5 w-3.5 accent-indigo-500"
-              />
-              Kelompokkan per fase
-            </label>
-          )}
         </div>
+
+        {filtersOpen && (
+          <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2 border-t border-zinc-100 px-5 py-2.5">
+            <select
+              aria-label="Filter fase"
+              value={filters.phase}
+              onChange={(e) => setFilters((f) => ({ ...f, phase: e.target.value }))}
+              className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
+            >
+              <option value="">Semua fase</option>
+              {phases.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter assignee"
+              value={filters.assignee}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, assignee: e.target.value }))
+              }
+              className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
+            >
+              <option value="">Semua orang</option>
+              {assignees.map((a) => (
+                <option key={a} value={a}>
+                  {a}
+                </option>
+              ))}
+            </select>
+            <select
+              aria-label="Filter prioritas"
+              value={filters.priority}
+              onChange={(e) =>
+                setFilters((f) => ({ ...f, priority: e.target.value }))
+              }
+              className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
+            >
+              <option value="">Semua prioritas</option>
+              {["low", "medium", "high", "critical"].map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+            {!!labels.length && (
+              <select
+                aria-label="Filter label"
+                value={filters.label}
+                onChange={(e) => setFilters((f) => ({ ...f, label: e.target.value }))}
+                className="rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px] text-zinc-600"
+              >
+                <option value="">Semua label</option>
+                {labels.map((l) => (
+                  <option key={l} value={l}>
+                    #{l}
+                  </option>
+                ))}
+              </select>
+            )}
+            {view === "board" && (
+              <label className="flex items-center gap-1.5 rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[12px] text-zinc-500">
+                <input
+                  type="checkbox"
+                  checked={grouped}
+                  onChange={(e) => setGrouped(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-indigo-500"
+                />
+                Kelompokkan per fase
+              </label>
+            )}
+            <span className="text-[11.5px] text-zinc-400">
+              {formatDays(plan?.estimate_days ?? 0)} total rencana
+              {!!stats?.blocked && ` · ⛔ ${stats.blocked} menunggu prasyarat`}
+              {!!stats?.ready && ` · ▶ ${stats.ready} siap dikerjakan`}
+            </span>
+            <button
+              onClick={() => setFilters(EMPTY_FILTERS)}
+              className="ml-auto rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-[12px] text-zinc-500 hover:bg-zinc-50"
+            >
+              Bersihkan
+            </button>
+          </div>
+        )}
       </header>
 
       <main className="mx-auto max-w-7xl px-5 py-5">

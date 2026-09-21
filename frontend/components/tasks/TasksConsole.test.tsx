@@ -65,6 +65,8 @@ function task(over: Partial<Task>): Task {
     depends_on: [],
     evidence: [],
     source: "",
+    workflow: [],
+    wireframe: "",
     branch: "",
     mr_url: "",
     commits: [],
@@ -157,12 +159,11 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("TasksConsole — halaman /tasks", () => {
-  it("memuat papan dari API dan menampilkan statistik + repo", async () => {
+  it("memuat papan dari API dan menampilkan statistik", async () => {
     render(<TasksConsole />);
     await waitFor(() => expect(fetchTasks).toHaveBeenCalled());
     expect(await screen.findByText("Tab Pipeline")).toBeTruthy();
     expect(screen.getByText("Tool retrieve_knowledge")).toBeTruthy();
-    expect(screen.getByText("/repo/ask-anything")).toBeTruthy();
     expect(screen.getByTestId("task-count").textContent).toContain("2 dari 2 task tampil");
     expect(screen.getByText("40%")).toBeTruthy();
   });
@@ -193,7 +194,8 @@ describe("TasksConsole — halaman /tasks", () => {
   it("sync git melaporkan berapa task yang berubah", async () => {
     render(<TasksConsole />);
     await screen.findByText("Tab Pipeline");
-    fireEvent.click(screen.getByTitle(/Selaraskan status dengan branch/));
+    fireEvent.click(screen.getByLabelText("Aksi papan"));
+    fireEvent.click(screen.getByText("⟳ Sync git"));
     expect(await screen.findByText(/Sync selesai: 1 task diperbarui/)).toBeTruthy();
     expect(syncTasks).toHaveBeenCalledWith("");
   });
@@ -224,10 +226,12 @@ describe("TasksConsole — halaman /tasks", () => {
     fireEvent.click(screen.getByTestId("task-open-ASK-030"));
     await waitFor(() => expect(fetchTask).toHaveBeenCalledWith("", "ASK-030"));
     expect(await screen.findByTestId("task-detail")).toBeTruthy();
+    // Ringkasan tampil lebih dulu: prasyarat terlihat, detail git dilipat.
+    expect(screen.getByText("ASK-024")).toBeTruthy();
+    fireEvent.click(screen.getByRole("tab", { name: /Aktivitas/ }));
     expect(
       screen.getByText("git checkout -b feat/ASK-030-tool-retrieve-knowledge")
     ).toBeTruthy();
     expect(screen.getByText("mulai dari filter metadata")).toBeTruthy();
-    expect(screen.getByText("ASK-024")).toBeTruthy();
   });
 });

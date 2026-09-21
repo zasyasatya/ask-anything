@@ -50,24 +50,65 @@ def test_intern_plan_is_well_formed():
         assert task["acceptance"], f"{task['id']} tanpa kriteria selesai"
         assert task["evidence"], f"{task['id']} tanpa berkas bukti"
         assert task["assignee"] in internship_plan.INTERNS, task
+        # Setiap task harus cukup detail untuk dikerjakan tanpa bertanya lagi.
+        assert len(task["description"]) > 120, f"{task['id']} deskripsi terlalu tipis"
+        assert task["workflow"], f"{task['id']} tanpa alur kerja"
+        assert task["wireframe"], f"{task['id']} tanpa wireframe/sketsa"
+        for step in task["workflow"]:
+            assert step["action"].strip(), f"{task['id']} punya langkah kosong"
 
 
-def test_intern_plan_covers_slide_breakdown_and_stack():
+def test_intern_plan_covers_production_chatbot_end_to_end():
+    """Rencana harus mencakup seluruh rantai produk, bukan prototipe saja."""
     blob = " ".join(f"{t['title']} {t['description']} {t['source']}"
                     for t in internship_plan.TASKS).lower()
-    for keyword in ("structure-aware", "chunking", "embedding", "vector",
-                    "retrieve_knowledge", "sitasi", "memori", "sesi",
-                    "create_chart", "create_table", "timeline",
-                    "docker-compose", "demo"):
-        assert keyword.lower() in blob, keyword
-    # 5 task besar di slide + fondasi & serah terima tetap terwakili
+    for keyword in (
+        # fondasi & chat
+        "kontrak api", "autentikasi", "streaming", "sse",
+        # agent & pengetahuan
+        "agent", "tool", "chunking", "embedding", "retrieval", "sitasi",
+        "guardrail",
+        # memori
+        "memori", "ringkasan", "jendela konteks",
+        # token, kuota, feedback
+        "token", "kuota", "rate limit", "feedback", "analitik",
+        # rilis
+        "observability", "keamanan", "uji beban", "deploy", "runbook", "demo",
+    ):
+        assert keyword in blob, keyword
     phases = {t["phase"] for t in internship_plan.TASKS}
     assert phases == set(internship_plan.PHASE_IDS)
 
 
-def test_intern_plan_references_ask_anything_code_for_adaptation():
-    blob = " ".join(t["description"] for t in internship_plan.TASKS)
-    assert "ask-anything" in blob or "GraphView" in blob
+def test_intern_plan_details_feedback_memory_and_quota_tasks():
+    """Tiga pilar yang diminta harus punya task tersendiri yang detail."""
+    by_title = {t["id"]: f"{t['title']} {t['description']}".lower()
+                for t in internship_plan.TASKS}
+    joined = " ".join(by_title.values())
+    # feedback 👍/👎 dengan alasan terstruktur
+    assert "👍" in joined and "👎" in joined
+    assert "alasan" in joined
+    # manajemen memori: jangka menengah (ringkasan) & panjang (fakta pengguna)
+    assert "jangka panjang" in joined
+    # limit token per pengguna
+    assert "kuota" in joined and "429" in joined
+
+
+def test_every_phase_has_at_least_three_tasks():
+    per_phase = internship_plan.summary()["per_phase"]
+    assert set(per_phase) == set(internship_plan.PHASE_IDS)
+    for phase_id, count in per_phase.items():
+        assert count >= 3, f"fase {phase_id} hanya punya {count} task"
+
+
+def test_dependencies_point_to_existing_earlier_tasks():
+    ids = [t["id"] for t in internship_plan.TASKS]
+    order = {task_id: i for i, task_id in enumerate(ids)}
+    for task in internship_plan.TASKS:
+        for dep in task["depends_on"]:
+            assert dep in order, f"{task['id']} bergantung pada {dep} yang tidak ada"
+            assert order[dep] < order[task["id"]], (
+                f"{task['id']} bergantung pada task yang datang belakangan ({dep})")
 
 
 def test_intern_plan_summary_counts_every_task():

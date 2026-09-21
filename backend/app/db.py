@@ -141,6 +141,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     depends_on TEXT NOT NULL DEFAULT '[]',  -- ["ASK-002", …]
     evidence TEXT NOT NULL DEFAULT '[]',    -- file penanda implementasi
     source TEXT NOT NULL DEFAULT '',        -- rujukan slide / tab admin
+    workflow TEXT NOT NULL DEFAULT '[]',    -- [{actor, action, result}] alur kerja
+    wireframe TEXT NOT NULL DEFAULT '',     -- sketsa layout (teks/ASCII box)
     branch TEXT NOT NULL DEFAULT '',
     mr_url TEXT NOT NULL DEFAULT '',
     commits TEXT NOT NULL DEFAULT '[]',     -- [{sha, subject}]
@@ -180,6 +182,8 @@ def init_db(path: str) -> None:
 _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("conversations", "user_id", "TEXT NOT NULL DEFAULT ''"),
     ("tasks", "track", "TEXT NOT NULL DEFAULT 'platform'"),
+    ("tasks", "workflow", "TEXT NOT NULL DEFAULT '[]'"),
+    ("tasks", "wireframe", "TEXT NOT NULL DEFAULT ''"),
 )
 
 

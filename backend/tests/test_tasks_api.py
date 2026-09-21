@@ -219,3 +219,74 @@ def test_reset_seed_only_touches_plan_tasks(client):
     client.post("/api/tasks/seed", params={"reset": True})
     assert client.get(f"/api/tasks/{manual['id']}").status_code == 200
     assert client.get("/api/tasks/ASK-003").json()["task"]["status"] == "todo"
+
+
+# ---------------------------------------------------------------------------
+# Detail task: workflow (aktor → aksi → hasil) & wireframe
+# ---------------------------------------------------------------------------
+
+def test_workflow_and_wireframe_roundtrip(client):
+    """Task bisa menyimpan alur kerja bernomor + sketsa layout."""
+    _fresh(client)
+    created = client.post("/api/tasks", json={
+        "title": "Tombol feedback",
+        "workflow": [
+            {"actor": "Pengguna", "action": "Klik 👎", "result": "Dialog terbuka"},
+            {"actor": "Backend", "action": "UPSERT unik", "result": "Tidak ganda"},
+        ],
+        "wireframe": "+--- dialog ---+",
+    }).json()["task"]
+
+    assert [s["step"] for s in created["workflow"]] == [1, 2]
+    assert created["workflow"][0]["actor"] == "Pengguna"
+    assert created["workflow"][1]["result"] == "Tidak ganda"
+    assert created["wireframe"] == "+--- dialog ---+"
+
+    patched = client.patch(f"/api/tasks/{created['id']}", json={
+        "workflow": [{"actor": "QA", "action": "Uji ulang"}],
+        "wireframe": "baru",
+    }).json()["task"]
+    assert len(patched["workflow"]) == 1
+    assert patched["workflow"][0] == {"step": 1, "actor": "QA",
+                                      "action": "Uji ulang", "result": ""}
+    assert patched["wireframe"] == "baru"
+
+
+def test_workflow_accepts_plain_strings_and_drops_empty_steps(client):
+    """Rencana lama (list string) tetap valid; langkah kosong dibuang."""
+    _fresh(client)
+    task = client.post("/api/tasks", json={
+        "title": "Kompatibilitas",
+        "workflow": ["langkah pertama", {"actor": "", "action": "", "result": ""}],
+    }).json()["task"]
+    assert task["workflow"] == [
+        {"step": 1, "actor": "", "action": "langkah pertama", "result": ""}]
+
+
+def test_seeded_internship_tasks_expose_workflow_and_wireframe(client):
+    """Papan internship ter-seed lengkap dengan detail alur & sketsa."""
+    client.post("/api/tasks/seed", params={"track": "internship"})
+    task = client.get("/api/tasks/INT-026").json()["task"]
+    assert task["workflow"], "task feedback harus punya alur kerja"
+    assert task["wireframe"], "task feedback harus punya wireframe"
+    assert all(s["step"] == i + 1 for i, s in enumerate(task["workflow"]))
+
+
+def test_member_cannot_edit_workflow_or_wireframe(client, strict_auth):
+    """Member hanya menggerakkan status — rancangan task milik admin."""
+    from app.config import settings
+    from app import internship_plan
+
+    client.post("/api/tasks/seed", params={"track": "internship"})
+    # INT-001 ditugaskan ke intern pertama (round-robin di internship_plan)
+    intern = internship_plan.INTERNS[0]
+    assert client.post("/api/auth/login", json={
+        "username": intern,
+        "password": settings.member_password}).status_code == 200
+    before = client.get("/api/tasks/INT-001").json()["task"]
+    assert before["assignee"] == intern
+    client.patch("/api/tasks/INT-001", json={"wireframe": "diubah member",
+                                             "workflow": []})
+    after = client.get("/api/tasks/INT-001").json()["task"]
+    assert after["wireframe"] == before["wireframe"]
+    assert after["workflow"] == before["workflow"]
