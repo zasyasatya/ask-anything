@@ -26,6 +26,7 @@ export default function TaskDetail({
   onChanged,
   onDeleted,
   onError,
+  readOnly = false,
 }: {
   task: Task;
   phases: Array<{ id: string; name: string; subtitle: string }>;
@@ -35,6 +36,8 @@ export default function TaskDetail({
   onChanged: (task: Task) => void;
   onDeleted: (id: string) => void;
   onError: (message: string) => void;
+  /** Member: hanya boleh memindahkan status/komentar — field lain dikunci. */
+  readOnly?: boolean;
 }) {
   const [title, setTitle] = useState(task.title);
   const [description, setDescription] = useState(task.description);
@@ -131,6 +134,13 @@ export default function TaskDetail({
         </header>
 
         <div className="space-y-4 px-4 py-4">
+          {readOnly && (
+            <p className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-700">
+              Anda melihat task ini sebagai <b>member</b>: status, checklist, dan
+              komentar bisa diubah; penugasan, fase, prioritas, dan penghapusan
+              hanya oleh admin.
+            </p>
+          )}
           {/* baris kontrol utama */}
           <div className="grid grid-cols-2 gap-2 md:grid-cols-4">
             <label className="text-[11px] font-medium text-zinc-500">
@@ -154,6 +164,7 @@ export default function TaskDetail({
               Prioritas
               <select
                 aria-label="Prioritas"
+                disabled={readOnly}
                 value={task.priority}
                 onChange={(e) => patch({ priority: e.target.value })}
                 className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px]"
@@ -169,6 +180,7 @@ export default function TaskDetail({
               Fase
               <select
                 aria-label="Fase"
+                disabled={readOnly}
                 value={task.phase}
                 onChange={(e) => patch({ phase: e.target.value })}
                 className="mt-1 w-full rounded-lg border border-zinc-200 px-2 py-1.5 text-[12px]"
@@ -184,6 +196,7 @@ export default function TaskDetail({
               Estimasi (hari)
               <input
                 aria-label="Estimasi"
+                disabled={readOnly}
                 value={estimate}
                 onChange={(e) => setEstimate(e.target.value)}
                 onBlur={() =>
@@ -199,6 +212,7 @@ export default function TaskDetail({
             Assignee
             <input
               aria-label="Assignee"
+              disabled={readOnly}
               value={assignee}
               placeholder="nama developer"
               onChange={(e) => setAssignee(e.target.value)}
@@ -211,6 +225,7 @@ export default function TaskDetail({
             Deskripsi
             <textarea
               aria-label="Deskripsi"
+              disabled={readOnly}
               value={description}
               rows={3}
               onChange={(e) => setDescription(e.target.value)}
@@ -479,24 +494,26 @@ export default function TaskDetail({
               {formatDays(task.estimate)}
               {task.seeded ? " · dari rencana RAG" : ""}
             </span>
-            <button
-              onClick={async () => {
-                if (
-                  typeof window !== "undefined" &&
-                  !window.confirm(`Hapus task ${task.id}?`)
-                )
-                  return;
-                try {
-                  await deleteTask(token, task.id);
-                  onDeleted(task.id);
-                } catch (e) {
-                  onError(String(e));
-                }
-              }}
-              className="rounded-lg border border-rose-200 px-2.5 py-1 font-medium text-rose-600 hover:bg-rose-50"
-            >
-              Hapus task
-            </button>
+            {!readOnly && (
+              <button
+                onClick={async () => {
+                  if (
+                    typeof window !== "undefined" &&
+                    !window.confirm(`Hapus task ${task.id}?`)
+                  )
+                    return;
+                  try {
+                    await deleteTask(token, task.id);
+                    onDeleted(task.id);
+                  } catch (e) {
+                    onError(String(e));
+                  }
+                }}
+                className="rounded-lg border border-rose-200 px-2.5 py-1 font-medium text-rose-600 hover:bg-rose-50"
+              >
+                Hapus task
+              </button>
+            )}
           </footer>
         </div>
       </aside>

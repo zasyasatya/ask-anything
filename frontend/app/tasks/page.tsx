@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import { Suspense } from "react";
+import AuthGate from "@/components/AuthGate";
 import TasksConsole from "@/components/tasks/TasksConsole";
 
 export const metadata: Metadata = {
@@ -8,5 +10,17 @@ export const metadata: Metadata = {
 };
 
 export default function TasksPage() {
-  return <TasksConsole />;
+  return (
+    <AuthGate>
+      <Suspense
+        fallback={
+          <div className="grid min-h-screen place-items-center bg-[#f7f7f8] text-sm text-zinc-400">
+            Memuat papan…
+          </div>
+        }
+      >
+        <TasksConsole />
+      </Suspense>
+    </AuthGate>
+  );
 }

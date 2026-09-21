@@ -6,7 +6,8 @@
    `title`/`aria-label` supaya tetap bisa dipilih lewat keyboard. */
 import { useCallback, useEffect, useState } from "react";
 import Logo from "./Logo";
-import type { Conversation } from "@/lib/types";
+import { useAuth } from "@/lib/auth";
+import type { AuthUser, Capabilities, Conversation } from "@/lib/types";
 
 const DAY = 86400;
 const LS_KEY = "aa:nav-collapsed";
@@ -44,6 +45,8 @@ export default function Sidebar({
   onNew,
   onSettings,
   llmReachable,
+  user,
+  capabilities,
 }: {
   conversations: Conversation[];
   activeId: string | null;
@@ -51,9 +54,14 @@ export default function Sidebar({
   onNew: () => void;
   onSettings: () => void;
   llmReachable: boolean | null;
+  user?: AuthUser | null;
+  capabilities?: Capabilities | null;
 }) {
   const [collapsed, setCollapsed] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  const { logout } = useAuth();
+  const isAdmin = capabilities?.is_admin ?? false;
+  const roleLabel = user?.role_label || (isAdmin ? "Admin" : "Member");
 
   useEffect(() => {
     setCollapsed(readCollapsed());
@@ -171,8 +179,24 @@ export default function Sidebar({
         </a>
       </div>
 
-      {/* admin console */}
-      <div className={collapsed ? "px-2 pt-3" : "px-4 pt-3"}>
+      {/* proyek internship (papan terpisah, role member ikut) */}
+      <div className={collapsed ? "px-2 pt-2" : "px-4 pt-2"}>
+        <a
+          href="/internship"
+          title="Proyek internship: AI chatbot + RAG dari nol (task INT-NNN)"
+          className={`flex items-center justify-center gap-2 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-sm font-medium text-zinc-600 transition hover:bg-zinc-50 ${collapsed ? "h-9 w-9" : "w-full"}`}
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M12 3l9 5-9 5-9-5 9-5z" />
+            <path d="M3 13l9 5 9-5" />
+          </svg>
+          {!collapsed && "Internship"}
+        </a>
+      </div>
+
+      {/* admin console — hanya role admin (member ditolak server) */}
+      {isAdmin && (
+      <div className={collapsed ? "px-2 pt-2" : "px-4 pt-2"}>
         <a
           href="/admin"
           title="Konsol admin: mode & tool, memori, artifact, feedback, RAG"
@@ -185,6 +209,7 @@ export default function Sidebar({
           {!collapsed && "Admin"}
         </a>
       </div>
+      )}
 
       {/* riwayat */}
       <nav className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 pb-4 pt-3">
@@ -242,8 +267,33 @@ export default function Sidebar({
         )}
       </nav>
 
-      {/* status + settings */}
+      {/* status + akun + settings */}
       <div className={`border-t border-zinc-200/80 p-4 ${collapsed ? "px-2" : ""}`}>
+        {user && (
+          <div
+            data-testid="nav-user"
+            className={`mb-3 ${collapsed ? "text-center" : "flex items-center gap-2"}`}
+            title={`${user.name || user.username} · ${roleLabel}`}
+          >
+            <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-accent-soft text-[11px] font-semibold text-accent">
+              {(user.name || user.username).slice(0, 2).toUpperCase()}
+            </span>
+            {!collapsed && (
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[12.5px] font-medium text-zinc-800">
+                  {user.name || user.username}
+                </span>
+                <span
+                  data-testid="nav-role"
+                  className={`text-[10.5px] font-medium ${isAdmin ? "text-indigo-600" : "text-emerald-600"}`}
+                >
+                  {roleLabel}
+                  {capabilities?.tasks_scope === "assigned" ? " · task saya" : ""}
+                </span>
+              </span>
+            )}
+          </div>
+        )}
         <div
           className={`mb-3 flex items-center text-[11px] text-zinc-500 ${collapsed ? "justify-center" : "gap-2 px-1"}`}
           title={statusText}
@@ -253,8 +303,12 @@ export default function Sidebar({
         </div>
         <button
           onClick={onSettings}
-          title="Settings provider"
-          aria-label="Settings provider"
+          title={
+            isAdmin
+              ? "Settings provider"
+              : "Profil — ganti nama & password Anda"
+          }
+          aria-label={isAdmin ? "Settings provider" : "Profil"}
           data-testid="nav-settings"
           className={`w-full rounded-lg border border-zinc-200 bg-white text-sm text-zinc-700 transition hover:bg-zinc-50 ${collapsed ? "grid h-9 w-9 place-items-center !px-0" : "px-3 py-2"}`}
         >
@@ -263,10 +317,32 @@ export default function Sidebar({
               <circle cx="12" cy="12" r="3" />
               <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8.6 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.24 15a1.7 1.7 0 0 0-1.55-1H2.6a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.24 8.6a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 8.6 4.24h.06A1.7 1.7 0 0 0 10.2 2.6V2.6a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v.06a1.7 1.7 0 0 0 1.55 1h.09a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z" />
             </svg>
-          ) : (
+          ) : isAdmin ? (
             "Settings provider"
+          ) : (
+            "Profil & password"
           )}
         </button>
+        {user && (
+          <button
+            onClick={async () => {
+              await logout();
+              window.location.href = "/login";
+            }}
+            data-testid="nav-logout"
+            title="Keluar dari sesi ini"
+            className={`mt-2 w-full rounded-lg border border-zinc-200 bg-white text-sm text-zinc-500 transition hover:bg-zinc-50 hover:text-zinc-800 ${collapsed ? "grid h-9 w-9 place-items-center !px-0" : "px-3 py-2"}`}
+          >
+            {collapsed ? (
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4" />
+                <path d="M16 17l5-5-5-5M21 12H9" />
+              </svg>
+            ) : (
+              "Keluar"
+            )}
+          </button>
+        )}
         {!collapsed && (
           <p className="mt-3 text-center text-[11px] text-zinc-400">
             Privacy Policy&nbsp;&nbsp;|&nbsp;&nbsp;Terms of Service

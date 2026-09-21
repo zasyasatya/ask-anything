@@ -14,8 +14,10 @@
    backend diset ASK_ADMIN_TOKEN, isi token di kolom 🔑 (disimpan di
    localStorage browser ini). */
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { readAdminToken, writeAdminToken } from "@/lib/api";
+import { useCapabilities } from "@/lib/auth";
 import {
   COLUMNS,
   EMPTY_FILTERS,
@@ -41,6 +43,19 @@ import TaskForm from "./TaskForm";
 import TaskList from "./TaskList";
 
 export default function TasksConsole() {
+  const params = useSearchParams();
+  const caps = useCapabilities();
+  const isAdmin = caps.is_admin;
+  const canWrite = caps.allow_task_write;
+  // Papan: platform (ASK-NNN) atau internship (INT-NNN) — papan terpisah.
+  // Member (peserta internship) mendarat di papan proyeknya; admin di platform.
+  const [track, setTrack] = useState(() => {
+    // `useSearchParams()` bisa null di luar router context (unit test).
+    const fromUrl = params?.get("track");
+    if (fromUrl === "internship" || fromUrl === "platform") return fromUrl;
+    return caps.is_admin ? "platform" : "internship";
+  });
+  const [scope, setScope] = useState<"all" | "assigned">("all");
   const [token, setToken] = useState("");
   const [tokenOpen, setTokenOpen] = useState(false);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -64,11 +79,12 @@ export default function TasksConsole() {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchTasks(tk);
+        const data = await fetchTasks(tk, { track });
         setTasks(data.tasks);
         setStats(data.stats);
         setPlan({ phases: data.plan.phases, estimate_days: data.plan.estimate_days });
         setRepo(data.repo);
+        setScope(data.scope || "all");
       } catch (e) {
         setError(
           String(e).includes("401")
@@ -79,7 +95,7 @@ export default function TasksConsole() {
         setLoading(false);
       }
     },
-    [token]
+    [token, track]
   );
 
   useEffect(() => {
@@ -89,6 +105,13 @@ export default function TasksConsole() {
     // hanya saat mount: refresh berikutnya dipicu aksi user / tombol muat ulang
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const switchTrack = (next: string) => {
+    setTrack(next);
+    setFilters(EMPTY_FILTERS);
+    setDetail(null);
+    load(token).catch(() => undefined);
+  };
 
   const phases = plan?.phases || [];
   const visible = useMemo(() => filterTasks(tasks, filters), [tasks, filters]);
@@ -198,8 +221,15 @@ export default function TasksConsole() {
             ← Chat
           </Link>
           <h1 className="text-[15px] font-semibold text-zinc-800">
-            Task Management — Rencana RAG &amp; Platform
+            {track === "internship"
+              ? "Papan Proyek Internship (INT-NNN)"
+              : "Task Management — Rencana RAG & Platform"}
           </h1>
+          {scope === "assigned" && (
+            <span className="rounded-lg border border-emerald-200 bg-emerald-50 px-2 py-1 text-[11px] font-medium text-emerald-700">
+              menampilkan task untuk Anda
+            </span>
+          )}
           <span
             className="hidden rounded-lg border border-zinc-200 px-2 py-1 font-mono text-[11px] text-zinc-400 lg:inline"
             title="Folder repo yang dipakai untuk sinkronisasi branch/commit"
@@ -207,6 +237,22 @@ export default function TasksConsole() {
             {repo || "repo: —"}
           </span>
           <div className="ml-auto flex flex-wrap items-center gap-2">
+            <div className="flex overflow-hidden rounded-lg border border-zinc-200">
+                {["platform", "internship"].map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => switchTrack(t)}
+                    className={`px-2.5 py-1.5 text-xs font-medium transition ${
+                      track === t
+                        ? "bg-zinc-900 text-white"
+                        : "bg-white text-zinc-600 hover:bg-zinc-50"
+                    }`}
+                  >
+                    {t === "internship" ? "Internship" : "Platform"}
+                  </button>
+                ))}
+            </div>
+            {isAdmin && (
             <button
               onClick={() => setTokenOpen((v) => !v)}
               className="rounded-lg border border-zinc-200 bg-white px-2.5 py-1.5 text-xs font-medium text-zinc-600 hover:bg-zinc-50"
@@ -214,6 +260,9 @@ export default function TasksConsole() {
             >
               🔑 Token
             </button>
+            )}
+            {isAdmin && (
+            <>
             <button
               onClick={() => handleSeed(false)}
               disabled={busy}
@@ -229,6 +278,9 @@ export default function TasksConsole() {
             >
               Reset rencana
             </button>
+            </>
+            )}
+            {isAdmin && (
             <button
               onClick={handleSync}
               disabled={busy}
@@ -237,12 +289,15 @@ export default function TasksConsole() {
             >
               {busy ? "…" : "⟳ Sync git"}
             </button>
+            )}
+            {isAdmin && (
             <button
               onClick={() => setCreating(true)}
               className="rounded-lg bg-accent px-3 py-1.5 text-xs font-medium text-white hover:brightness-95"
             >
               + Task baru
             </button>
+            )}
           </div>
         </div>
 
@@ -429,14 +484,18 @@ export default function TasksConsole() {
         {!loading && !tasks.length && (
           <div className="rounded-2xl border border-dashed border-zinc-300 bg-white px-4 py-12 text-center">
             <p className="text-[13.5px] text-zinc-500">
-              Papan masih kosong. Muat rencana RAG (54 task) untuk mulai tracking.
+              {scope === "assigned"
+                ? "Belum ada task yang ditugaskan untuk Anda di papan ini."
+                : "Papan masih kosong. Muat rencana RAG (54 task) untuk mulai tracking."}
             </p>
-            <button
-              onClick={() => handleSeed(false)}
-              className="mt-3 rounded-lg bg-accent px-3.5 py-2 text-[13px] font-medium text-white"
-            >
-              Muat rencana RAG
-            </button>
+            {isAdmin && (
+              <button
+                onClick={() => handleSeed(false)}
+                className="mt-3 rounded-lg bg-accent px-3.5 py-2 text-[13px] font-medium text-white"
+              >
+                Muat rencana RAG
+              </button>
+            )}
           </div>
         )}
 
@@ -508,6 +567,7 @@ export default function TasksConsole() {
         <TaskDetail
           task={detail}
           token={token}
+          readOnly={!canWrite}
           phases={phases}
           priorities={["low", "medium", "high", "critical"]}
           onClose={() => setDetail(null)}
@@ -521,7 +581,7 @@ export default function TasksConsole() {
         />
       )}
 
-      {creating && (
+      {creating && isAdmin && (
         <TaskForm
           token={token}
           phases={phases}

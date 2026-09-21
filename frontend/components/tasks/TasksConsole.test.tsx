@@ -19,6 +19,34 @@ vi.mock("@/lib/tasks", async (importOriginal) => {
   };
 });
 
+// Papan /tasks punya kontrol berbeda per peran; test ini menguji tampilan
+// admin (cakupan penuh: seed, sync, buat task).
+vi.mock("@/lib/auth", () => ({
+  useCapabilities: () => ({
+    role: "admin",
+    is_admin: true,
+    dashboard: "/admin",
+    modes: {},
+    tools: {},
+    allow_offline_models: true,
+    allow_provider_settings: true,
+    allow_admin_console: true,
+    allow_rag_upload: true,
+    allow_task_write: true,
+    tasks_scope: "all",
+    chat_provider: "auto",
+  }),
+  useAuth: () => ({
+    user: { username: "admin", name: "Administrator", role: "admin" },
+    capabilities: null,
+    anonymous: false,
+    loading: false,
+    error: null,
+    refresh: async () => null,
+    logout: async () => undefined,
+  }),
+}));
+
 import TasksConsole from "./TasksConsole";
 import { fetchTasks, moveTask, syncTasks, type SyncReport } from "@/lib/tasks";
 

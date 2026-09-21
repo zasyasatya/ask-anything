@@ -103,6 +103,29 @@ CREATE TABLE IF NOT EXISTS rag_chunks (
 );
 CREATE INDEX IF NOT EXISTS idx_rag_chunks_doc ON rag_chunks(doc_id, seq);
 
+-- ---- Login & role (halaman /login; role: admin | member) ------------------
+CREATE TABLE IF NOT EXISTS users (
+    id TEXT PRIMARY KEY,
+    username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+    name TEXT NOT NULL DEFAULT '',
+    role TEXT NOT NULL DEFAULT 'member',      -- admin | member
+    password_hash TEXT NOT NULL,              -- pbkdf2_sha256$iterasi$salt$hash
+    active INTEGER NOT NULL DEFAULT 1,
+    must_change_password INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL,
+    last_login REAL NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    created_at REAL NOT NULL,
+    expires_at REAL NOT NULL,
+    last_seen REAL NOT NULL,
+    user_agent TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id, expires_at);
+
 -- ---- Task management (halaman /tasks; task id = kode branch GitLab) --------
 CREATE TABLE IF NOT EXISTS tasks (
     id TEXT PRIMARY KEY,                 -- ASK-001 (dipakai di nama branch)
@@ -123,6 +146,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     commits TEXT NOT NULL DEFAULT '[]',     -- [{sha, subject}]
     position INTEGER NOT NULL DEFAULT 0,    -- urutan dalam kolom
     seeded INTEGER NOT NULL DEFAULT 0,      -- 1 = berasal dari rencana RAG
+    track TEXT NOT NULL DEFAULT 'platform', -- platform | internship (papan terpisah)
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
     completed_at REAL NOT NULL DEFAULT 0
@@ -147,7 +171,27 @@ def init_db(path: str) -> None:
     _conn.row_factory = sqlite3.Row
     with _lock:
         _conn.executescript(SCHEMA)
+        _migrate(_conn)
         _conn.commit()
+
+
+#: Kolom yang ditambahkan setelah versi pertama dirilis — database yang sudah
+#: ada (data pengguna sungguhan) harus ikut naik tanpa migrasi manual.
+_MIGRATIONS: tuple[tuple[str, str, str], ...] = (
+    ("conversations", "user_id", "TEXT NOT NULL DEFAULT ''"),
+    ("tasks", "track", "TEXT NOT NULL DEFAULT 'platform'"),
+)
+
+
+def _migrate(conn: sqlite3.Connection) -> None:
+    for table, column, ddl in _MIGRATIONS:
+        try:
+            cols = {r["name"] for r in conn.execute(f"PRAGMA table_info({table})")}
+        except sqlite3.Error:
+            continue
+        if column not in cols:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {ddl}")
+
 
 
 def _c() -> sqlite3.Connection:
@@ -159,13 +203,14 @@ def now() -> float:
     return time.time()
 
 
-def new_conversation(title: str = "") -> dict:
+def new_conversation(title: str = "", user_id: str = "") -> dict:
     cid = uuid.uuid4().hex[:12]
     ts = now()
     with _lock:
         _c().execute(
-            "INSERT INTO conversations(id,title,created_at,updated_at) VALUES(?,?,?,?)",
-            (cid, title or "New chat", ts, ts),
+            "INSERT INTO conversations(id,title,created_at,updated_at,user_id) "
+            "VALUES(?,?,?,?,?)",
+            (cid, title or "New chat", ts, ts, user_id or ""),
         )
         _c().commit()
     return get_conversation(cid)  # type: ignore[return-value]
@@ -176,11 +221,32 @@ def get_conversation(cid: str) -> dict | None:
     return dict(row) if row else None
 
 
-def list_conversations() -> list[dict]:
-    rows = _c().execute(
-        "SELECT * FROM conversations ORDER BY updated_at DESC"
-    ).fetchall()
+def list_conversations(user_id: str | None = None) -> list[dict]:
+    """Riwayat percakapan.
+
+    `user_id=None` → semua percakapan (pandangan admin, lengkap dengan pemilik).
+    `user_id="u-…"` → hanya milik user tersebut (role member: sesi sendiri).
+    """
+    if user_id is None:
+        rows = _c().execute(
+            "SELECT c.*, u.username AS owner_username, u.name AS owner_name "
+            "FROM conversations c LEFT JOIN users u ON u.id = c.user_id "
+            "ORDER BY c.updated_at DESC"
+        ).fetchall()
+    else:
+        rows = _c().execute(
+            "SELECT c.*, u.username AS owner_username, u.name AS owner_name "
+            "FROM conversations c LEFT JOIN users u ON u.id = c.user_id "
+            "WHERE c.user_id=? ORDER BY c.updated_at DESC",
+            (user_id,),
+        ).fetchall()
     return [dict(r) for r in rows]
+
+
+def conversation_owner(cid: str) -> str:
+    """`user_id` pemilik percakapan ('' bila belum ada / percakapan lama)."""
+    conv = get_conversation(cid)
+    return (conv or {}).get("user_id", "") or ""
 
 
 def touch_conversation(cid: str, title: str | None = None) -> None:

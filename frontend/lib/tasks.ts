@@ -67,7 +67,11 @@ export interface Task {
   progress: number;
   blocked_by: string[];
   ready: boolean;
+  // papan task: platform (ASK-NNN) atau internship (INT-NNN)
+  track?: "platform" | "internship";
+  track_label?: string;
   // hanya pada detail
+  can_write?: boolean;
   comments?: TaskComment[];
   depends_on_tasks?: TaskDep[];
   dependents?: TaskDep[];
@@ -91,6 +95,8 @@ export interface TaskStats {
   status_labels: Record<string, string>;
   phases: TaskPhase[];
   priorities: TaskPriority[];
+  track?: string;
+  tracks?: string[];
 }
 
 export interface TaskPhase {
@@ -113,6 +119,12 @@ export interface TaskListResponse {
   plan: TaskPlan;
   statuses: TaskStatus[];
   repo: string;
+  track?: string;
+  tracks?: string[];
+  track_labels?: Record<string, string>;
+  /** "assigned" = hanya task untuk user ini (role member). */
+  scope?: "all" | "assigned";
+  me?: { username: string; role: string };
 }
 
 export interface SyncReport {

@@ -548,7 +548,9 @@ tasks.seed_if_empty()  → tabel tasks (SQLite)   ← dipanggil saat lifespan
      │
 tasks.sync()     evidence → Review · branch ASK-NNN → In progress · commit → sha (+Done)
      │
-/api/tasks/*     router di bawah guard X-Admin-Token (sama seperti /api/admin/*)
+/api/tasks/*     guard: sesi admin / X-Admin-Token; member → hanya task yang
+                 ditugaskan (scope=assigned) & hanya boleh memindahkan status
+/api/internship/ ringkasan proyek (plan + task + docs/internship/*.md)
      │
 TasksConsole     papan kanban drag & drop / daftar / detail (React, tanpa dependensi baru)
 ```

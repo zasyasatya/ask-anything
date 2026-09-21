@@ -1,20 +1,76 @@
 import type {
+  AdminUser,
+  AuthBootstrap,
+  AuthUser,
   Conversation,
   DiagnosticReport,
   HFModelsResponse,
   HFSearchResponse,
   ProviderModels,
+  Role,
   SettingsInfo,
   TraceEvent,
 } from "./types";
 
 export async function fetchJson<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, {
+    // Sesi login ada di cookie HttpOnly → selalu ikut (same-origin).
+    credentials: "same-origin",
     ...init,
     headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
   });
   if (!res.ok) throw new Error(`${url} → HTTP ${res.status}`);
   return (await res.json()) as T;
+}
+
+// ---------------------------------------------------------------------------
+// Login & role (halaman /login)
+// ---------------------------------------------------------------------------
+
+export async function authBootstrap(): Promise<AuthBootstrap> {
+  return fetchJson<AuthBootstrap>("/api/auth/bootstrap");
+}
+
+export async function authMe(): Promise<{
+  user: AuthUser | null;
+  auth_mode: string;
+  anonymous: boolean;
+}> {
+  return fetchJson("/api/auth/me");
+}
+
+export async function authLogin(
+  username: string,
+  password: string
+): Promise<{ user: AuthUser; expires_at: number }> {
+  return fetchJson("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ username, password }),
+  });
+}
+
+export async function authLogout(): Promise<{ ok: boolean }> {
+  return fetchJson("/api/auth/logout", { method: "POST" });
+}
+
+export async function authChangePassword(
+  currentPassword: string,
+  newPassword: string
+): Promise<{ ok: boolean; user: AuthUser }> {
+  return fetchJson("/api/auth/password", {
+    method: "POST",
+    body: JSON.stringify({
+      current_password: currentPassword,
+      new_password: newPassword,
+    }),
+  });
+}
+
+export async function authUpdateProfile(name: string): Promise<{ user: AuthUser }> {
+  return fetchJson("/api/auth/profile", {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
 }
 
 export async function listConversations(): Promise<Conversation[]> {
@@ -479,4 +535,112 @@ export async function adminDeleteFeedback(
   id: string
 ): Promise<void> {
   await adminFetch(token, `/api/admin/feedback/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Users (konsol Admin → Users)
+// ---------------------------------------------------------------------------
+
+export async function adminUsers(
+  token: string
+): Promise<{ users: AdminUser[]; roles: Role[]; role_labels: Record<string, string> }> {
+  return adminFetch(token, "/api/admin/users");
+}
+
+export async function adminCreateUser(
+  token: string,
+  item: {
+    username: string;
+    password: string;
+    name?: string;
+    role?: Role;
+    active?: boolean;
+  }
+): Promise<{ user: AdminUser; users: AdminUser[] }> {
+  return adminFetch(token, "/api/admin/users", {
+    method: "POST",
+    body: JSON.stringify(item),
+  });
+}
+
+export async function adminUpdateUser(
+  token: string,
+  id: string,
+  patch: Partial<Pick<AdminUser, "name" | "role" | "active">> & {
+    must_change_password?: boolean;
+  }
+): Promise<{ user: AdminUser; users: AdminUser[] }> {
+  return adminFetch(token, `/api/admin/users/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+export async function adminResetUserPassword(
+  token: string,
+  id: string,
+  password: string,
+  mustChange = true
+): Promise<{ user: AdminUser; users: AdminUser[]; sessions_revoked: boolean }> {
+  return adminFetch(token, `/api/admin/users/${id}/password`, {
+    method: "POST",
+    body: JSON.stringify({ password, must_change_password: mustChange }),
+  });
+}
+
+export async function adminDeleteUser(token: string, id: string): Promise<void> {
+  await adminFetch(token, `/api/admin/users/${id}`, { method: "DELETE" });
+}
+
+// ---------------------------------------------------------------------------
+// Proyek internship (/internship) — papan & materi dari backend
+// ---------------------------------------------------------------------------
+
+export interface InternshipDoc {
+  name: string;
+  title: string;
+  excerpt: string;
+  size_bytes?: number;
+}
+
+export interface InternshipOverview {
+  track: string;
+  project_dir: string;
+  plan: Record<string, unknown> & {
+    phases: Array<{ id: string; name: string; subtitle: string }>;
+    estimate_days: number;
+    total: number;
+    per_phase: Record<string, number>;
+  };
+  stats: Record<string, unknown>;
+  tasks: Array<Record<string, unknown>>;
+  per_assignee: Record<
+    string,
+    { total: number; done: number; in_progress: number }
+  >;
+  interns: string[];
+  docs: InternshipDoc[];
+  slides: Array<{ href: string; title: string; note: string }>;
+  scope: "all" | "assigned";
+  me: { username: string; role: Role };
+}
+
+export async function internshipOverview(): Promise<InternshipOverview> {
+  return fetchJson<InternshipOverview>("/api/internship/overview");
+}
+
+export async function internshipDocs(): Promise<{
+  docs: InternshipDoc[];
+  slides: InternshipOverview["slides"];
+  dir: string;
+}> {
+  return fetchJson("/api/internship/docs");
+}
+
+export async function internshipDoc(name: string): Promise<{
+  name: string;
+  title: string;
+  markdown: string;
+}> {
+  return fetchJson(`/api/internship/docs/${encodeURIComponent(name)}`);
 }
