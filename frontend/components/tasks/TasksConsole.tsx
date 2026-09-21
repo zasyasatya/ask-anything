@@ -79,12 +79,15 @@ export default function TasksConsole() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // `tr` dilewatkan eksplisit saat berpindah papan: memanggil load() langsung
+  // setelah setTrack() masih memakai `track` dari render lama (stale closure),
+  // sehingga judul berganti tapi isi papan tetap papan sebelumnya.
   const load = useCallback(
-    async (tk = token) => {
+    async (tk = token, tr = track) => {
       setLoading(true);
       setError(null);
       try {
-        const data = await fetchTasks(tk, { track });
+        const data = await fetchTasks(tk, { track: tr });
         setTasks(data.tasks);
         setStats(data.stats);
         setPlan({ phases: data.plan.phases, estimate_days: data.plan.estimate_days });
@@ -112,10 +115,11 @@ export default function TasksConsole() {
   }, []);
 
   const switchTrack = (next: string) => {
+    if (next === track) return;
     setTrack(next);
     setFilters(EMPTY_FILTERS);
     setDetail(null);
-    load(token).catch(() => undefined);
+    load(token, next).catch(() => undefined);
   };
 
   const phases = plan?.phases || [];

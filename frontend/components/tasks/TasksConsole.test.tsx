@@ -191,6 +191,26 @@ describe("TasksConsole — halaman /tasks", () => {
     );
   });
 
+  it("berpindah papan memuat trek yang baru, bukan trek sebelumnya", async () => {
+    // Regresi: setTrack() lalu load() memakai `track` dari render lama, jadi
+    // judul berganti ke Internship tapi isi papan tetap task ASK-NNN.
+    const INTERN = [
+      task({ id: "INT-026", title: "Feedback jempol", phase: "i4" }),
+    ];
+    vi.mocked(fetchTasks).mockImplementation(async (_tk, opts) =>
+      opts?.track === "internship" ? response(INTERN) : response(TASKS)
+    );
+    render(<TasksConsole />);
+    await screen.findByText("Tab Pipeline");
+
+    fireEvent.click(screen.getByRole("button", { name: "Internship" }));
+    await waitFor(() =>
+      expect(fetchTasks).toHaveBeenLastCalledWith("", { track: "internship" })
+    );
+    expect(await screen.findByText("Feedback jempol")).toBeTruthy();
+    expect(screen.queryByText("Tab Pipeline")).toBeNull();
+  });
+
   it("sync git melaporkan berapa task yang berubah", async () => {
     render(<TasksConsole />);
     await screen.findByText("Tab Pipeline");
