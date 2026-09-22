@@ -617,6 +617,10 @@ def main() -> None:
 
     env = os.environ.copy()
     env["ASK_PROVIDER"] = args.provider
+    # Satu direktori data (sama seperti di container, cuma di disk lokal):
+    # db + artifacts + rag + backups. Model tetap di ROOT/models supaya
+    # unduhan lama tidak perlu dipindahkan.
+    env["ASK_DATA_DIR"] = str(ROOT / "data")
     env["ASK_DB_PATH"] = str(ROOT / "data" / "ask_anything.db")
     env["ASK_MODELS_DIR"] = str(ROOT / "models")
     env["ASK_HF_MODE"] = "server" if args.demo else hf_mode

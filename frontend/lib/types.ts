@@ -606,3 +606,35 @@ export interface AdminOverview {
   };
   users?: { n: number } | null;
 }
+
+/** Kondisi direktori data: bukti bahwa data mendarat di disk server, bukan di
+ *  lapisan tulis container yang terhapus tiap redeploy. */
+export interface StorageStatus {
+  data_dir: string;
+  db_path: string;
+  db_bytes: number;
+  artifacts_dir: string;
+  rag_dir: string;
+  models_dir: string;
+  backups_dir: string;
+  in_container: boolean;
+  mounted: boolean | null;
+  mount_source: string;
+  /** null = tidak bisa dipastikan (bukan Linux / probe gagal). */
+  persistent: boolean | null;
+  writable: boolean;
+  free_bytes: number | null;
+  /** Berapa kali app start di direktori data yang sama (naik = data selamat). */
+  boots: number;
+  first_boot: number | null;
+  last_boot: number | null;
+  allow_ephemeral: boolean;
+  warning: string;
+}
+
+export interface StorageBackup {
+  name: string;
+  path: string;
+  bytes: number;
+  mtime: number;
+}

@@ -1,15 +1,21 @@
-# Ask Anything — satu service, satu volume persisten.
+# Ask Anything — satu service, satu direktori data di DISK SERVER.
 #
-#   docker compose up -d --build
+#   sudo mkdir -p /opt/ask-anything/data
+#   sudo chown -R 1000:1000 /opt/ask-anything/data     # container jalan sbg uid 1000
+#   ASK_DATA_HOST_DIR=/opt/ask-anything/data docker compose up -d --build
 #   docker compose logs -f
 #
-# Seluruh state (SQLite + artifact + arsip RAG + model offline + backup)
-# tinggal di named volume `ask-anything-data` yang di-mount ke /app/data,
-# sehingga `docker compose down`, `up --build`, maupun redeploy TIDAK
-# menghapus data. Jangan `docker volume rm` kecuali memang ingin reset total.
+# Seluruh state (SQLite + artifact + arsip RAG + model offline + backup) tinggal
+# di direktori host `${ASK_DATA_HOST_DIR}` yang di-bind mount ke /app/data.
+# Bind mount dipilih (bukan named volume) supaya datanya bisa dilihat, di-backup
+# dan di-rsync langsung dari server — `docker compose down`, `up --build`, docker
+# prune, bahkan menghapus resource-nya TIDAK menyentuh direktori itu.
 #
-# Coolify: panduan memakai Dockerfile ada di docs/DEPLOY-COOLIFY.md; file ini
-# berguna untuk uji lokal VPS / Portainer / server tanpa Coolify.
+# Entrypoint menolak start bila /app/data ternyata bukan mount point, jadi salah
+# konfigurasi ketahuan di log deploy — bukan setelah data hilang.
+#
+# Coolify: panduan lengkap di docs/DEPLOY-COOLIFY.md §5 (Storages → Directory
+# Mount). File ini untuk uji lokal VPS / Portainer / server tanpa Coolify.
 
 services:
   ask-anything:
@@ -19,6 +25,8 @@ services:
     image: ask-anything:latest
     container_name: ask-anything
     restart: unless-stopped
+    # uid:gid pemilik direktori data di host (lihat chown di atas).
+    user: "1000:1000"
     ports:
       - "${PORT:-3000}:3000"
     environment:
@@ -35,20 +43,16 @@ services:
       ASK_INTERN_EMAIL: ${ASK_INTERN_EMAIL:-verisimb@gmail.com}
       ASK_INTERN_NAME: ${ASK_INTERN_NAME:-Very Irawan Simbolon}
       ASK_INTERN_PASSWORD: ${ASK_INTERN_PASSWORD:-}
-      # ---- Persistence: JANGAN ubah kecuali paham risikonya ----
-      ASK_DB_PATH: /app/data/ask_anything.db
-      ASK_ARTIFACTS_DIR: /app/data/artifacts
-      ASK_RAG_DIR: /app/data/rag
-      ASK_MODELS_DIR: /app/data/models
+      # ---- Persistence: satu direktori untuk semua state ----
+      # Semua path turunan (db/artifacts/rag/models/backups) mengikuti ini,
+      # jadi JANGAN diubah kecuali mount di bawah ikut diubah.
+      ASK_DATA_DIR: /app/data
     volumes:
-      - ask-anything-data:/app/data
+      # kiri = direktori DI DISK SERVER, kanan = di dalam container.
+      - ${ASK_DATA_HOST_DIR:-./data-server}:/app/data
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]
       interval: 30s
       timeout: 5s
       start_period: 40s
       retries: 3
-
-volumes:
-  ask-anything-data:
-    name: ask-anything-data

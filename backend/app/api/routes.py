@@ -24,8 +24,8 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel, field_validator
 from starlette.responses import StreamingResponse
 
-from .. import (artifacts, auth, db, feedback, governance, hf_hub, ocr, quota,
-                rag, startup)
+from .. import (artifacts, auth, db, feedback, governance, hf_hub, ocr,
+                persistence, quota, rag, startup)
 from ..agent.loop import run_agent
 from ..agent.rag_loop import run_rag_query
 from ..auth import current_principal, require_admin
@@ -722,6 +722,11 @@ async def health():
         # padanya, dan UI harus bisa mengatakan "belum aktif" alih-alih
         # menghasilkan index kosong tanpa penjelasan.
         "ocr": ocr.dependencies(),
+        # Persistensi storage: "persistent": false berarti direktori data cuma
+        # lapisan tulis container — semua data (termasuk password yang direset)
+        # hilang pada redeploy berikutnya. UI/monitoring harus bisa melihatnya
+        # tanpa membuka log deploy.
+        "storage": persistence.summary(),
     }
 
 

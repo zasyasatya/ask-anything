@@ -75,6 +75,7 @@ ENV NODE_ENV=production \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     DEBIAN_FRONTEND=noninteractive \
+    ASK_DATA_DIR=/app/data \
     ASK_DB_PATH=/app/data/ask_anything.db \
     ASK_ARTIFACTS_DIR=/app/data/artifacts \
     ASK_RAG_DIR=/app/data/rag \
@@ -99,11 +100,14 @@ RUN chmod +x /app/docker/entrypoint.sh \
     && mkdir -p /app/data/artifacts /app/data/rag /app/data/models /app/data/backups \
     && chown -R node:node /app/data
 
-# Menandai /app/data sebagai state persisten. Catatan: VOLUME saja TIDAK
-# cukup di Coolify — tetap mount named volume (ask-anything-data:/app/data)
-# di menu Persistent Storage, kalau tidak Docker membuat anonymous volume
-# yang ikut hilang saat resource dihapus. Lihat docs/DEPLOY-COOLIFY.md §5.
-VOLUME /app/data
+# CATATAN: `VOLUME /app/data` sengaja TIDAK dipakai. Instruksi itu membuat
+# Docker diam-diam membuatkan *anonymous volume* saat tidak ada mount yang
+# diberikan — container tetap jalan, data tampak tersimpan, lalu hilang begitu
+# resource/volume dibuang saat redeploy, tanpa satu pun pesan error. Sekarang
+# `docker/entrypoint.sh` justru MENOLAK start bila /app/data bukan mount point,
+# jadi kesalahan konfigurasi terlihat di log deploy sejak detik pertama.
+# Mount direktori disk server ke /app/data (Coolify: Storages -> Directory
+# Mount). Lihat docs/DEPLOY-COOLIFY.md §5.
 
 # PORT & HOST sengaja TIDAK di-set di sini: Coolify meng-inject
 # PORT = exposed port pertama dan HOST = 0.0.0.0. Fallback ada di entrypoint.

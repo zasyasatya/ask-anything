@@ -362,6 +362,8 @@ import type {
   QuotaDashboard,
   QuotaLimits,
   RagDocument,
+  StorageBackup,
+  StorageStatus,
 } from "./types";
 
 /** Policy publik untuk gating UI (bukan lapisan keamanan). */
@@ -454,6 +456,20 @@ export async function adminOverview(
   token: string
 ): Promise<AdminOverview> {
   return adminFetch(token, "/api/admin/overview");
+}
+
+/** Kondisi penyimpanan: mount, writable, sisa disk, daftar backup. */
+export async function adminStorage(
+  token: string
+): Promise<{ storage: StorageStatus; backups: StorageBackup[] }> {
+  return adminFetch(token, "/api/admin/storage");
+}
+
+/** Backup SQLite sekarang juga (selain backup otomatis tiap container start). */
+export async function adminBackupNow(
+  token: string
+): Promise<{ ok: boolean; backup: string; backups: StorageBackup[] }> {
+  return adminFetch(token, "/api/admin/storage/backup", { method: "POST" });
 }
 
 export async function adminGetPolicy(token: string): Promise<FullPolicy> {

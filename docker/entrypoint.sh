@@ -26,11 +26,13 @@ BACKEND_PORT="${BACKEND_PORT:-8000}"
 PYTHON_BIN="${PYTHON_BIN:-${APP_DIR}/.venv/bin/python}"
 
 # Konfigurasi aplikasi (dibaca pydantic-settings backend, prefix ASK_).
-# Semua default mengarah ke /app/data supaya persisten di volume.
-export ASK_DB_PATH="${ASK_DB_PATH:-${APP_DIR}/data/ask_anything.db}"
-export ASK_ARTIFACTS_DIR="${ASK_ARTIFACTS_DIR:-${APP_DIR}/data/artifacts}"
-export ASK_RAG_DIR="${ASK_RAG_DIR:-${APP_DIR}/data/rag}"
-export ASK_MODELS_DIR="${ASK_MODELS_DIR:-${APP_DIR}/data/models}"
+# SATU variabel menentukan letak seluruh state: ASK_DATA_DIR. Sisanya turunan,
+# jadi memindahkan storage ke disk lain cukup satu env + satu mount.
+export ASK_DATA_DIR="${ASK_DATA_DIR:-${APP_DIR}/data}"
+export ASK_DB_PATH="${ASK_DB_PATH:-${ASK_DATA_DIR}/ask_anything.db}"
+export ASK_ARTIFACTS_DIR="${ASK_ARTIFACTS_DIR:-${ASK_DATA_DIR}/artifacts}"
+export ASK_RAG_DIR="${ASK_RAG_DIR:-${ASK_DATA_DIR}/rag}"
+export ASK_MODELS_DIR="${ASK_MODELS_DIR:-${ASK_DATA_DIR}/models}"
 # Target rewrite Next. Catatan: nilai ini ikut ter-bake saat `next build`
 # (lihat Dockerfile ARG BACKEND_PORT) — default sudah cocok untuk in-container.
 export BACKEND_URL="${BACKEND_URL:-http://127.0.0.1:${BACKEND_PORT}}"
@@ -39,17 +41,60 @@ log() { printf '[ask-anything] %s\n' "$*"; }
 
 # ---- 0. siapkan + validasi folder persisten --------------------------------
 DB_DIR="$(dirname "${ASK_DB_PATH}")"
-BACKUP_DIR="${DB_DIR}/backups"
-mkdir -p "${DB_DIR}" "${ASK_ARTIFACTS_DIR}" "${ASK_RAG_DIR}" "${ASK_MODELS_DIR}" "${BACKUP_DIR}" 2>/dev/null || true
-for d in "${DB_DIR}" "${ASK_ARTIFACTS_DIR}" "${ASK_RAG_DIR}" "${ASK_MODELS_DIR}"; do
+BACKUP_DIR="${ASK_DATA_DIR}/backups"
+mkdir -p "${ASK_DATA_DIR}" "${DB_DIR}" "${ASK_ARTIFACTS_DIR}" "${ASK_RAG_DIR}"          "${ASK_MODELS_DIR}" "${BACKUP_DIR}" 2>/dev/null || true
+for d in "${ASK_DATA_DIR}" "${DB_DIR}" "${ASK_ARTIFACTS_DIR}" "${ASK_RAG_DIR}" "${ASK_MODELS_DIR}"; do
     if [ ! -w "${d}" ]; then
         log "ERROR: ${d} tidak bisa ditulis."
-        log "       Di Coolify: mount persistent volume ke /app/data,"
-        log "       atau set ASK_DB_PATH / ASK_ARTIFACTS_DIR / ASK_RAG_DIR /"
-        log "       ASK_MODELS_DIR ke direktori yang writable."
+        log "       Di Coolify: mount direktori disk server ke ${ASK_DATA_DIR}"
+        log "       (Storages), lalu di server jalankan:"
+        log "         sudo chown -R 1000:1000 <direktori host tersebut>"
+        log "       Atau set ASK_DATA_DIR ke direktori lain yang writable."
         exit 1
     fi
 done
+
+# ---- 0a. GERBANG PERSISTENSI ----------------------------------------------
+# Direktori data yang BUKAN mount point berarti data hanya hidup di lapisan
+# tulis container: tiap redeploy membuat container baru dan seluruh database
+# (akun, password hasil reset, transaksi, master data) lenyap tanpa error.
+# Itulah gejala "kok data saya ke-reset lagi?". Karena itu container menolak
+# start, kecuali deploy memang sengaja ephemeral (ASK_ALLOW_EPHEMERAL_DATA=1).
+is_mount_point() {  # <dir> -> 0 bila mount tersendiri
+    if command -v mountpoint >/dev/null 2>&1; then
+        mountpoint -q "$1" && return 0
+    fi
+    # mountinfo kolom 5 = mount point; fallback = beda device id dengan root.
+    if [ -r /proc/self/mountinfo ]        && awk -v t="$1" '$5 == t { found = 1 } END { exit !found }' /proc/self/mountinfo; then
+        return 0
+    fi
+    DEV_DATA="$(stat -c %d "$1" 2>/dev/null || echo x)"
+    DEV_ROOT="$(stat -c %d / 2>/dev/null || echo y)"
+    [ "${DEV_DATA}" != "${DEV_ROOT}" ]
+}
+
+ALLOW_EPHEMERAL="$(printf '%s' "${ASK_ALLOW_EPHEMERAL_DATA:-}" | tr 'A-Z' 'a-z')"
+case "${ALLOW_EPHEMERAL}" in 1|true|yes|on) ALLOW_EPHEMERAL=1 ;; *) ALLOW_EPHEMERAL=0 ;; esac
+
+if is_mount_point "${ASK_DATA_DIR}"; then
+    MOUNT_SRC="$(awk -v t="${ASK_DATA_DIR}" '$5 == t { print $4; exit }'                  /proc/self/mountinfo 2>/dev/null)"
+    log "persistensi: ${ASK_DATA_DIR} ter-mount (sumber: ${MOUNT_SRC:-?}) - OK"
+elif [ "${ALLOW_EPHEMERAL}" = "1" ]; then
+    log "persistensi: ${ASK_DATA_DIR} TIDAK ter-mount, tetapi"
+    log "             ASK_ALLOW_EPHEMERAL_DATA=1 -> lanjut (data akan hilang)."
+else
+    log "ERROR: ${ASK_DATA_DIR} bukan volume/bind mount."
+    log "       Data hanya tersimpan di dalam container dan HILANG pada"
+    log "       redeploy berikutnya (termasuk hasil reset password)."
+    log "       Perbaiki di Coolify: Storages -> Add -> Directory Mount,"
+    log "         Source (disk server)   : /opt/ask-anything/data"
+    log "         Destination (container): ${ASK_DATA_DIR}"
+    log "       lalu di server: sudo mkdir -p /opt/ask-anything/data &&"
+    log "                       sudo chown -R 1000:1000 /opt/ask-anything/data"
+    log "       Docker/Compose: -v /opt/ask-anything/data:${ASK_DATA_DIR}"
+    log "       Sengaja ephemeral (uji coba)? set ASK_ALLOW_EPHEMERAL_DATA=1."
+    exit 1
+fi
 
 # ---- 0b. migrasi sekali-jalan dari lokasi lama (deployment sebelum volume) --
 # Kalau volume baru masih kosong tapi ada database/model dari layout lama

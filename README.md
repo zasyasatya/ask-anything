@@ -213,13 +213,17 @@ origin — dan Coolify hanya perlu me-route satu port.
 
 ```bash
 docker build -t ask-anything .
+mkdir -p "$PWD/data-server" && sudo chown -R 1000:1000 "$PWD/data-server"
 docker run --rm -p 3000:3000 -e ASK_PROVIDER=mock \
-  -v ask-anything-data:/app/data ask-anything
+  -v "$PWD/data-server:/app/data" ask-anything
 # UI → http://localhost:3000 · health → http://localhost:3000/api/health
+# Tanpa -v container menolak start: seluruh data ada di /app/data dan
+# akan hilang tiap redeploy kalau direktori itu bukan mount disk.
 ```
 
 Di Coolify: **New Application → Build Pack `Dockerfile`** (lokasi `/Dockerfile`,
-context `.`), port `3000`, volume ke `/app/data`, lalu set env
+context `.`), port `3000`, **Storages → Directory Mount** dari direktori disk
+server (mis. `/opt/ask-anything/data`, `chown 1000:1000`) ke `/app/data`, lalu set env
 `ASK_PROVIDER=openai` + `ASK_OPENAI_API_KEY`. Default aplikasi `huggingface`
 (mode `local`) butuh model di `models/` + torch/transformers, yang tidak
 ter-install di image — jadi untuk VPS pakai provider `openai`.
@@ -582,14 +586,15 @@ Panduan lengkap (alur kerja, aturan sync, struktur kode, cara menambah task):
 | `ASK_TEMPERATURE`, `ASK_MAX_STEPS`, `ASK_LOGPROBS` | 0.7 / 6 / true | Generasi & interpreter |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily` (+key masing-masing) |
 | `ASK_SEARCH_DDG_URL` | `https://lite.duckduckgo.com/lite/` | Endpoint pencarian — ke gateway internal/self-host, atau `scripts/fake_search_server.py` untuk uji E2E tanpa internet |
-| `ASK_DB_PATH` | `data/ask_anything.db` | SQLite (di container: `/app/data/ask_anything.db`) |
+| `ASK_DATA_DIR` | `data` | **Satu** direktori untuk semua state persisten: SQLite, `artifacts/`, `rag/`, `models/`, `backups/`. Di container `/app/data` dan wajib jadi mount disk server (kalau bukan, container menolak start). |
+| `ASK_DB_PATH` | *(ikut `ASK_DATA_DIR`)* | Isi hanya bila SQLite harus pindah ke disk lain |
 | `ASK_AUTH_MODE` | `required` | `required` = login wajib (halaman `/login`) · `open` = tanpa login untuk demo/test otomatis |
 | `ASK_ADMIN_USERNAME` / `ASK_ADMIN_PASSWORD` / `ASK_ADMIN_NAME` | `admin` / `admin123` / `Administrator` | Akun admin pertama yang di-seed saat tabel `users` kosong |
 | `ASK_SEED_MEMBERS` / `ASK_MEMBER_PASSWORD` | `intern1,intern2,intern3` / `intern123` | Akun member contoh (kosongkan untuk tidak men-seed) |
 | `ASK_SESSION_HOURS` / `ASK_SESSION_COOKIE` / `ASK_COOKIE_SECURE` | 168 / `ask_session` / false | Masa berlaku sesi, nama cookie, dan flag `Secure` (set true di belakang HTTPS) |
 | `ASK_LOGIN_MAX_ATTEMPTS` | 8 | Batas percobaan login gagal per username per 5 menit (0 = tanpa batas) |
 | `ASK_ADMIN_TOKEN` | – (terbuka) | Bila diset, semua `/api/admin/*` juga menerima header `X-Admin-Token` (skrip/CLI) |
-| `ASK_ARTIFACTS_DIR` / `ASK_RAG_DIR` | `data/artifacts` / `data/rag` | Penyimpanan file artifact & arsip PDF RAG |
+| `ASK_ARTIFACTS_DIR` / `ASK_RAG_DIR` | *(ikut `ASK_DATA_DIR`)* | Penyimpanan file artifact & arsip PDF RAG |
 | `ASK_TASKS_AUTOSEED` | `true` | Isi papan `/tasks` dengan rencana RAG saat tabel masih kosong |
 | `ASK_REPO_DIR` | root proyek | Folder repo git yang dipakai sinkronisasi branch/commit task |
 
@@ -718,7 +723,7 @@ python3 run.py --demo                          # E2E live
 # image produksi (sama seperti yang di-build Coolify)
 docker build -t ask-anything .
 docker run --rm -p 3000:3000 -e ASK_PROVIDER=mock \
-  -v ask-anything-data:/app/data ask-anything
+  -v "$PWD/data-server:/app/data" ask-anything
 ```
 
 Catatan: pencarian web asli (DuckDuckGo) butuh internet; di lingkungan offline

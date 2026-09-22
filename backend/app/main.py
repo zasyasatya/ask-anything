@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from . import __version__, db, hf_hub, startup, tasks, users
+from . import __version__, db, hf_hub, persistence, startup, tasks, users
 from .api.admin import router as admin_router
 from .api.auth_api import router as auth_router
 from .api.internship import router as internship_router
@@ -119,6 +119,11 @@ def _run_autoload_in_background() -> None:
 
 def _init_storage() -> None:
     """Siapkan SQLite + folder model/artifact/rag. Gagal → pesan yang bisa ditindak."""
+    # Cek persistensi SEBELUM database dibuat: kalau direktori data ternyata
+    # hanya lapisan tulis container, peringatannya harus sudah tercatat saat
+    # SQLite baru (kosong) dibuat — itu justru gejala "data hilang tiap
+    # redeploy" yang ingin dijelaskan ke admin.
+    persistence.check_at_startup()
     try:
         db.init_db(str(settings.resolved_db_path()))
     except Exception as exc:  # noqa: BLE001 - bungkus jadi pesan jelas

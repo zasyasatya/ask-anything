@@ -2,7 +2,7 @@
 
 > Panduan men-deploy **Ask Anything** ke VPS dengan [Coolify](https://coolify.io)
 > memakai `Dockerfile` di root repo: satu image, satu container, dua proses
-> (FastAPI + Next.js production). Lengkap dengan env var, volume SQLite,
+> (FastAPI + Next.js production). Lengkap dengan env var, persistence SQLite,
 > health check, uji lokal, dan troubleshooting.
 > Pendamping: [`PANDUAN-DEVELOPER.md`](PANDUAN-DEVELOPER.md) ·
 > [`PANDUAN-PENGGUNA.md`](PANDUAN-PENGGUNA.md).
@@ -15,7 +15,7 @@
 2. [Arsitektur di dalam container](#2-arsitektur-di-dalam-container)
 3. [Langkah deploy di Coolify](#3-langkah-deploy-di-coolify)
 4. [Environment variables](#4-environment-variables)
-5. [Volume & persistence (SQLite)](#5-volume--persistence-sqlite)
+5. [Persistence — data di disk server](#5-persistence--data-di-disk-server-bukan-di-container)
 6. [Uji image di lokal dulu](#6-uji-image-di-lokal-dulu)
 7. [Troubleshooting](#7-troubleshooting)
 8. [Catatan desain Dockerfile](#8-catatan-desain-dockerfile)
@@ -28,7 +28,7 @@
 |---|---|
 | `Dockerfile` | Multi-stage build: `frontend-builder` (npm ci + `next build`) → `backend-builder` (venv Python + requirements) → `runtime`. |
 | `.dockerignore` | Buang `.git`, `node_modules`, `.next`, `.venv`, `data/`, `.env*`, `scripts/` dari build context. |
-| `docker/entrypoint.sh` | Supervisor mini: start uvicorn + `next start`, teruskan sinyal `TERM`/`INT`, probe LLM, cek folder SQLite writable. |
+| `docker/entrypoint.sh` | Supervisor mini: start uvicorn + `next start`, teruskan sinyal `TERM`/`INT`, probe LLM, **gerbang persistensi** (tolak start bila `/app/data` bukan mount), backup SQLite tiap start. |
 
 Base image `node:22-bookworm-slim` untuk **semua** stage — jadi interpreter
 Python (3.11 Debian) di stage builder identik dengan runtime, dan venv hasil
@@ -46,7 +46,7 @@ Python (3.11 Debian) di stage builder identik dengan runtime, dan venv hasil
                        │                  /docs-images/*      (eksternal)    │
                        │                                    │                │
                        │  tini (PID 1) ── docker/entrypoint.sh               │
-                       │                              /app/data/*.db (vol)   │
+                       │                     /app/data/*  (mount disk server) │
                        └─────────────────────────────────────────────────────┘
 ```
 
@@ -73,9 +73,11 @@ Python (3.11 Debian) di stage builder identik dengan runtime, dan venv hasil
    (lihat [§4](#4-environment-variables)). Default aplikasi adalah
    `huggingface` (mode `local`) butuh model di `models/` + torch/transformers,
    yang **tidak ada** di image — jadi di VPS set `ASK_PROVIDER=openai`.
-6. **Persistent Storage / Volume**: mount ke `/app/data`
-   (lihat [§5](#5-volume--persistence-sqlite)) agar riwayat chat & trace tidak
-   hilang saat redeploy.
+6. **Storages → Directory Mount**: Source `/opt/ask-anything/data` (disk
+   server, `chown 1000:1000`) → Destination `/app/data`
+   (lihat [§5](#5-persistence--data-di-disk-server-bukan-di-container)).
+   **Wajib**: tanpa mount ini container sengaja menolak start, karena semua
+   data (akun, password, chat, task) akan hilang tiap redeploy.
 7. **Health Checks** (opsional tapi disarankan): `GET /api/health` pada port
    `3000`, *Start Period* ≥ `40s`, *Interval* `30s`. `Dockerfile` juga sudah
    membawa `HEALTHCHECK` sendiri.
@@ -110,10 +112,12 @@ dipakai `docker/entrypoint.sh`.
 | `ASK_LOGPROBS` / `ASK_TOP_LOGPROBS` | true / 4 | Data tab *Tokens* di Mechanistic Interpreter. |
 | `ASK_SEARCH_BACKEND` | `ddg` | `ddg` \| `serper` \| `tavily`. |
 | `ASK_SERPER_API_KEY` / `ASK_TAVILY_API_KEY` | – | Wajib bila memakai backend search tersebut. |
-| `ASK_DB_PATH` | `/app/data/ask_anything.db` | Path SQLite di dalam container (sudah persisten — jangan ubah). |
-| `ASK_ARTIFACTS_DIR` | `/app/data/artifacts` | File biner artifact (sudah persisten — jangan ubah). |
-| `ASK_RAG_DIR` | `/app/data/rag` | Arsip PDF mentah RAG (sudah persisten — jangan ubah). |
-| `ASK_MODELS_DIR` | `/app/data/models` | Model offline terunduh (sudah persisten — jangan ubah). |
+| `ASK_DATA_DIR` | `/app/data` | **Satu** direktori untuk seluruh state (SQLite, artifact, RAG, model, backup). Harus jadi titik mount disk server — kalau bukan mount, container menolak start. |
+| `ASK_DB_PATH` | *(ikut `ASK_DATA_DIR`)* | Isi hanya bila SQLite harus pindah ke disk lain. |
+| `ASK_ARTIFACTS_DIR` | *(ikut `ASK_DATA_DIR`)* | Idem, untuk file biner artifact. |
+| `ASK_RAG_DIR` | *(ikut `ASK_DATA_DIR`)* | Idem, untuk arsip PDF mentah RAG. |
+| `ASK_MODELS_DIR` | `/app/data/models` | Model offline terunduh (bisa GB-an). |
+| `ASK_ALLOW_EPHEMERAL_DATA` | *(kosong)* | `1` = lewati gerbang mount (uji coba/CI). **Jangan** diisi di produksi: data akan hilang tiap redeploy. |
 | `PORT` | `3000` | Di-inject Coolify; port publik Next. |
 | `HOST` | `0.0.0.0` | Di-inject Coolify; bind address Next. |
 | `BACKEND_HOST` / `BACKEND_PORT` | `127.0.0.1` / `8000` | Internal saja. ⚠️ `BACKEND_PORT` ikut ter-bake saat build — kalau diubah, rebuild dengan `--build-arg BACKEND_PORT=<port>` **dan** set env runtime yang sama. |
@@ -130,60 +134,130 @@ ASK_OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxx
 ASK_OPENAI_MODEL=gpt-4o-mini
 ASK_SEARCH_BACKEND=serper
 ASK_SERPER_API_KEY=xxxxxxxxxxxxxxxxxxxxxxxx
-ASK_DB_PATH=/app/data/ask_anything.db
+ASK_DATA_DIR=/app/data
 ```
 
-## 5. Volume & persistence (SQLite + file)
+## 5. Persistence — data di DISK SERVER, bukan di container
 
-Seluruh state aplikasi tinggal di **satu direktori** `/app/data`:
+Seluruh state aplikasi tinggal di **satu direktori**, `ASK_DATA_DIR`
+(default `/app/data` di dalam container):
 
 | Isi | Keterangan |
 |---|---|
-| `ask_anything.db` | SQLite: riwayat chat, pesan, trace interpreter, users/sesi, tasks, memori, artifact registry, feedback, index RAG. Satu file (journal `DELETE`), jadi volume selalu konsisten. |
-| `artifacts/` | File biner artifact (gambar, PPTX, diagram). Registry-nya di SQLite, isinya di sini — keduanya harus ikut volume. |
+| `ask_anything.db` | SQLite: riwayat chat, pesan, trace interpreter, **users & password**, sesi, tasks, memori, artifact registry, feedback, index RAG. Satu file (journal `DELETE`), jadi salinannya selalu konsisten. |
+| `artifacts/` | File biner artifact (gambar, PPTX, diagram). Registry-nya di SQLite, isinya di sini — keduanya harus ikut mount yang sama. |
 | `rag/` | Arsip PDF mentah yang di-upload (indeks vektornya di SQLite). |
-| `models/` | Model offline yang diunduh via Hub (bisa GB-an; tanpa volume harus unduh ulang tiap redeploy). |
-| `backups/` | Salinan `ask_anything.db` otomatis tiap container start (7 terakhir, format `ask_anything-YYYYMMDD-HHMMSS.db`). |
+| `models/` | Model offline yang diunduh via Hub (bisa GB-an). |
+| `backups/` | Salinan `ask_anything.db` otomatis tiap container start (7 terakhir, `ask_anything-YYYYMMDD-HHMMSS.db`) + hasil tombol backup manual. |
 
-Tanpa volume, **semua** data di atas hilang setiap redeploy.
+Container itu **ephemeral**: setiap redeploy membuat container baru dari image,
+dan apa pun yang ditulis ke lapisan tulis container ikut dibuang. Itulah sebab
+klasik "password yang sudah direset balik lagi setelah redeploy". Yang membuat
+data selamat bukan image, melainkan **mount** dari direktori disk server ke
+`/app/data`.
 
-- **Coolify**: *Persistent Storage* → Source: volume (mis. `ask-anything-data`),
-  Destination: **`/app/data`**. Wajib *named volume* — jangan mengandalkan
-  `VOLUME` di Dockerfile saja (itu membuat *anonymous volume* yang ikut hilang
-  saat resource dihapus).
-- **Docker Compose** (`docker-compose.yml` di root repo): volume sudah
-  didefinisikan — cukup `docker compose up -d --build`.
-- Container berjalan sebagai user `node` (uid 1000) dan `/app/data` sudah
-  dimiliki uid 1000 di dalam image; **named volume** Docker mewarisi ownership
-  itu otomatis, jadi langsung writable.
-- Kalau Anda memakai **bind mount** ke direktori host, pastikan milik uid 1000:
+### 5.1 Coolify — Directory Mount ke disk server
 
-  ```bash
-  sudo mkdir -p /opt/ask-anything/data && sudo chown -R 1000:1000 /opt/ask-anything/data
-  ```
+1. Siapkan direktorinya di server (uid 1000 = user `node` di dalam image):
 
-  Bila tidak, entrypoint berhenti dini dengan pesan
-  `ERROR: /app/data tidak bisa ditulis …` (sengaja fail-fast daripada diam-diam
-  kehilangan data).
+   ```bash
+   sudo mkdir -p /opt/ask-anything/data
+   sudo chown -R 1000:1000 /opt/ask-anything/data
+   ```
 
-Jaminan anti-reset yang sudah terpasang:
+2. Di resource Coolify → **Storages** → *Add* → **Directory Mount**:
 
-1. **Default image persisten** — `ASK_DB_PATH`, `ASK_ARTIFACTS_DIR`,
-   `ASK_RAG_DIR`, `ASK_MODELS_DIR` semuanya menunjuk ke `/app/data/…` (lihat
-   `Dockerfile` + `docker/entrypoint.sh`). Selama volume ter-mount, redeploy
-   hanya mengganti kode — data tidak disentuh.
-2. **Migrasi sekali-jalan** — bila volume baru masih kosong tetapi ada data
-   dari layout lama (mis. `/app/backend/data/…`, `/app/models`), entrypoint
-   menyalinnya ke volume saat start pertama, lalu mencatatnya di log
-   (`migrasi database SQLite: …`). Redeploy pertama dengan volume tidak
-   terlihat "reset".
-3. **Backup tiap start** — salinan SQLite ke `/app/data/backups/` sebelum
-   backend jalan; bila database korup, restore manual satu file:
-   `cp /app/data/backups/ask_anything-<terbaru>.db /app/data/ask_anything.db`
-   lalu restart.
-4. **Path absolut deterministik** — path relatif selalu di-resolve terhadap
-   root proyek (bukan CWD proses), jadi database tidak pernah nyasar ke
-   `/app/backend/data/` dsb. hanya karena direktori start berbeda.
+   | Field | Isi |
+   |---|---|
+   | Source (host) | `/opt/ask-anything/data` |
+   | Destination (container) | `/app/data` |
+
+3. **Redeploy**. Log deploy harus memuat baris:
+
+   ```
+   [ask-anything] persistensi: /app/data ter-mount (sumber: /opt/ask-anything/data) - OK
+   [storage] data persisten di /app/data (sumber: /opt/ask-anything/data, boot ke-3, db 148 KB)
+   ```
+
+   `boot ke-N` yang terus naik = direktori data yang sama dipakai lintas
+   redeploy. Kalau angkanya selalu `1`, mount-nya belum benar.
+
+> *Volume* (named volume Docker) juga persisten dan boleh dipakai, tapi isinya
+> tersembunyi di `/var/lib/docker/volumes/…` dan ikut terhapus kalau resource
+> di-delete atau `docker volume prune` dijalankan. **Directory Mount ke disk
+> server** membuat data bisa dilihat, di-backup, dan di-rsync langsung.
+
+### 5.2 Gerbang anti-kehilangan data
+
+`docker/entrypoint.sh` memeriksa `ASK_DATA_DIR` **sebelum** aplikasi start:
+
+* bukan mount point → container **menolak start** dengan instruksi perbaikan di
+  log (dulu: start normal, data diam-diam ephemeral);
+* tidak writable → berhenti dengan pesan `chown 1000:1000 …`;
+* sengaja ephemeral (uji coba/CI) → set `ASK_ALLOW_EPHEMERAL_DATA=1`.
+
+Backend melaporkan hal yang sama lewat API, jadi statusnya bisa dicek tanpa SSH:
+
+```bash
+curl -s https://<domain>/api/health | jq .storage
+# {"data_dir":"/app/data","persistent":true,"writable":true,
+#  "db_bytes":151552,"boots":3,"warning":""}
+
+curl -s https://<domain>/api/admin/storage -H 'X-Admin-Token: …' | jq
+# + mount_source, free_bytes, daftar backup
+```
+
+`persistent: false` = data sedang **tidak** aman. Backup manual kapan saja:
+`POST /api/admin/storage/backup` (salinan konsisten via API backup SQLite).
+
+### 5.3 Pindah dari named volume lama ke direktori disk server
+
+Kalau deployment sebelumnya memakai named volume `ask-anything-data` dan isinya
+masih dibutuhkan, salin dulu **sebelum** mengganti mount:
+
+```bash
+sudo mkdir -p /opt/ask-anything/data
+docker run --rm \
+  -v ask-anything-data:/from \
+  -v /opt/ask-anything/data:/to \
+  alpine sh -c 'cp -a /from/. /to/'
+sudo chown -R 1000:1000 /opt/ask-anything/data
+```
+
+Lalu ubah mount-nya di Coolify (§5.1) dan redeploy. Volume lama boleh dihapus
+setelah aplikasi terbukti jalan dengan data yang benar.
+
+### 5.4 Backup & restore
+
+```bash
+# backup manual (host): satu file, aman disalin saat app jalan
+sudo sqlite3 /opt/ask-anything/data/ask_anything.db ".backup '/root/ask-$(date +%F).db'"
+# atau lewat API: POST /api/admin/storage/backup  -> /app/data/backups/…
+
+# restore: stop app, timpa, start lagi
+sudo cp /opt/ask-anything/data/backups/ask_anything-20260101-030000.db \
+        /opt/ask-anything/data/ask_anything.db
+sudo chown 1000:1000 /opt/ask-anything/data/ask_anything.db
+```
+
+Jadwalkan `rsync -a /opt/ask-anything/data <tujuan>` (atau snapshot VPS) untuk
+backup off-site — mount hanya melindungi dari redeploy, bukan dari disk rusak.
+
+Jaminan anti-reset yang sudah terpasang di kode:
+
+1. **Satu variabel, satu mount** — `ASK_DATA_DIR` menentukan letak SQLite,
+   artifact, RAG, model, dan backup sekaligus; tidak ada lagi path yang
+   diam-diam tertinggal di lapisan container.
+2. **Fail-fast** — container menolak start bila direktori itu bukan mount
+   (§5.2), dan `VOLUME` di Dockerfile sengaja dihapus supaya Docker tidak
+   menutupi kesalahan konfigurasi dengan *anonymous volume*.
+3. **Penanda boot** — `<data>/.persistence.json` menghitung berapa kali app
+   start di direktori yang sama: bukti langsung data lintas redeploy.
+4. **Migrasi sekali-jalan** — data dari layout lama (`/app/backend/data/…`,
+   `/app/models`) disalin ke direktori data saat start pertama.
+5. **Backup tiap start** + endpoint backup manual (§5.4).
+6. **Path absolut deterministik** — path relatif di-resolve terhadap root
+   proyek, bukan CWD proses.
 
 ## 6. Uji image di lokal dulu
 
@@ -191,14 +265,18 @@ Jaminan anti-reset yang sudah terpasang:
 # build (dari root repo)
 docker build -t ask-anything .
 
-# jalankan: UI di http://localhost:3000, data di named volume
+# jalankan: UI di http://localhost:3000, data di direktori host
+mkdir -p "$PWD/data-server" && sudo chown -R 1000:1000 "$PWD/data-server"
 docker run --rm -p 3000:3000 \
   -e ASK_PROVIDER=mock \
-  -v ask-anything-data:/app/data \
+  -v "$PWD/data-server:/app/data" \
   --name ask-anything ask-anything
+# tanpa -v container sengaja berhenti:
+#   ERROR: /app/data bukan volume/bind mount.
 
 # verifikasi (dari terminal lain)
 curl -s localhost:3000/api/health        # {"status":"ok","provider":"mock",...}
+curl -s localhost:3000/api/health | jq .storage   # persistent:true, boots naik tiap start
 curl -sI localhost:3000/ | head -1       # HTTP/1.1 200 OK
 curl -sI localhost:3000/docs-images/01-hero-landing.png | head -1
 curl -sN -X POST localhost:3000/api/chat \
@@ -216,7 +294,10 @@ harus berhenti rapi (tini + trap → exit 0), bukan hang.
 |---|---|---|
 | Deploy "failed" padahal image jadi | Health check Coolify < waktu start app | Naikkan *Start Period* ke 40–60 s; endpoint `/api/health`. |
 | `502` dari Traefik, log container kosong | Port Coolify ≠ port listen app | Pastikan *Ports* = `3000` (atau biarkan Coolify inject `PORT`). |
-| `ERROR: /app/data tidak bisa ditulis` | Bind mount milik root | Named volume, atau `chown 1000:1000` direktori host (§5). |
+| `ERROR: /app/data tidak bisa ditulis` | Direktori host milik root | `sudo chown -R 1000:1000 <direktori host>` (§5.1). |
+| `ERROR: /app/data bukan volume/bind mount` | Storage belum di-mount di Coolify | Tambah *Directory Mount* `/opt/ask-anything/data` -> `/app/data` (§5.1). Container sengaja menolak start agar data tidak hilang diam-diam. |
+| Akun/password hasil reset & chat balik ke kondisi awal tiap redeploy | Direktori data bukan mount, isinya cuma di lapisan container | §5.1; verifikasi `/api/health` -> `storage.persistent: true` dan `storage.boots` naik tiap redeploy. |
+| Log `[storage] EPHEMERAL disengaja` | `ASK_ALLOW_EPHEMERAL_DATA=1` masih terpasang | Hapus env itu di produksi. |
 | UI jalan, tapi `llm_reachable: false` | Provider default `huggingface` menunjuk `127.0.0.1:8081` yang tidak ada di VPS | Set `ASK_PROVIDER=openai` + key, atau `mock`, atau arahkan `ASK_HF_BASE_URL` ke LLM server yang hidup. |
 | Build OOM / sangat lambat | `next build` butuh RAM & CPU | Server ≥ 2 GB RAM; tambahkan swap; build pertama memang paling lama. |
 | `/api`, `/slides`, `/docs-images` 404 | `BACKEND_URL` saat build ≠ runtime | Jangan ubah `BACKEND_PORT` tanpa rebuild `--build-arg BACKEND_PORT=…`. |
@@ -239,6 +320,11 @@ harus berhenti rapi (tini + trap → exit 0), bukan hang.
 - **`tini` sebagai PID 1** + `trap TERM/INT` di entrypoint: `docker stop`
   (Coolify *Stop/Redeploy*) mematikan uvicorn & next secara graceful.
 - **Non-root** (`USER node`, uid 1000): praktik aman untuk app yang
-  terekspos publik; konsekuensinya volume harus writable oleh uid 1000 (§5).
+  terekspos publik; konsekuensinya direktori data di host harus dimiliki
+  uid 1000 (§5.1).
+- **Tanpa `VOLUME /app/data`**: instruksi itu membuat Docker diam-diam
+  membuatkan *anonymous volume* saat mount lupa dipasang — app tetap jalan,
+  data terlihat tersimpan, lalu hilang saat redeploy. Sekarang salah
+  konfigurasi langsung gagal di entrypoint (§5.2).
 - **Build cache ramah**: layer `npm ci` dan `pip install` hanya invalid bila
   `package-lock.json` / `requirements.txt` berubah.

@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException
 from pydantic import BaseModel, field_validator
 
 from .. import (artifacts, auth, db, feedback, governance, instructions,
-                memory, quota, users)
+                memory, persistence, quota, users)
 from ..config import settings
 
 #: Guard konsol admin (sesi admin ATAU header X-Admin-Token) — satu sumber di
@@ -339,6 +339,33 @@ async def delete_user(user_id: str) -> dict:
     if not removed:
         raise HTTPException(404, "user tidak ditemukan")
     return {"ok": True, "users": users.list_users()}
+
+
+# ---------------------------------------------------------------------------
+# Storage / persistence (kenapa data bisa "hilang" setelah redeploy)
+# ---------------------------------------------------------------------------
+
+@router.get("/storage")
+async def storage_status() -> dict:
+    """Kondisi direktori data: mount point, writable, sisa disk, backup.
+
+    Dipakai untuk memastikan reset password & data transaksi benar-benar
+    mendarat di disk server, bukan di lapisan tulis container yang terhapus
+    tiap redeploy.
+    """
+    return {"storage": persistence.report(),
+            "backups": persistence.list_backups()}
+
+
+@router.post("/storage/backup")
+async def storage_backup() -> dict:
+    """Backup SQLite sekarang juga (selain backup otomatis tiap start)."""
+    try:
+        path = persistence.backup_now()
+    except OSError as exc:
+        raise HTTPException(500, f"backup gagal: {exc}") from exc
+    return {"ok": True, "backup": str(path),
+            "backups": persistence.list_backups()}
 
 
 # ---------------------------------------------------------------------------

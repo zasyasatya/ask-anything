@@ -32,6 +32,7 @@ import ArtifactTab from "./ArtifactTab";
 import FeedbackTab from "./FeedbackTab";
 import QuotaTab from "./QuotaTab";
 import InstructionsTab from "./InstructionsTab";
+import StorageCard from "./StorageCard";
 import { Card, Stat, fmtBytes } from "./ui";
 
 const TABS = [
@@ -274,6 +275,8 @@ export default function AdminConsole() {
                 tone={ocr?.deps.available ? "green" : "amber"}
               />
             </div>
+
+            <StorageCard />
 
             <Card
               title="Status tiap pipeline"

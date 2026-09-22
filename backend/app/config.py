@@ -17,6 +17,12 @@ _URL_FIELDS = ("hf_base_url", "openai_base_url")
 HF_MODES = ("local", "server")
 
 
+def _abs(value: str) -> Path:
+    """Expand ``~`` and anchor relative paths to the project root, not the CWD."""
+    p = Path(value).expanduser()
+    return p if p.is_absolute() else PROJECT_ROOT / p
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="ASK_",
@@ -113,8 +119,8 @@ class Settings(BaseSettings):
     # ---- governance (halaman Admin) ----
     #: Bila diset, semua endpoint /api/admin/* mewajibkan header X-Admin-Token.
     admin_token: str = ""
-    artifacts_dir: str = "data/artifacts"   # penyimpanan artifact (gambar/pptx)
-    rag_dir: str = "data/rag"               # arsip PDF mentah mode RAG
+    artifacts_dir: str = ""   # kosong = <data_dir>/artifacts (gambar/pptx)
+    rag_dir: str = ""         # kosong = <data_dir>/rag (arsip PDF mentah)
 
     # ---- task management (halaman /tasks) ----
     #: Isi papan tugas dengan rencana RAG saat boot pertama (tabel kosong).
@@ -123,7 +129,14 @@ class Settings(BaseSettings):
     repo_dir: str = ""
 
     # ---- storage ----
-    db_path: str = "data/ask_anything.db"
+    #: Satu direktori induk untuk SELURUH state persisten (SQLite, artifact,
+    #: arsip RAG, model offline, backup). Di Docker/Coolify ini adalah titik
+    #: mount disk server (`ASK_DATA_DIR=/app/data`); di lokal `data/` di root
+    #: proyek. Field `db_path`/`artifacts_dir`/`rag_dir`/`models_dir` yang
+    #: dibiarkan default otomatis mengikuti direktori ini, jadi memindahkan
+    #: storage cukup satu variabel.
+    data_dir: str = "data"
+    db_path: str = ""              # kosong = <data_dir>/ask_anything.db
 
     def auth_required(self) -> bool:
         """True (default) = login wajib; "open" = mode uji/demo tanpa login."""
@@ -141,40 +154,50 @@ class Settings(BaseSettings):
             return f"{self.hf_model or self.hf_base_url} (server)"
         return self.hf_model or "(belum ada model offline)"
 
+    def resolved_data_dir(self) -> Path:
+        """Absolute path of the ONE directory that must live on persistent disk.
+
+        Everything stateful hangs off it: ``ask_anything.db``, ``artifacts/``,
+        ``rag/``, ``models/``, ``backups/``. In Docker/Coolify this is the
+        mount point of the server disk (``ASK_DATA_DIR=/app/data``).
+        """
+        return _abs(self.data_dir or "data")
+
     def resolved_models_dir(self) -> Path:
         """Absolute path of the folder that stores downloaded models."""
-        p = Path(self.models_dir).expanduser()
-        if not p.is_absolute():
-            p = PROJECT_ROOT / p
-        return p
+        if not self.models_dir:
+            return self.resolved_data_dir() / "models"
+        return _abs(self.models_dir)
 
     def resolved_db_path(self) -> Path:
         """Absolute path of the SQLite file.
 
-        Relative values (local default ``data/ask_anything.db``) resolve
-        against the project root — never against the process CWD — so the
-        database lands in the same place whether uvicorn is started from
-        ``/app``, ``/app/backend`` or anywhere else. Absolute values (Docker:
-        ``/app/data/ask_anything.db``) are used verbatim.
+        Empty (the default) means ``<data_dir>/ask_anything.db`` — so moving
+        every piece of state is one variable (``ASK_DATA_DIR``). Relative
+        values resolve against the project root — never against the process
+        CWD — so the database lands in the same place whether uvicorn is
+        started from ``/app``, ``/app/backend`` or anywhere else. Absolute
+        values (Docker: ``/app/data/ask_anything.db``) are used verbatim.
         """
-        p = Path(self.db_path).expanduser()
-        if not p.is_absolute():
-            p = PROJECT_ROOT / p
-        return p
+        if not self.db_path:
+            return self.resolved_data_dir() / "ask_anything.db"
+        return _abs(self.db_path)
 
     def resolved_artifacts_dir(self) -> Path:
         """Absolute path of the artifact file store."""
-        p = Path(self.artifacts_dir).expanduser()
-        if not p.is_absolute():
-            p = PROJECT_ROOT / p
-        return p
+        if not self.artifacts_dir:
+            return self.resolved_data_dir() / "artifacts"
+        return _abs(self.artifacts_dir)
 
     def resolved_rag_dir(self) -> Path:
         """Absolute path of the raw-PDF archive for RAG mode."""
-        p = Path(self.rag_dir).expanduser()
-        if not p.is_absolute():
-            p = PROJECT_ROOT / p
-        return p
+        if not self.rag_dir:
+            return self.resolved_data_dir() / "rag"
+        return _abs(self.rag_dir)
+
+    def resolved_backups_dir(self) -> Path:
+        """Salinan SQLite otomatis (dibuat `docker/entrypoint.sh` tiap start)."""
+        return self.resolved_data_dir() / "backups"
 
     def as_public_dict(self) -> dict:
         return {
@@ -189,6 +212,7 @@ class Settings(BaseSettings):
             "hf_model": self.hf_model,
             "thinking": self.thinking,
             "models_dir": str(self.resolved_models_dir()),
+            "data_dir": str(self.resolved_data_dir()),
             "hf_endpoint": self.hf_endpoint,
             "hf_device": self.hf_device,
             "hf_dtype": self.hf_dtype,
