@@ -83,7 +83,7 @@ export default function LoginForm() {
               autoFocus
               onChange={(e) => setUsername(e.target.value)}
               className="mt-1 w-full rounded-lg border border-zinc-200 px-3 py-2 text-sm outline-none focus:border-accent-ring focus:ring-2 focus:ring-accent-soft"
-              placeholder="mis. verisimb atau verisimb@gmail.com"
+              placeholder="user@gmail.com"
             />
           </label>
 
