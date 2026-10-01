@@ -201,8 +201,8 @@ export default function PanduanAdminPage() {
             [
               "Internship",
               <C key="i">INT-014</C>,
-              "Proyek peserta: membangun chatbot AI agent production-ready dari nol.",
-              "admin: seluruh 36 task per fase; member: hanya task miliknya",
+              "Proyek peserta: membangun Internal AI Assistant & RAG Agent sesuai PRD.",
+              "admin: seluruh 33 task per fase; member: hanya task miliknya",
             ],
           ]}
         />
@@ -214,7 +214,7 @@ export default function PanduanAdminPage() {
         <Shot
           src="/docs-images/43-admin-board-internship.png"
           alt="Papan internship"
-          caption="Papan Internship: 36 task / 53.5 hari dengan breadcrumb fase (Fondasi → chat → agent & RAG → memori → token & feedback → rilis) di bawah judul papan."
+          caption="Papan Internship: 33 task / ±48 hari dengan breadcrumb fase (PRD & kerangka → chat & sesi → RAG, tool & router → guardrail → observability → performa & rilis) di bawah judul papan."
         />
       </section>
 
@@ -308,23 +308,31 @@ export default function PanduanAdminPage() {
       <section className="space-y-4">
         <H2 id="internship">8. Menjalankan program internship</H2>
         <P>
-          Rencana internship membangun <b>prototipe chatbot LLM</b> (Python + Streamlit + SQLite)
-          di <C>projects/ai-agent</C>: 29 task dalam 6 sprint, total estimasi 41 hari. Fokusnya
-          lapisan LLM — konteks &amp; memori, tooling, guardrail, observability, performa — bukan
-          infrastruktur. Hanya task <b>Sprint 0 (PRD)</b> yang berada di kolom To do; sprint
-          berikutnya menunggu di Backlog.
+          Rencana internship membangun <b>Internal AI Assistant &amp; RAG Agent</b> mengikuti
+          PRD terbaru dan design system beUI: Next.js + FastAPI (Clean Architecture), PostgreSQL +
+          pgvector, SSE, tanpa emoji. 33 task dalam 6 sprint, total estimasi ±48 hari, repo kerja{" "}
+          <C>ai-assistant-prototype</C>. Sprint 0 (<b>INT-001…005</b>: PRD dan boilerplate
+          monorepo) sudah selesai; sprint berikutnya menunggu di Backlog.
         </P>
         <Table
           head={["Sprint", "Task", "Fokus"]}
           rows={[
-            ["i0 PRD & Kerangka", "INT-001…004", "PRD (persona, user story, metrik berangka, ADR) + kerangka Streamlit & mock provider. Gerbang: PRD disetujui."],
-            ["i1 Chat, Sesi & Token", "INT-005…009", "Provider LLM + mock, UI streaming, CRUD sesi, hitung token, sliding window & ringkasan."],
-            ["i2 RAG, Tool & Router", "INT-010…015", "Ingest + chunking, embedding numpy, sitasi, function calling registry, router hemat biaya, memori panjang."],
-            ["i3 Guardrail", "INT-016…019", "Moderasi input (prompt injection), redaksi PII, validator output JSON + retry, system prompt terkelola."],
-            ["i4 Observability", "INT-020…023", "Tracing span per tahap, dasbor token/biaya/TTFT, feedback 👍/👎 beralasan, set evaluasi 20 soal."],
-            ["i5 Performa & Rilis", "INT-024…029", "Semantic cache, rate limit & kuota, fallback model, Docker + volume persisten, test, demo & runbook."],
+            ["i0 PRD & Kerangka", "INT-001…005", "PRD (persona, user story, metrik berangka, ADR), kerangka awal, dan boilerplate monorepo Clean Architecture + beUI (selesai)."],
+            ["i1 Chat, Sesi & Token", "INT-006…010", "Protokol SSE + UI chat, autentikasi & peran, sesi di PostgreSQL, hitung token, sliding window & ringkasan."],
+            ["i2 RAG, Tool & Router", "INT-011…018", "Ingestion PDF/DOCX/MD, pgvector (HNSW, ambang 0.7), sitasi, kelola & filter dokumen, tool registry, router, GraphView, bar chart."],
+            ["i3 Guardrail", "INT-019…022", "Guardrail input (injection, jailbreak), redaksi PII, validator output, uji red-team."],
+            ["i4 Observability", "INT-023…026", "Tracing 7 tahap, biaya Rupiah & dasbor TTFT, feedback suka/tidak suka beralasan, set evaluasi 20 soal."],
+            ["i5 Performa & Rilis", "INT-027…032", "Semantic cache, kuota 50 pesan / 100.000 token, fallback provider, deploy persisten, test menyeluruh, demo & metrik nyata."],
           ]}
         />
+        <P>
+          <b>Papan bisa disunting.</b> Admin dapat menambah task, mengubah isinya (judul,
+          deskripsi, kriteria, prasyarat, label, alur kerja, wireframe, berkas bukti), dan
+          menghapusnya. Perubahan tersimpan permanen dan tidak ditimpa saat rencana diperbarui:
+          task yang disunting ditandai <i>disunting</i>, task yang dihapus tidak muncul lagi
+          (menu <C>...</C> → <i>Pulihkan yang dihapus</i>), dan task Done dibekukan.{" "}
+          <i>Reset rencana</i> adalah satu-satunya aksi yang membuang suntingan.
+        </P>
         <Shot
           src="/docs-images/44-admin-internship.png"
           alt="Papan proyek internship (admin)"

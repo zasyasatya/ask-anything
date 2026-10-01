@@ -236,11 +236,19 @@ CREATE TABLE IF NOT EXISTS tasks (
     position INTEGER NOT NULL DEFAULT 0,    -- urutan dalam kolom
     seeded INTEGER NOT NULL DEFAULT 0,      -- 1 = berasal dari rencana RAG
     track TEXT NOT NULL DEFAULT 'platform', -- platform | internship (papan terpisah)
+    edited INTEGER NOT NULL DEFAULT 0,      -- 1 = isi task rencana diubah tangan (tidak ditimpa pembaruan rencana)
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL,
     completed_at REAL NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status, position);
+-- Nisan task rencana yang sengaja dihapus: seeder & pembaruan rencana tidak
+-- boleh menghidupkannya kembali, dan nomornya tidak dipakai ulang.
+CREATE TABLE IF NOT EXISTS task_tombstones (
+    id TEXT PRIMARY KEY,
+    track TEXT NOT NULL DEFAULT 'platform',
+    deleted_at REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS task_comments (
     id TEXT PRIMARY KEY,
     task_id TEXT NOT NULL,
@@ -294,6 +302,7 @@ _MIGRATIONS: tuple[tuple[str, str, str], ...] = (
     ("tasks", "track", "TEXT NOT NULL DEFAULT 'platform'"),
     ("tasks", "workflow", "TEXT NOT NULL DEFAULT '[]'"),
     ("tasks", "wireframe", "TEXT NOT NULL DEFAULT ''"),
+    ("tasks", "edited", "INTEGER NOT NULL DEFAULT 0"),
     ("rag_documents", "kind", "TEXT NOT NULL DEFAULT 'pdf'"),
     ("rag_documents", "ocr_pages", "INTEGER NOT NULL DEFAULT 0"),
     ("rag_documents", "ocr_engine", "TEXT NOT NULL DEFAULT ''"),

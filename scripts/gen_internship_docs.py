@@ -31,7 +31,7 @@ def _epic_of(task: dict) -> str:
 def render() -> str:
     summary = plan.summary()
     lines: list[str] = [
-        "# Rencana sprint — proyek chatbot LLM",
+        "# Rencana sprint — Internal AI Assistant & RAG Agent",
         "",
         "> Dokumen ini **dihasilkan otomatis** dari `backend/app/internship_plan.py`",
         "> (`python scripts/gen_internship_docs.py`). Jangan disunting manual —",
@@ -43,9 +43,12 @@ def render() -> str:
         "",
         "## Aturan kolom",
         "",
-        "Hanya task **Sprint 0** yang berada di kolom *To do*; sprint berikutnya",
-        "menunggu di *Backlog* dan baru ditarik saat sprint sebelumnya ditutup.",
-        "Gerbang Sprint 0: **PRD rampung dan disetujui** sebelum kode fitur ditulis.",
+        "Sprint 0 (PRD A-C + boilerplate monorepo) **sudah selesai** (kolom *Done*);",
+        "sprint berikutnya menunggu di *Backlog* dan baru ditarik saat sprint",
+        "sebelumnya ditutup. Rencana mengikuti PRD terbaru",
+        "([01-template-prd.md](01-template-prd.md)) dan design system beUI",
+        "([05-design-system.md](05-design-system.md)). Papan bisa disunting dari UI;",
+        "dokumen ini hanya memotret rencana bawaan.",
         "",
         "## Epic",
         "",

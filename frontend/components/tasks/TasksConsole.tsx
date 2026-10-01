@@ -180,18 +180,20 @@ export default function TasksConsole() {
     }
   };
 
-  const handleSeed = async (reset: boolean) => {
+  const handleSeed = async (reset: boolean, restoreDeleted = false) => {
     if (
       reset &&
       typeof window !== "undefined" &&
       !window.confirm(
-        "Kembalikan task rencana RAG ke kondisi awal? Task buatan sendiri tetap aman."
+        "Kembalikan semua task rencana di papan ini ke kondisi awal? " +
+          "Suntingan dan task rencana yang sudah dihapus akan dipulihkan; " +
+          "task buatan sendiri tetap aman."
       )
     )
       return;
     setBusy(true);
     try {
-      const report = await seedTasks(token, reset);
+      const report = await seedTasks(token, reset, { track, restoreDeleted });
       await load();
       setNotice(
         report.created.length
@@ -239,12 +241,12 @@ export default function TasksConsole() {
           <div className="min-w-0">
             <h1 className="truncate text-[15px] font-semibold text-zinc-800">
               {track === "internship"
-                ? "Chatbot AI Agent — Rencana Produksi"
+                ? "Internal AI Assistant & RAG Agent — Rencana Prototipe"
                 : "Platform Ask Anything — Rencana RAG"}
             </h1>
             <p className="truncate text-[11px] text-zinc-400">
               {track === "internship"
-                ? "Fondasi → chat → agent & RAG → memori → token & feedback → rilis"
+                ? "PRD & kerangka → chat & sesi → RAG, tool & router → guardrail → observability → performa & rilis"
                 : "Rencana RAG × AI Agent untuk platform ask-anything"}
             </p>
           </div>
@@ -307,8 +309,13 @@ export default function TasksConsole() {
                           run: () => handleSeed(false),
                         },
                         {
+                          label: "Pulihkan yang dihapus",
+                          hint: "Buat ulang task rencana yang pernah dihapus",
+                          run: () => handleSeed(false, true),
+                        },
+                        {
                           label: "Reset rencana",
-                          hint: "Kembalikan task hasil seed ke kondisi awal",
+                          hint: "Kembalikan semua task rencana ke kondisi awal",
                           run: () => handleSeed(true),
                         },
                         {

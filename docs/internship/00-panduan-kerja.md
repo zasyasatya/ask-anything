@@ -1,4 +1,4 @@
-# Panduan kerja internship — chatbot LLM
+# Panduan kerja internship — Internal AI Assistant & RAG Agent
 
 Dokumen ini menjawab "bagaimana cara bekerja di sini". Rincian *apa* yang
 dikerjakan ada di papan `/internship` (task `INT-NNN`) dan di
@@ -24,7 +24,7 @@ fokus tidak pecah.
    detail task:
 
    ```bash
-   git checkout -b feat/INT-007-sesi-percakapan
+   git checkout -b feat/INT-008-sesi-percakapan-persisten
    ```
 
 3. Kerjakan sampai **semua** kriteria selesai bisa dicentang — bukan sampai
@@ -33,7 +33,7 @@ fokus tidak pecah.
 5. Push, buka merge request, pindahkan task ke **Review**, tag pembimbing.
 6. Task pindah ke **Done** hanya setelah MR di-merge.
 
-Commit memakai format `feat(INT-007): ringkasan singkat` supaya papan bisa
+Commit memakai format `feat(INT-008): ringkasan singkat` supaya papan bisa
 mencocokkan commit ke task secara otomatis.
 
 ## 3. Kalau tersangkut
@@ -69,6 +69,38 @@ diperagakan.
 * Jangan menambah teknologi di luar daftar yang sudah dikunci di
   [02-arsitektur-prototipe.md](02-arsitektur-prototipe.md). Ingin menambah?
   Ajukan lewat ADR dan tunggu persetujuan.
-* Jangan pernah meng-commit API key, `.env`, atau berkas database.
-* Semua data pengguna dan dokumen uji berada di folder `data/` yang diabaikan
-  git dan di-mount sebagai volume saat dijalankan lewat Docker.
+* Jangan pernah meng-commit API key, `.env`, atau dump database.
+* Semua data pengguna, dokumen, dan vektor berada di PostgreSQL + volume Docker
+  (`pgdata`, `uploads`, `hf_cache`), bukan di dalam image dan bukan di git.
+* Ikuti [design system beUI](05-design-system.md): komponen lewat
+  `npx shadcn add @beui/<slug>`, ikon hanya `lucide-react`, **tanpa emoji**,
+  tema terang sebagai default, dan komponen UI hanya presentasi (logika stream
+  dan pemanggilan API ada di `infrastructure/` + `interface-adapters/`).
+* Sumber kebenaran produk adalah [PRD](01-template-prd.md) (bagian A user story,
+  B metrik & anggaran, C arsitektur + ADR). Ingin mengubah angka atau stack?
+  Ubah PRD lewat merge request, bukan diam-diam di kode.
+
+## 6. Mengubah papan task
+
+Papan `/internship` bukan rencana beku — tim boleh menyesuaikannya:
+
+| Aksi | Siapa | Cara |
+|---|---|---|
+| Tambah task | admin | tombol **+ Task** (nomor `INT-NNN` terisi otomatis) |
+| Ubah judul, deskripsi, prioritas, fase, estimasi, assignee | admin | panel detail task |
+| Ubah kriteria selesai, prasyarat, label | admin | tab *Ringkasan* |
+| Ubah alur kerja | admin | tab *Workflow* -> **Ubah alur kerja** |
+| Ubah wireframe & berkas bukti | admin | tab *Wireframe* -> **Ubah wireframe** |
+| Pindah kolom, centang kriteria, komentar | admin & member (task sendiri) | drag kartu / panel detail |
+| Hapus task | admin | tombol **Hapus task** di panel detail |
+
+Semua perubahan **tersimpan permanen** di database (volume data), dan pembaruan
+rencana tidak menimpanya:
+
+* task yang isinya sudah Anda ubah ditandai **disunting** dan tidak ditulis ulang;
+* task rencana yang Anda hapus **tidak muncul lagi** (dan nomornya tidak dipakai
+  ulang) — menu **Pulihkan yang dihapus** mengembalikannya bila perlu;
+* task yang sudah **Done** dibekukan;
+* task buatan sendiri tidak pernah disentuh;
+* **Reset rencana** (menu `...`) adalah satu-satunya aksi yang membuang
+  suntingan dan memulihkan seluruh task rencana ke kondisi awal.

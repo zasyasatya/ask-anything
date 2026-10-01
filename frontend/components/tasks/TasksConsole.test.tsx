@@ -48,7 +48,13 @@ vi.mock("@/lib/auth", () => ({
 }));
 
 import TasksConsole from "./TasksConsole";
-import { fetchTasks, moveTask, syncTasks, type SyncReport } from "@/lib/tasks";
+import {
+  fetchTasks,
+  moveTask,
+  seedTasks,
+  syncTasks,
+  type SyncReport,
+} from "@/lib/tasks";
 
 function task(over: Partial<Task>): Task {
   return {
@@ -209,6 +215,41 @@ describe("TasksConsole — halaman /tasks", () => {
     );
     expect(await screen.findByText("Feedback jempol")).toBeTruthy();
     expect(screen.queryByText("Tab Pipeline")).toBeNull();
+  });
+
+  it("Muat/Pulihkan rencana menyasar papan yang sedang dibuka", async () => {
+    // Regresi: seedTasks() tidak mengirim `track`, jadi "Reset rencana" di papan
+    // Internship justru mengembalikan papan Platform.
+    vi.mocked(seedTasks).mockResolvedValue({
+      created: [],
+      total: 0,
+      stats: response(TASKS).stats,
+    });
+    vi.mocked(fetchTasks).mockImplementation(async () => response(TASKS));
+    render(<TasksConsole />);
+    await screen.findByText("Tab Pipeline");
+    fireEvent.click(screen.getByRole("button", { name: "Internship" }));
+    await waitFor(() =>
+      expect(fetchTasks).toHaveBeenLastCalledWith("", { track: "internship" })
+    );
+
+    fireEvent.click(screen.getByLabelText("Aksi papan"));
+    fireEvent.click(screen.getByText("Muat rencana"));
+    await waitFor(() =>
+      expect(seedTasks).toHaveBeenLastCalledWith("", false, {
+        track: "internship",
+        restoreDeleted: false,
+      })
+    );
+
+    fireEvent.click(screen.getByLabelText("Aksi papan"));
+    fireEvent.click(screen.getByText("Pulihkan yang dihapus"));
+    await waitFor(() =>
+      expect(seedTasks).toHaveBeenLastCalledWith("", false, {
+        track: "internship",
+        restoreDeleted: true,
+      })
+    );
   });
 
   it("sync git melaporkan berapa task yang berubah", async () => {

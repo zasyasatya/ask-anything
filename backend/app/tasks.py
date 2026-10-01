@@ -118,6 +118,7 @@ def _row(row: dict[str, Any]) -> dict[str, Any]:
     task["workflow"] = _clean_workflow(_loads(task.get("workflow"), []))
     task["wireframe"] = str(task.get("wireframe") or "")
     task["seeded"] = bool(task.get("seeded"))
+    task["edited"] = bool(task.get("edited"))
     task["track"] = task.get("track") or track_of(task.get("id", ""))
     task["track_label"] = TRACK_LABELS.get(task["track"], task["track"])
     task["branch_name"] = branch_name(task)
@@ -275,6 +276,9 @@ def next_task_id(track: str = DEFAULT_TRACK) -> str:
     track = track if track in TRACKS else DEFAULT_TRACK
     prefix = "INT" if track == "internship" else "ASK"
     rows = db.query_all("SELECT id FROM tasks WHERE track=?", (track,))
+    # Nomor task rencana yang sudah dihapus tidak dipakai ulang: nama branch &
+    # commit lama masih menyebut id itu.
+    rows += db.query_all("SELECT id FROM task_tombstones WHERE track=?", (track,))
     top = 0
     for r in rows:
         m = TASK_ID_RE.search(r["id"] or "")
@@ -385,8 +389,17 @@ def create_task(*, title: str, description: str = "", phase: str = "f0",
         break
     else:  # pragma: no cover - praktis tak terjadi (6x bentrok beruntun)
         raise TaskError("gagal membuat id task unik — coba lagi")
+    # Membuat ulang id yang pernah dihapus (impor / pulihkan) = nisannya dicabut.
+    db.execute("DELETE FROM task_tombstones WHERE id=?", (tid,))
     return get_task(tid) or {}
 
+
+#: Field isi task (bukan progres). Mengubahnya pada task rencana menandainya
+#: `edited` supaya pembaruan rencana berikutnya tidak menimpa pekerjaan tangan.
+#: status/assignee/branch/mr_url/position/commits = progres, bukan isi.
+CONTENT_FIELDS = ("title", "description", "phase", "priority", "estimate",
+                  "labels", "acceptance", "depends_on", "evidence", "source",
+                  "workflow", "wireframe")
 
 EDITABLE = ("title", "description", "phase", "status", "priority", "assignee",
             "estimate", "labels", "acceptance", "depends_on", "evidence",
@@ -394,8 +407,42 @@ EDITABLE = ("title", "description", "phase", "status", "priority", "assignee",
             "position", "commits")
 
 
-def update_task(task_id: str, patch: dict[str, Any]) -> dict | None:
-    """Perbarui task; hanya field yang dikenal. ``acceptance``/``labels`` list."""
+def _normalize_field(key: str, value: Any) -> Any:
+    """Bentuk kanonik satu field isi — untuk mendeteksi perubahan yang nyata."""
+    if key == "labels":
+        return [str(x) for x in (value or [])]
+    if key == "depends_on":
+        return [_norm(x) for x in (value or [])]
+    if key == "evidence":
+        return [str(x) for x in (value or [])]
+    if key == "acceptance":  # centang bukan perubahan isi, teksnya yang iya
+        return [a["text"] for a in _clean_acceptance(value or [])]
+    if key == "workflow":
+        return [(w["actor"], w["action"], w["result"])
+                for w in _clean_workflow(value or [])]
+    if key == "wireframe":
+        return str(value or "")[:6000]
+    if key == "title":
+        return str(value or "").strip()[:300]
+    if key == "estimate":
+        return float(value or 0)
+    return str(value if value is not None else "")
+
+
+def _touches_content(current: dict[str, Any], patch: dict[str, Any]) -> bool:
+    return any(
+        key in patch and patch[key] is not None
+        and _normalize_field(key, patch[key]) != _normalize_field(key, current.get(key))
+        for key in CONTENT_FIELDS)
+
+
+def update_task(task_id: str, patch: dict[str, Any], *,
+                system: bool = False) -> dict | None:
+    """Perbarui task; hanya field yang dikenal. ``acceptance``/``labels`` list.
+
+    `system=True` dipakai pembaruan rencana otomatis: perubahan itu tidak
+    menandai task sebagai `edited` (hanya suntingan manusia yang menandai).
+    """
     current = get_task(task_id)
     if not current:
         return None
@@ -442,6 +489,9 @@ def update_task(task_id: str, patch: dict[str, Any]) -> dict | None:
     if patch.get("status") == "done" and current["status"] != "done":
         fields.append("completed_at=?")
         params.append(db.now())
+    if (not system and current["seeded"] and not current["edited"]
+            and _touches_content(current, patch)):
+        fields.append("edited=1")
     if not fields:
         return current
 
@@ -458,10 +508,18 @@ def update_task(task_id: str, patch: dict[str, Any]) -> dict | None:
 
 def delete_task(task_id: str) -> bool:
     tid = _norm(task_id)
-    if not get_task(tid):
+    task = get_task(tid)
+    if not task:
         return False
     db.execute("DELETE FROM task_comments WHERE task_id=?", (tid,))
     db.execute("DELETE FROM tasks WHERE id=?", (tid,))
+    if task["seeded"]:
+        # Task rencana yang dihapus sengaja tidak boleh muncul lagi saat boot,
+        # seed, atau pembaruan rencana — kecuali dipulihkan secara eksplisit.
+        db.execute(
+            "INSERT INTO task_tombstones(id,track,deleted_at) VALUES(?,?,?) "
+            "ON CONFLICT(id) DO UPDATE SET deleted_at=excluded.deleted_at",
+            (tid, task["track"], db.now()))
     return True
 
 
@@ -620,15 +678,35 @@ def stats(track: str | None = None, *, assignee_in: Iterable[str] | None = None
 # Seeder rencana RAG
 # ---------------------------------------------------------------------------
 
-def seed_tasks(*, reset: bool = False, track: str = DEFAULT_TRACK
-               ) -> dict[str, Any]:
+def tombstoned_ids(track: str | None = None) -> set[str]:
+    """Id task rencana yang sengaja dihapus (tidak boleh di-seed ulang)."""
+    if track:
+        rows = db.query_all("SELECT id FROM task_tombstones WHERE track=?", (track,))
+    else:
+        rows = db.query_all("SELECT id FROM task_tombstones")
+    return {r["id"] for r in rows}
+
+
+def _create_from_plan(item: dict[str, Any], track: str, position: int) -> dict:
+    payload = dict(item)
+    payload["task_id"] = payload.pop("id")
+    payload["track"] = track
+    return create_task(**payload, seeded=True, position=position)
+
+
+def seed_tasks(*, reset: bool = False, track: str = DEFAULT_TRACK,
+               restore_deleted: bool = False) -> dict[str, Any]:
     """Muat rencana satu papan dari modul rencananya.
 
     `track=platform` → `tasks_plan.py` (ASK-NNN), `track=internship` →
     `internship_plan.py` (INT-NNN). Idempoten: task yang id-nya sudah ada
-    **tidak** ditimpa (perubahan tangan developer aman), kecuali ``reset=True``
-    — di situ task rencana (``seeded=1``) papan itu dihapus lalu dibuat ulang;
-    task buatan sendiri dibiarkan.
+    **tidak** ditimpa (perubahan tangan developer aman) dan task rencana yang
+    sengaja **dihapus** tidak dihidupkan lagi, kecuali:
+
+    * ``restore_deleted=True`` — nisan penghapusan dicabut, task dibuat ulang;
+    * ``reset=True`` — task rencana (``seeded=1``) papan itu dihapus lalu
+      dibuat ulang dari rencana (suntingan tangan pada task rencana hilang;
+      task buatan sendiri dibiarkan). Ini juga memulihkan yang dihapus.
     """
     track = track if track in TRACKS else DEFAULT_TRACK
     plan = plan_tasks_for(track)
@@ -636,24 +714,23 @@ def seed_tasks(*, reset: bool = False, track: str = DEFAULT_TRACK
         ids = "(SELECT id FROM tasks WHERE seeded=1 AND track=?)"
         db.execute(f"DELETE FROM task_comments WHERE task_id IN {ids}", (track,))
         db.execute("DELETE FROM tasks WHERE seeded=1 AND track=?", (track,))
+    if reset or restore_deleted:
+        db.execute("DELETE FROM task_tombstones WHERE track=?", (track,))
 
     created: list[str] = []
     existing = {r["id"] for r in db.query_all("SELECT id FROM tasks")}
+    skipped = tombstoned_ids(track)
     position_by_status: dict[str, int] = {}
     for task in plan:
-        if task["id"] in existing:
+        if task["id"] in existing or task["id"] in skipped:
             continue
-        payload = dict(task)
-        payload["task_id"] = payload.pop("id")
-        payload["track"] = track
-        status = payload["status"]
+        status = task["status"]
         position_by_status[status] = position_by_status.get(status, 0) + 1
-        create_task(**payload, seeded=True,
-                    position=position_by_status[status] - 1)
+        _create_from_plan(task, track, position_by_status[status] - 1)
         created.append(task["id"])
         existing.add(task["id"])
     return {"created": created, "total": len(plan), "reset": reset,
-            "track": track}
+            "track": track, "deleted_kept": sorted(skipped)}
 
 
 def seed_if_empty() -> list[str]:
@@ -707,15 +784,58 @@ def _store_revision(track: str, revision: str) -> None:
         (f"plan_revision:{track}", revision))
 
 
-def refresh_plan_if_stale(track: str) -> dict[str, Any]:
-    """Muat ulang rencana bila `PLAN_REVISION`-nya berubah.
+def _apply_plan(current: dict[str, Any], item: dict[str, Any],
+                revision: str) -> None:
+    """Tulis isi terbaru rencana ke satu task yang belum pernah disunting.
 
-    Papan yang sudah ter-seed di deployment lama tidak pernah ikut berubah saat
-    rencananya ditulis ulang (seeder sengaja idempoten). Fungsi ini menutup
-    celah itu: task rencana ditulis ulang dari modul rencana, sementara
-    **progres dibawa pindah** untuk id yang masih ada — status, penanggung
-    jawab, branch/MR, dan centang kriteria selesai (dicocokkan per teks).
-    Task buatan tangan (``seeded=0``) tidak disentuh sama sekali.
+    Progres dibawa: status hanya boleh **naik** (rencana boleh memajukan task,
+    mis. menandai yang sudah di-merge `done`, tapi tidak menurunkan), assignee
+    yang sudah diisi dipertahankan, dan kriteria yang sudah dicentang tetap
+    tercentang (dicocokkan per teks).
+    """
+    checked = {a["text"] for a in current["acceptance"] if a["done"]}
+    acceptance = [
+        {"text": a["text"], "done": bool(a["done"]) or a["text"] in checked}
+        for a in _clean_acceptance(item.get("acceptance") or [])]
+    status = item["status"]
+    if _rank(status) <= _rank(current["status"]):
+        status = current["status"]
+    patch: dict[str, Any] = {
+        "title": item["title"], "description": item.get("description", ""),
+        "phase": item["phase"], "priority": item["priority"],
+        "estimate": item.get("estimate", 0), "labels": item.get("labels", []),
+        "depends_on": item.get("depends_on", []),
+        "evidence": item.get("evidence", []), "source": item.get("source", ""),
+        "workflow": item.get("workflow", []),
+        "wireframe": item.get("wireframe", ""), "acceptance": acceptance,
+        "status": status,
+    }
+    if not current["assignee"] and item.get("assignee"):
+        patch["assignee"] = item["assignee"]
+    if not current["branch"] and item.get("branch"):
+        patch["branch"] = item["branch"]
+    if status != current["status"]:
+        row = db.query_one(
+            "SELECT COALESCE(MAX(position),-1) AS p FROM tasks WHERE status=?",
+            (status,))
+        patch["position"] = int(row["p"]) + 1 if row else 0
+    update_task(current["id"], patch, system=True)
+    log_activity(current["id"], f"isi task diperbarui dari rencana {revision}")
+
+
+def refresh_plan_if_stale(track: str) -> dict[str, Any]:
+    """Selaraskan papan dengan rencana bila `PLAN_REVISION`-nya berubah.
+
+    Seeder sengaja idempoten, jadi papan yang sudah ter-seed di deployment lama
+    tidak ikut berubah saat rencananya ditulis ulang. Fungsi ini menutup celah
+    itu **per task**, tanpa pernah merusak pekerjaan tangan:
+
+    * task ``edited`` (isinya pernah disunting) dan task ``done`` → dibiarkan;
+    * task rencana yang sengaja dihapus (nisan) → tidak dibuat lagi;
+    * task rencana yang belum disentuh → isinya ditulis ulang, progres
+      (status, assignee, branch/MR, centang kriteria) dibawa;
+    * task baru di rencana → dibuat; task rencana usang yang belum disentuh →
+      dibuang; task buatan tangan (``seeded=0``) tidak disentuh sama sekali.
     """
     track = track if track in TRACKS else DEFAULT_TRACK
     revision = plan_revision_of(track)
@@ -724,49 +844,51 @@ def refresh_plan_if_stale(track: str) -> dict[str, Any]:
 
     row = db.query_one("SELECT COUNT(*) AS n FROM tasks WHERE track=? AND seeded=1",
                        (track,))
-    had_tasks = bool(row and int(row["n"]) > 0)
-    if not had_tasks:
+    if not (row and int(row["n"]) > 0):
         # Papan baru saja di-seed dari rencana yang sama - cukup catat revisinya.
         _store_revision(track, revision)
         return {"changed": False, "revision": revision, "track": track,
                 "first_seed": True}
 
-    kept: dict[str, dict[str, Any]] = {}
-    if had_tasks:
-        for old in list_tasks(track=track, seeded=True):
-            kept[old["id"]] = {
-                "status": old["status"],
-                "assignee": old["assignee"],
-                "branch": old["branch"],
-                "mr_url": old["mr_url"],
-                "position": old["position"],
-                "checked": {a["text"] for a in old["acceptance"] if a["done"]},
-            }
+    plan = plan_tasks_for(track)
+    plan_ids = {t["id"] for t in plan}
+    deleted = tombstoned_ids(track)
+    created: list[str] = []
+    updated: list[str] = []
+    kept: list[str] = []
+    conflicts: list[str] = []
+    for item in plan:
+        tid = item["id"]
+        if tid in deleted:
+            continue
+        current = get_task(tid)
+        if current is None:
+            col = db.query_one(
+                "SELECT COALESCE(MAX(position),-1) AS p FROM tasks WHERE status=?",
+                (item["status"],))
+            _create_from_plan(item, track, int(col["p"]) + 1 if col else 0)
+            created.append(tid)
+        elif not current["seeded"]:
+            conflicts.append(tid)  # id dipakai task buatan tangan - jangan timpa
+        elif current["edited"] or current["status"] == "done":
+            kept.append(tid)
+        else:
+            _apply_plan(current, item, revision)
+            updated.append(tid)
 
-    report = seed_tasks(reset=True, track=track)
-    restored = 0
-    for task_id, before in kept.items():
-        task = get_task(task_id)
-        if not task:
-            continue  # task lama dihapus dari rencana baru
-        patch: dict[str, Any] = {
-            "status": before["status"],
-            "branch": before["branch"],
-            "mr_url": before["mr_url"],
-        }
-        if before["assignee"]:
-            patch["assignee"] = before["assignee"]
-        if before["checked"]:
-            patch["acceptance"] = [
-                {"text": a["text"], "done": a["text"] in before["checked"]}
-                for a in task["acceptance"]]
-        update_task(task_id, patch)
-        restored += 1
+    removed: list[str] = []
+    for old in list_tasks(track=track, seeded=True):
+        if old["id"] in plan_ids or old["edited"] or old["status"] == "done":
+            continue
+        db.execute("DELETE FROM task_comments WHERE task_id=?", (old["id"],))
+        db.execute("DELETE FROM tasks WHERE id=?", (old["id"],))
+        removed.append(old["id"])
 
     _store_revision(track, revision)
     return {"changed": True, "revision": revision, "track": track,
-            "created": report["created"], "restored": restored,
-            "first_seed": not had_tasks}
+            "first_seed": False, "created": created, "updated": updated,
+            "kept": kept, "removed": removed, "conflicts": conflicts,
+            "restored": len(updated) + len(kept)}
 
 
 # ---------------------------------------------------------------------------

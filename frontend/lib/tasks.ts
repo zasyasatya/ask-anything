@@ -68,6 +68,8 @@ export interface Task {
   commits: TaskCommit[];
   position: number;
   seeded: boolean;
+  /** true = isi task rencana pernah disunting tangan → tidak ditimpa pembaruan rencana. */
+  edited?: boolean;
   created_at: number;
   updated_at: number;
   completed_at: number;
@@ -362,7 +364,10 @@ export interface NewTaskInput {
   labels?: string[];
   acceptance?: Array<string | TaskAcceptance>;
   depends_on?: string[];
+  evidence?: string[];
   source?: string;
+  workflow?: Array<{ actor?: string; action: string; result?: string }>;
+  wireframe?: string;
   /** Papan tujuan: platform (ASK-NNN) atau internship (INT-NNN). */
   track?: string;
   /** Biasanya dikosongkan — backend mengisi ID otomatis yang anti-bentrok. */
@@ -482,9 +487,15 @@ export async function syncTasks(token: string): Promise<SyncReport> {
 
 export async function seedTasks(
   token: string,
-  reset = false
-): Promise<{ created: string[]; total: number; stats: TaskStats }> {
-  return fetchJson(`/api/tasks/seed?reset=${reset ? "true" : "false"}`, {
+  reset = false,
+  opts: { track?: string; restoreDeleted?: boolean } = {}
+): Promise<{ created: string[]; total: number; stats: TaskStats; track?: string }> {
+  const qs = new URLSearchParams({ reset: reset ? "true" : "false" });
+  // Tanpa `track` backend jatuh ke papan platform — papan internship harus
+  // menyebutkan dirinya supaya "Reset rencana" tidak menimpa papan yang salah.
+  if (opts.track) qs.set("track", opts.track);
+  if (opts.restoreDeleted) qs.set("restore_deleted", "true");
+  return fetchJson(`/api/tasks/seed?${qs.toString()}`, {
     method: "POST",
     headers: headers(token),
   });

@@ -15,6 +15,7 @@ import {
   STATUS_META,
   addTaskComment,
   deleteTask,
+  fetchTask,
   formatDate,
   formatDays,
   patchTask,
@@ -24,6 +25,7 @@ import {
   type Task,
   type TaskStatus,
 } from "@/lib/tasks";
+import { CommaListField, WireframeEditor, WorkflowEditor } from "./TaskEditors";
 
 type Tab = "ringkasan" | "workflow" | "wireframe" | "aktivitas";
 
@@ -66,6 +68,10 @@ export default function TaskDetail({
   const [newCriterion, setNewCriterion] = useState("");
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editingWorkflow, setEditingWorkflow] = useState(false);
+  const [editingWireframe, setEditingWireframe] = useState(false);
+  const [editingCriterion, setEditingCriterion] = useState<number | null>(null);
+  const [criterionText, setCriterionText] = useState("");
 
   useEffect(() => {
     setTitle(task.title);
@@ -79,7 +85,12 @@ export default function TaskDetail({
 
   // Kembali ke tab pertama saat berpindah task supaya tidak mendarat di tab
   // kosong (task lama punya workflow, task buatan tangan mungkin belum).
-  useEffect(() => setTab("ringkasan"), [task.id]);
+  useEffect(() => {
+    setTab("ringkasan");
+    setEditingWorkflow(false);
+    setEditingWireframe(false);
+    setEditingCriterion(null);
+  }, [task.id]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
@@ -94,15 +105,34 @@ export default function TaskDetail({
     aktivitas: (task.comments || []).length,
   };
 
-  const patch = async (body: Record<string, unknown>) => {
+  /** Kirim satu PATCH; true bila tersimpan (dipakai editor untuk menutup diri). */
+  const patch = async (
+    body: Record<string, unknown>,
+    opts: { reload?: boolean } = {}
+  ): Promise<boolean> => {
     setBusy(true);
     try {
-      onChanged(await patchTask(token, task.id, body));
+      const saved = await patchTask(token, task.id, body);
+      // Prasyarat/turunan hanya ada di detail lengkap — ambil ulang bila perlu.
+      onChanged(opts.reload ? await fetchTask(token, task.id) : saved);
+      return true;
     } catch (e) {
       onError(String(e));
+      return false;
     } finally {
       setBusy(false);
     }
+  };
+
+  const saveCriterion = async (index: number) => {
+    const text = criterionText.trim();
+    setEditingCriterion(null);
+    if (!text || text === task.acceptance[index]?.text) return;
+    await patch({
+      acceptance: task.acceptance.map((a, i) =>
+        i === index ? { text, done: a.done } : a
+      ),
+    });
   };
 
   const copyBranch = async () => {
@@ -162,6 +192,15 @@ export default function TaskDetail({
               <p className="px-1 text-[11.5px] text-zinc-400">
                 {phaseName} · {formatDays(task.estimate)} · diperbarui{" "}
                 {relativeTime(task.updated_at)}
+                {task.edited && (
+                  <span
+                    data-testid="task-edited-badge"
+                    title="Isi task ini sudah Anda ubah — pembaruan rencana tidak akan menimpanya."
+                    className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700"
+                  >
+                    disunting
+                  </span>
+                )}
               </p>
             </div>
             <button
@@ -344,13 +383,40 @@ export default function TaskDetail({
                         }}
                         className="mt-0.5 h-4 w-4 accent-indigo-500"
                       />
-                      <span
-                        className={`flex-1 text-[12.5px] leading-relaxed ${
-                          item.done ? "text-zinc-400 line-through" : "text-zinc-700"
-                        }`}
-                      >
-                        {item.text}
-                      </span>
+                      {editingCriterion === index ? (
+                        <input
+                          autoFocus
+                          aria-label={`Ubah kriteria ${index + 1}`}
+                          value={criterionText}
+                          onChange={(e) => setCriterionText(e.target.value)}
+                          onBlur={() => saveCriterion(index)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") saveCriterion(index);
+                            if (e.key === "Escape") setEditingCriterion(null);
+                          }}
+                          className={`flex-1 ${field}`}
+                        />
+                      ) : (
+                        <span
+                          className={`flex-1 text-[12.5px] leading-relaxed ${
+                            item.done ? "text-zinc-400 line-through" : "text-zinc-700"
+                          }`}
+                        >
+                          {item.text}
+                        </span>
+                      )}
+                      {!readOnly && editingCriterion !== index && (
+                        <button
+                          onClick={() => {
+                            setCriterionText(item.text);
+                            setEditingCriterion(index);
+                          }}
+                          aria-label={`Ubah teks kriteria ${index + 1}`}
+                          className="text-[11px] text-zinc-300 hover:text-accent"
+                        >
+                          ubah
+                        </button>
+                      )}
                       {!readOnly && (
                         <button
                           onClick={async () => {
@@ -437,6 +503,29 @@ export default function TaskDetail({
                     </span>
                   </p>
                 )}
+                {!readOnly && (
+                  <div className="mt-3 space-y-2 border-t border-zinc-100 pt-3">
+                    <CommaListField
+                      key={`deps-${task.id}-${task.depends_on.join(",")}`}
+                      label="Prasyarat (id, pisahkan koma)"
+                      ariaLabel="Prasyarat"
+                      values={task.depends_on}
+                      placeholder="INT-005, INT-007"
+                      transform={(v) => v.toUpperCase()}
+                      onCommit={(depends_on) =>
+                        patch({ depends_on }, { reload: true })
+                      }
+                    />
+                    <CommaListField
+                      key={`labels-${task.id}-${task.labels.join(",")}`}
+                      label="Label (pisahkan koma)"
+                      ariaLabel="Label"
+                      values={task.labels}
+                      placeholder="backend, rag"
+                      onCommit={(labels) => patch({ labels })}
+                    />
+                  </div>
+                )}
               </section>
             </div>
           )}
@@ -444,11 +533,33 @@ export default function TaskDetail({
           {/* ------------------------------------------------- WORKFLOW */}
           {tab === "workflow" && (
             <div>
-              <p className="text-[12px] text-zinc-500">
-                Alur kerja task ini: siapa melakukan apa, dan apa hasilnya. Ikuti
-                urutannya dari atas ke bawah.
-              </p>
-              {workflow.length ? (
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[12px] text-zinc-500">
+                  Alur kerja task ini: siapa melakukan apa, dan apa hasilnya. Ikuti
+                  urutannya dari atas ke bawah.
+                </p>
+                {!readOnly && !editingWorkflow && (
+                  <button
+                    onClick={() => setEditingWorkflow(true)}
+                    className="shrink-0 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11.5px] font-medium text-zinc-600 hover:bg-zinc-50"
+                  >
+                    Ubah alur kerja
+                  </button>
+                )}
+              </div>
+              {editingWorkflow ? (
+                <div className="mt-3">
+                  <WorkflowEditor
+                    key={`wf-${task.id}-${task.updated_at}`}
+                    steps={workflow}
+                    busy={busy}
+                    onCancel={() => setEditingWorkflow(false)}
+                    onSave={async (steps) => {
+                      if (await patch({ workflow: steps })) setEditingWorkflow(false);
+                    }}
+                  />
+                </div>
+              ) : workflow.length ? (
                 <ol className="mt-3 space-y-2" data-testid="task-workflow">
                   {workflow.map((step) => (
                     <li
@@ -487,11 +598,34 @@ export default function TaskDetail({
           {/* ------------------------------------------------ WIREFRAME */}
           {tab === "wireframe" && (
             <div>
-              <p className="text-[12px] text-zinc-500">
-                Sketsa tampilan atau bentuk data yang harus dihasilkan task ini —
-                acuan visual, bukan desain final.
-              </p>
-              {task.wireframe ? (
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-[12px] text-zinc-500">
+                  Sketsa tampilan atau bentuk data yang harus dihasilkan task ini —
+                  acuan visual, bukan desain final.
+                </p>
+                {!readOnly && !editingWireframe && (
+                  <button
+                    onClick={() => setEditingWireframe(true)}
+                    className="shrink-0 rounded-lg border border-zinc-200 px-2.5 py-1 text-[11.5px] font-medium text-zinc-600 hover:bg-zinc-50"
+                  >
+                    Ubah wireframe
+                  </button>
+                )}
+              </div>
+              {editingWireframe ? (
+                <div className="mt-3">
+                  <WireframeEditor
+                    key={`wire-${task.id}-${task.updated_at}`}
+                    wireframe={task.wireframe}
+                    evidence={task.evidence}
+                    busy={busy}
+                    onCancel={() => setEditingWireframe(false)}
+                    onSave={async (value) => {
+                      if (await patch(value)) setEditingWireframe(false);
+                    }}
+                  />
+                </div>
+              ) : task.wireframe ? (
                 <pre
                   data-testid="task-wireframe"
                   className="mt-3 overflow-x-auto rounded-xl border border-zinc-200 bg-zinc-950 px-3.5 py-3 font-mono text-[11.5px] leading-[1.55] text-zinc-100"
@@ -503,7 +637,7 @@ export default function TaskDetail({
                   Belum ada wireframe untuk task ini.
                 </p>
               )}
-              {!!task.evidence.length && (
+              {!editingWireframe && !!task.evidence.length && (
                 <section className="mt-4 rounded-xl border border-zinc-200 p-3">
                   <h4 className="text-[12px] font-semibold text-zinc-700">
                     Berkas yang harus ada

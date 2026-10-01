@@ -140,7 +140,7 @@ sekaligus menjadi dasar nama branch git.
 | Papan | Contoh id | Isi | Siapa melihat apa |
 | --- | --- | --- | --- |
 | **Platform** | `ASK-003` | Rencana produk aplikasi Ask Anything itu sendiri. | admin: semua task; member: hanya yang ditugaskan |
-| **Internship** | `INT-014` | Proyek peserta: membangun chatbot AI agent production-ready dari nol. | admin: seluruh 36 task per fase; member: hanya task miliknya |
+| **Internship** | `INT-014` | Proyek peserta: membangun Internal AI Assistant & RAG Agent sesuai PRD. | admin: seluruh 33 task per fase; member: hanya task miliknya |
 
 ![Papan platform](images/42-admin-board-platform.png)
 
@@ -149,8 +149,9 @@ status, kartu memuat id task yang dipakai sebagai nama branch.*
 
 ![Papan internship](images/43-admin-board-internship.png)
 
-*Papan Internship: 36 task / 53.5 hari dengan breadcrumb fase (Fondasi → chat →
-agent & RAG → memori → token & feedback → rilis) di bawah judul papan.*
+*Papan Internship: 33 task / ±48 hari dengan breadcrumb fase (PRD & kerangka →
+chat & sesi → RAG, tool & router → guardrail → observability → performa & rilis)
+di bawah judul papan.*
 
 ---
 
@@ -219,27 +220,40 @@ Rincian struktur data `workflow` dan `wireframe` ada di
 
 ## 8. Menjalankan program internship
 
-Rencana internship membangun **prototipe chatbot LLM** (Python + Streamlit +
-SQLite) di `projects/ai-agent`: 29 task dalam 6 sprint, total estimasi 41 hari
-kerja. Fokusnya lapisan LLM — bukan infrastruktur — dan memetakan lima epic:
-konteks & memori, orkestrasi & tooling, guardrail, observability, performa.
+Rencana internship membangun **Internal AI Assistant & RAG Agent**: asisten
+yang menjawab dari dokumen perusahaan (PDF, DOCX, Markdown) dengan sitasi, punya
+ingatan percakapan, membuat visual interaktif (flowchart, GraphView, bar chart),
+dan mencatat token serta biayanya. Rencana mengikuti **PRD terbaru**
+([`docs/internship/01-template-prd.md`](internship/01-template-prd.md)) dan
+**design system beUI** ([`05-design-system.md`](internship/05-design-system.md)):
+Next.js + FastAPI (Clean Architecture), PostgreSQL + pgvector, SSE, tanpa emoji.
+33 task dalam 6 sprint, total estimasi ±48 hari kerja; repo kerja
+`ai-assistant-prototype`.
 
-Hanya task **Sprint 0** yang berada di kolom *To do*; sprint berikutnya menunggu
-di *Backlog* dan ditarik saat sprint sebelumnya ditutup. Gerbang Sprint 0: **PRD
-rampung dan disetujui** sebelum kode fitur ditulis.
+Sprint 0 (PRD A–C dan boilerplate monorepo, `INT-001…005`) **sudah selesai**
+(kolom *Done*); sprint berikutnya menunggu di *Backlog* dan ditarik saat sprint
+sebelumnya ditutup.
 
 | Sprint | Task | Fokus |
 | --- | --- | --- |
-| **i0** PRD & Kerangka | `INT-001…004` | PRD (persona, 10 user story, metrik berangka, 5 ADR) + kerangka Streamlit & mock provider. |
-| **i1** Chat, Sesi & Token | `INT-005…009` | Provider LLM + mock, UI streaming, CRUD sesi, hitung token (tiktoken), sliding window + ringkasan. |
-| **i2** RAG, Tool & Router | `INT-010…015` | Ingest + chunking, embedding numpy, jawaban bersitasi, function calling registry, router hemat biaya, memori jangka panjang. |
-| **i3** Guardrail | `INT-016…019` | Moderasi input (prompt injection), redaksi PII, validator output JSON + retry, system prompt terkelola. |
-| **i4** Observability | `INT-020…023` | Tracing span per tahap, dasbor token/biaya/TTFT, feedback 👍/👎 beralasan, set evaluasi 20 soal. |
-| **i5** Performa & Rilis | `INT-024…029` | Semantic cache, rate limit & kuota, fallback model, Docker + volume persisten, test, demo & runbook. |
+| **i0** PRD & Kerangka | `INT-001…005` | PRD (persona, 10 user story, metrik berangka, 5 ADR), kerangka awal, dan boilerplate monorepo Clean Architecture + beUI (selesai). |
+| **i1** Chat, Sesi & Token | `INT-006…010` | Protokol SSE + UI chat, autentikasi & peran, sesi di PostgreSQL, hitung token (8.192), sliding window + ringkasan. |
+| **i2** RAG, Tool & Router | `INT-011…018` | Ingestion PDF/DOCX/MD, pgvector (HNSW, ambang 0.7), jawaban bersitasi, kelola & filter dokumen, tool registry, router, GraphView, bar chart. |
+| **i3** Guardrail | `INT-019…022` | Guardrail input (injection, jailbreak), redaksi PII, validator output, uji red-team. |
+| **i4** Observability | `INT-023…026` | Tracing 7 tahap, biaya Rupiah & dasbor TTFT, feedback suka/tidak suka beralasan, set evaluasi 20 soal. |
+| **i5** Performa & Rilis | `INT-027…032` | Semantic cache, kuota 50 pesan / 100.000 token, fallback provider, deploy persisten, test menyeluruh, demo & metrik nyata vs target. |
 
 Rincian per task (prasyarat, hari, epic) ada di
 [`docs/internship/03-rencana-sprint.md`](internship/03-rencana-sprint.md) yang
 dihasilkan dari rencana lewat `python scripts/gen_internship_docs.py`.
+
+**Papan bisa disunting.** Admin dapat menambah task (**+ Task**), mengubah isinya
+(judul, deskripsi, kriteria, prasyarat, label, alur kerja, wireframe, berkas
+bukti), dan menghapusnya. Perubahan tersimpan permanen dan **tidak ditimpa** saat
+rencana diperbarui: task yang disunting ditandai *disunting*, task yang dihapus
+tidak muncul lagi (menu `...` -> **Pulihkan yang dihapus** mengembalikannya), dan
+task `done` dibekukan. **Reset rencana** adalah satu-satunya aksi yang membuang
+suntingan. Aturan lengkap: [TASK-MANAGEMENT.md](TASK-MANAGEMENT.md#4-seed-suntingan-dan-persistensi).
 
 Akun peserta dibuat otomatis dari env `ASK_INTERN_USERNAME` /
 `ASK_INTERN_EMAIL` / `ASK_INTERN_NAME`. Bila `ASK_INTERN_PASSWORD` kosong,

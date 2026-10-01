@@ -37,6 +37,15 @@ def _intern_board(client):
 # Rencana (data statis)
 # ---------------------------------------------------------------------------
 
+#: Task Sprint 0 lama yang dibekukan (selesai, isi tidak boleh berubah).
+FROZEN = ("INT-001", "INT-002", "INT-003", "INT-004")
+
+
+def _mutable_tasks():
+    """Task yang ditulis ulang mengikuti PRD terbaru (di luar yang dibekukan)."""
+    return [t for t in internship_plan.TASKS if t["id"] not in FROZEN]
+
+
 def test_intern_plan_is_well_formed():
     ids = [t["id"] for t in internship_plan.TASKS]
     assert len(ids) == len(set(ids))
@@ -47,7 +56,8 @@ def test_intern_plan_is_well_formed():
         assert task["phase"] in phase_ids, task
         assert task["status"] in STATUSES, task
         assert task["title"].strip()
-        assert task["acceptance"], f"{task['id']} tanpa kriteria selesai"
+        assert internship_plan.acceptance_text(task), (
+            f"{task['id']} tanpa kriteria selesai")
         assert task["evidence"], f"{task['id']} tanpa berkas bukti"
         assert task["assignee"] in internship_plan.INTERNS, task
         # Setiap task harus cukup detail untuk dikerjakan tanpa bertanya lagi.
@@ -58,61 +68,135 @@ def test_intern_plan_is_well_formed():
             assert step["action"].strip(), f"{task['id']} punya langkah kosong"
 
 
-def test_intern_plan_covers_the_five_llm_epics():
-    """Rencana harus memuat kelima epic LLM yang diminta pembimbing."""
+def test_intern_plan_covers_prd_epics_and_stack():
+    """Rencana harus memuat lima epic LLM + semua kemampuan PRD terbaru."""
     blob = " ".join(f"{t['title']} {t['description']} {t['source']}"
                     for t in internship_plan.TASKS).lower()
     for keyword in (
-        # Epic 0 — produk
+        # Epic 0 - produk
         "prd", "persona", "user story", "non-goal",
-        # Epic 1 — konteks & memori
+        # Epic 1 - konteks & memori
         "sesi", "token", "sliding window", "ringkas", "memori",
-        # Epic 2 — orkestrasi & tooling
+        # Epic 2 - orkestrasi & tooling
         "function calling", "json schema", "chunk", "embedding", "retrieval",
-        "sitasi", "router",
-        # Epic 3 — guardrail
+        "sitasi", "router", "pgvector", "docx", "graphview", "bar chart",
+        # Epic 3 - guardrail
         "prompt injection", "pii", "redaksi", "validator",
-        # Epic 4 — observability
-        "trace", "latensi", "biaya", "feedback", "evaluasi",
-        # Epic 5 — performa & rilis
+        # Epic 4 - observability
+        "trace", "ttft", "biaya", "feedback", "evaluasi",
+        # Epic 5 - performa & rilis
         "cache", "rate limit", "fallback", "docker", "volume", "demo",
+        # stack terkunci PRD bagian C + design system
+        "next.js", "fastapi", "postgresql", "clean architecture", "sse",
+        "beui", "lucide",
     ):
         assert keyword in blob, keyword
     phases = {t["phase"] for t in internship_plan.TASKS}
     assert phases == set(internship_plan.PHASE_IDS)
 
 
-def test_plan_stays_simple_python_prototype():
-    """Arsitektur sengaja sederhana: infra berat tidak pernah jadi pekerjaan.
+def _stories_mentioned(blob: str) -> set[int]:
+    """Nomor user story yang disebut, termasuk bentuk daftar 'US-01,02,03'."""
+    import re
 
-    Kata seperti "Kafka" boleh muncul di deskripsi sebagai penjelasan *apa yang
-    TIDAK dipakai*; yang diuji di sini adalah pekerjaan nyatanya — kriteria
-    selesai, berkas bukti, dan judul task.
+    found: set[int] = set()
+    for match in re.finditer(r"US-(\d{2})((?:\s*,\s*\d{2})*)", blob):
+        found.add(int(match.group(1)))
+        found.update(int(x) for x in re.findall(r"\d{2}", match.group(2)))
+    return found
+
+
+def test_every_prd_user_story_is_planned():
+    """US-01..US-10 tiap-tiapnya disebut oleh minimal satu task."""
+    blob = " ".join(
+        f"{t['title']} {t['description']} {t['wireframe']} "
+        f"{' '.join(internship_plan.acceptance_text(t))}"
+        for t in internship_plan.TASKS)
+    missing = set(range(1, 11)) - _stories_mentioned(blob)
+    assert not missing, f"user story belum direncanakan: {sorted(missing)}"
+
+
+def test_plan_follows_prd_stack_not_the_old_prototype():
+    """Arsitektur mengikuti PRD bagian C: tidak ada infra di luar ADR.
+
+    Kata terlarang boleh muncul di deskripsi sebagai penjelasan apa yang TIDAK
+    dipakai; yang diuji adalah pekerjaan nyatanya (judul, kriteria, bukti).
+    INT-001..004 dibekukan (Sprint 0 lama) dan dikecualikan.
     """
     blob = " ".join(
-        f"{t['title']} {' '.join(t['acceptance'])} {' '.join(t['evidence'])}"
-        for t in internship_plan.TASKS).lower()
-    for banned in ("postgresql", "milvus", "qdrant", "kafka", "rabbitmq",
-                   "kubernetes", "langsmith", "redis"):
-        assert banned not in blob, f"{banned} seharusnya di luar ruang lingkup"
-    # Prototipe = Python + Streamlit + SQLite.
+        f"{t['title']} {' '.join(internship_plan.acceptance_text(t))} "
+        f"{' '.join(t['evidence'])}" for t in _mutable_tasks()).lower()
+    for banned in ("streamlit", "sqlite", "milvus", "qdrant", "kafka",
+                   "rabbitmq", "kubernetes", "langsmith", "redis", "mongodb"):
+        assert banned not in blob, f"{banned} di luar ADR PRD bagian C"
     plan_blob = " ".join(f"{t['description']} {t['wireframe']}"
-                         for t in internship_plan.TASKS).lower()
-    for expected in ("streamlit", "sqlite", "numpy"):
+                         for t in _mutable_tasks()).lower()
+    for expected in ("next.js", "fastapi", "postgresql", "pgvector", "beui",
+                     "lucide", "alembic"):
         assert expected in plan_blob, expected
 
 
-def test_sprint_zero_is_the_only_open_column():
-    """Kolom To do hanya berisi Sprint 0 (PRD); sisanya menunggu di backlog."""
+def test_plan_has_no_emoji_per_design_system():
+    """Design system beUI: kebijakan nol emoji (ikon = lucide-react)."""
+    import re
+
+    emoji = re.compile("[\U0001F000-\U0001FAFF\u2600-\u27BF\u2B00-\u2BFF]")
+    for task in _mutable_tasks():
+        text = " ".join([
+            task["title"], task["description"], task["wireframe"],
+            " ".join(internship_plan.acceptance_text(task)),
+            " ".join(f"{w['actor']} {w['action']} {w['result']}"
+                     for w in task["workflow"])])
+        assert not emoji.search(text), f"{task['id']} memuat emoji"
+
+
+def test_prd_numbers_are_carried_into_the_plan():
+    """Angka kunci PRD bagian B/C muncul di task yang relevan."""
+    by_id = {t["id"]: t for t in internship_plan.TASKS}
+
+    def blob(task_id: str) -> str:
+        t = by_id[task_id]
+        return (f"{t['description']} {t['wireframe']} "
+                f"{' '.join(internship_plan.acceptance_text(t))}")
+
+    assert "8.192" in blob("INT-009") and "1.024" in blob("INT-009")
+    assert "2.000" in blob("INT-019")                              # panjang input
+    assert "0.7" in blob("INT-012") and "0.7" in blob("INT-021")   # ambang
+    assert "Rp5,76" in blob("INT-024") and "Rp29,03" in blob("INT-024")
+    assert "50 pesan" in blob("INT-028") and "100.000" in blob("INT-028")
+    assert "20 soal" in blob("INT-026")
+
+
+#: Task Sprint 2 yang sengaja ditarik lebih awal ke To do: pipeline RAG adalah
+#: pekerjaan terdekat (INT-033 = payung, INT-011..013 = potongannya).
+PULLED_FORWARD = ("INT-011", "INT-012", "INT-013", "INT-033")
+
+
+def test_sprint_zero_is_done_and_later_sprints_wait_in_backlog():
+    """Sprint 0 (PRD A-C + boilerplate) selesai; sprint lain menunggu di backlog,
+    kecuali task pipeline RAG yang ditarik lebih awal ke To do."""
     for task in internship_plan.TASKS:
         if task["phase"] == "i0":
+            assert task["status"] == "done", task["id"]
+            assert all(a["done"] for a in task["acceptance"]), task["id"]
+        elif task["id"] in PULLED_FORWARD:
             assert task["status"] == "todo", task["id"]
         else:
             assert task["status"] == "backlog", task["id"]
     sprint0 = internship_plan.by_phase("i0")
-    assert len(sprint0) >= 3
-    # Gerbang sprint 0 = PRD rampung.
+    assert [t["id"] for t in sprint0] == [
+        "INT-001", "INT-002", "INT-003", "INT-004", "INT-005"]
     assert sum(1 for t in sprint0 if "prd" in t["title"].lower()) >= 3
+
+
+def test_int_005_reflects_the_merged_boilerplate():
+    task = next(t for t in internship_plan.TASKS if t["id"] == "INT-005")
+    assert task["status"] == "done"
+    assert task["branch"] == "feat/INT-005-repo-boilerplate"
+    text = f"{task['title']} {task['description']}".lower()
+    for keyword in ("clean architecture", "fastapi", "next.js", "beui",
+                    "postgresql", "docker"):
+        assert keyword in text, keyword
 
 
 def test_every_task_carries_sprint_and_epic_label():
@@ -126,24 +210,23 @@ def test_every_task_carries_sprint_and_epic_label():
 def test_acceptance_criteria_are_measurable():
     """Kriteria selesai harus berangka, bukan kata sifat."""
     for task in internship_plan.TASKS:
-        assert len(task["acceptance"]) >= 4, task["id"]
-        assert any(any(ch.isdigit() for ch in item)
-                   for item in task["acceptance"]), (
+        items = internship_plan.acceptance_text(task)
+        assert len(items) >= 4, task["id"]
+        assert any(any(ch.isdigit() for ch in item) for item in items), (
             f"{task['id']} tidak punya kriteria berangka")
 
 
-def test_intern_plan_details_feedback_memory_and_quota_tasks():
+def test_plan_details_feedback_memory_and_quota_tasks():
     """Tiga pilar yang diminta harus punya task tersendiri yang detail."""
-    by_title = {t["id"]: f"{t['title']} {t['description']}".lower()
-                for t in internship_plan.TASKS}
-    joined = " ".join(by_title.values())
-    # feedback 👍/👎 dengan alasan terstruktur
-    assert "👍" in joined and "👎" in joined
-    assert "alasan" in joined
-    # manajemen memori: jangka menengah (ringkasan) & panjang (fakta pengguna)
-    assert "jangka panjang" in joined
-    # limit token per pengguna
-    assert "kuota" in joined and "token per hari" in joined
+    joined = " ".join(f"{t['title']} {t['description']}".lower()
+                      for t in internship_plan.TASKS)
+    # feedback suka / tidak suka dengan alasan terstruktur (ikon lucide, bukan emoji)
+    assert "tidak suka" in joined and "alasan" in joined
+    assert "thumbsup" in joined and "thumbsdown" in joined
+    # manajemen memori: ringkasan sesi + multi-turn
+    assert "multi-turn" in joined and "ringkasan" in joined
+    # kuota token per pengguna
+    assert "kuota" in joined and "100.000 token" in joined
 
 
 def test_every_sprint_has_at_least_three_tasks():
@@ -312,12 +395,12 @@ def test_refresh_plan_keeps_progress_when_revision_changes(client):
     db.execute("DELETE FROM admin_policy WHERE key=?",
                ("plan_revision:internship",))
 
-    tasks.update_task("INT-002", {"status": "in_progress",
+    tasks.update_task("INT-007", {"status": "in_progress",
                                   "assignee": "verisimb",
-                                  "branch": "feat/INT-002-prd-metrik"})
-    before = tasks.get_task("INT-002")
+                                  "branch": "feat/INT-007-autentikasi"})
+    before = tasks.get_task("INT-007")
     first_criterion = before["acceptance"][0]["text"]
-    tasks.update_task("INT-002", {"acceptance": [
+    tasks.update_task("INT-007", {"acceptance": [
         {"text": a["text"], "done": a["text"] == first_criterion}
         for a in before["acceptance"]]})
 
@@ -325,9 +408,9 @@ def test_refresh_plan_keeps_progress_when_revision_changes(client):
     assert report["changed"] is True
     assert report["restored"] >= 1
 
-    after = tasks.get_task("INT-002")
+    after = tasks.get_task("INT-007")
     assert after["status"] == "in_progress"
-    assert after["branch"] == "feat/INT-002-prd-metrik"
+    assert after["branch"] == "feat/INT-007-autentikasi"
     assert {a["text"] for a in after["acceptance"] if a["done"]} == {
         first_criterion}
     assert len(tasks.list_tasks(track="internship", seeded=True)) == len(

@@ -82,17 +82,43 @@ dan laporan sync menampilkan berapa task berubah + berapa branch/commit
 diperiksa. Bila folder kerja bukan repo git (mis. dijalankan dari zip), pesannya
 diberitahukan dan hanya pemeriksaan berkas `evidence` yang berjalan.
 
-## 4. Seed & reset
+## 4. Seed, suntingan, dan persistensi
+
+Task **bisa ditambah, disunting, dan dihapus** dari UI (admin), dan semuanya
+tersimpan permanen di database (`ASK_DATA_DIR`). Yang bisa disunting di panel
+detail: judul, deskripsi, prioritas, fase, estimasi, assignee, teks & centang
+kriteria selesai, prasyarat, label, **alur kerja** (tambah/hapus/urutkan
+langkah), **wireframe**, dan berkas bukti. Pembaruan rencana tidak pernah
+menimpa pekerjaan tangan:
+
+| Kondisi task | Saat boot / pembaruan rencana |
+|---|---|
+| Isi pernah disunting (`edited=1`) | dibiarkan apa adanya (kartu diberi penanda *disunting*) |
+| Sudah `done` | dibekukan |
+| Dihapus (task rencana) | **tidak** dibuat lagi — dicatat di `task_tombstones`; nomornya tidak dipakai ulang |
+| Belum disentuh | isi ditulis ulang dari rencana; status hanya **naik**, assignee/branch/MR/centang dibawa |
+| Task baru di rencana | dibuat |
+| Task buatan sendiri (`seeded=0`) | tidak disentuh |
+
+Yang dihitung *suntingan isi*: judul, deskripsi, fase, prioritas, estimasi,
+label, prasyarat, bukti, sumber, workflow, wireframe, dan **teks** kriteria.
+Pindah kolom, assignee, branch/MR, dan mencentang kriteria adalah *progres*
+(bukan suntingan).
 
 * Saat backend start dan tabel task masih kosong, `ASK_TASKS_AUTOSEED=1`
   (default) memuat seluruh rencana lalu menjalankan sync sekali agar papan
   langsung mencerminkan kondisi repo.
-* Tombol **Muat rencana RAG** (`POST /api/tasks/seed`) bersifat idempoten:
-  task yang id-nya sudah ada **tidak ditimpa**, jadi perubahan tangan developer
-  aman.
-* Tombol **Reset rencana** (`POST /api/tasks/seed?reset=true`) menghapus hanya
-  task hasil seed (`seeded=1`) lalu membuatnya ulang; task buatan sendiri
-  beserta komentarnya tetap ada.
+* **Muat rencana** (`POST /api/tasks/seed?track=...`) idempoten: task yang id-nya
+  sudah ada **tidak ditimpa** dan task rencana yang sengaja dihapus tidak
+  dihidupkan lagi.
+* **Pulihkan yang dihapus** (`POST /api/tasks/seed?restore_deleted=true&track=...`)
+  mencabut nisan penghapusan dan membuat ulang task rencana yang hilang; yang
+  sudah ada tidak diubah.
+* **Reset rencana** (`POST /api/tasks/seed?reset=true&track=...`) adalah satu-satunya
+  aksi yang membuang suntingan: menghapus task hasil seed (`seeded=1`) papan itu
+  lalu membuatnya ulang (juga memulihkan yang dihapus); task buatan sendiri
+  beserta komentarnya tetap ada. Aksi ini selalu menyasar **papan yang sedang
+  dibuka** (`track`).
 
 ## 5. HTTP API
 
@@ -109,10 +135,12 @@ tersedia lewat `GET /api/internship/overview` (otomatis menyesuaikan peran).
 
 Rencana internship dikunci versinya lewat `internship_plan.PLAN_REVISION`. Saat
 rencana ditulis ulang dan revisinya naik, `tasks.refresh_plan_if_stale()` (jalan
-otomatis saat backend start) menulis ulang task rencana di papan **tanpa
-membuang progres**: status, penanggung jawab, branch/MR, dan centang kriteria
-selesai dipindahkan ke task dengan id yang sama; task buatan tangan
-(`seeded=0`) tidak disentuh.
+otomatis saat backend start) menyelaraskan papan **per task** tanpa membuang
+pekerjaan tangan (aturan di tabel bagian 4): task yang belum disentuh ditulis
+ulang dengan progres terbawa, task baru dibuat, task rencana usang yang belum
+disentuh dibuang; task yang disunting, `done`, dihapus, atau buatan tangan
+dibiarkan. Id yang bentrok dengan task buatan tangan dilaporkan (`conflicts`),
+tidak ditimpa.
 
 ```text
 GET    /api/tasks?track=&status=&phase=&assignee=&priority=&label=&q=&seeded=
@@ -141,15 +169,17 @@ acceptance_done/total, blocked_by, ready`.
 | Berkas | Isi |
 |---|---|
 | `backend/app/tasks_plan.py` | Data rencana platform (6 fase, 54 task) + fase/status/prioritas yang dikenal |
-| `backend/app/internship_plan.py` | Data rencana **prototipe chatbot LLM** (6 sprint `i0`–`i5`, 29 task `INT-NNN`, ±41 hari kerja). Hanya Sprint 0 (PRD) berstatus `todo`; sisanya `backlog`. Tiap task memuat deskripsi, workflow, wireframe, kriteria berangka, label sprint + epic, dan `PLAN_REVISION` |
+| `backend/app/internship_plan.py` | Data rencana **Internal AI Assistant & RAG Agent** mengikuti PRD terbaru (Next.js + FastAPI + PostgreSQL/pgvector + beUI; 6 sprint `i0`–`i5`, 33 task `INT-NNN`, ±48 hari kerja). Sprint 0 (`INT-001…005`) berstatus `done`, sisanya `backlog`. Tiap task memuat deskripsi, workflow, wireframe, kriteria berangka, label sprint + epic, dan `PLAN_REVISION` |
 | `scripts/gen_internship_docs.py` | Menghasilkan `docs/internship/03-rencana-sprint.md` dari rencana di atas (`--check` memverifikasi dokumen tidak basi) |
 | `backend/app/tasks.py` | Logika: CRUD, kolom & posisi, checklist, komentar, statistik, seeder, `sync()` git, `branch_name()` |
 | `backend/app/api/tasks.py` | Router `/api/tasks/*` (Pydantic + guard `X-Admin-Token`) |
 | `backend/app/startup.py` | Catatan startup (dipakai juga oleh `/api/health` & `run.py`) |
 | `frontend/app/tasks/page.tsx` | Halaman `/tasks` |
-| `frontend/components/tasks/` | `TasksConsole`, `TaskBoard`, `TaskCard`, `TaskList`, `TaskDetail`, `TaskForm` |
+| `frontend/components/tasks/` | `TasksConsole`, `TaskBoard`, `TaskCard`, `TaskList`, `TaskDetail`, `TaskForm`, `TaskEditors` (editor workflow, wireframe, label, prasyarat) |
 | `frontend/lib/tasks.ts` | Tipe, pemanggilan API, helper filter/slug/branch |
 | `backend/tests/test_tasks_api.py` | 14 test API + aturan seed/sync |
+| `backend/tests/test_task_persistence.py` | Suntingan, penghapusan, nisan, dan pembaruan rencana tidak saling menimpa |
+| `backend/tests/test_internship_board.py` | Bentuk rencana internship, kepatuhan PRD/design system, halaman `/internship` |
 
 ## 7. Menambah task rencana baru
 
@@ -161,3 +191,7 @@ acceptance_done/total, blocked_by, ready`.
    fase valid, dan setiap task punya kriteria selesai).
 4. `POST /api/tasks/seed` pada instance yang sudah jalan akan menambahkan task
    baru tanpa menyentuh yang lama.
+5. Untuk rencana **internship**: ubah `internship_plan.py`, naikkan
+   `PLAN_REVISION`, lalu `python scripts/gen_internship_docs.py`. Task di papan
+   yang belum disunting ikut diperbarui saat backend start; yang disunting,
+   selesai, atau dihapus tetap seperti keputusan tim.

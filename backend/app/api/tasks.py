@@ -199,9 +199,16 @@ async def create_task(item: TaskIn) -> dict:
 
 @router.post("/seed", dependencies=[Depends(require_admin)])
 async def seed(reset: bool = Query(default=False),
-               track: str = Query(default="platform")) -> dict:
-    """Muat ulang rencana satu papan (idempoten kecuali `reset=true`)."""
-    report = tasks.seed_tasks(reset=reset, track=track)
+               track: str = Query(default="platform"),
+               restore_deleted: bool = Query(default=False)) -> dict:
+    """Muat ulang rencana satu papan.
+
+    Idempoten: task yang sudah ada tidak ditimpa dan task rencana yang sengaja
+    dihapus tidak dihidupkan lagi. `restore_deleted=true` memulihkan yang
+    dihapus; `reset=true` mengembalikan semua task rencana ke kondisi awal.
+    """
+    report = tasks.seed_tasks(reset=reset, track=track,
+                              restore_deleted=restore_deleted)
     return {**report, "stats": tasks.stats(report.get("track") or track)}
 
 

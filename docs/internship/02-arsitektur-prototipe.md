@@ -1,105 +1,157 @@
 # Arsitektur prototipe (sudah dikunci)
 
-Tujuan magang ini adalah **kualitas lapisan LLM**, bukan kerumitan
-infrastruktur. Karena itu stack di bawah sudah ditetapkan — tidak perlu
-dibandingkan ulang, tidak perlu ditambah tanpa ADR yang disetujui.
+Ringkasan operasional dari **PRD bagian C** ([01-template-prd.md](01-template-prd.md))
+dan **design system** ([05-design-system.md](05-design-system.md)). Bila ada
+selisih, PRD dan design system yang menang — dokumen ini hanya merapikannya
+menjadi daftar kerja. Stack sudah ditetapkan: tidak dibandingkan ulang dan
+tidak ditambah tanpa ADR yang disetujui pembimbing.
+
+Repo kerja: **`ai-assistant-prototype`** (monorepo terpisah dari `ask-anything`).
+`ask-anything` hanya boleh dibaca sebagai contoh pola, bukan disalin.
 
 ## 1. Stack
 
 | Lapisan | Pilihan | Catatan |
 |---|---|---|
-| Bahasa | Python 3.11 | satu bahasa untuk seluruh proyek |
-| UI | **Streamlit** | prototipe tampilan, `streamlit run app.py` |
-| Database | **SQLite** (`sqlite3` stdlib) | satu berkas `data/agent.db` |
-| Vektor | `numpy` + cosine similarity, disimpan `data/index.npy` | bukan vector DB |
-| Embedding | `sentence-transformers/all-MiniLM-L6-v2` | fallback TF-IDF bila model gagal dimuat |
+| Arsitektur | **Monorepo decoupled + Clean Architecture** | ADR-01; 4 layer di backend dan frontend |
+| Backend | **FastAPI** (Python, async) | Pydantic v2, SQLAlchemy 2 async, Alembic |
+| Frontend | **Next.js 14+** (App Router, TypeScript, Tailwind) | controller/presenter di luar komponen UI |
+| Database | **PostgreSQL on-premise** | ADR-02; satu-satunya database |
+| Vektor | **pgvector + indeks HNSW** (`vector_cosine_ops`) | ADR-03; `vector(384)` |
+| Embedding | `sentence-transformers/all-MiniLM-L6-v2` | lokal, vektor dinormalisasi; stub deterministik untuk test |
+| Parser dokumen | PyMuPDF (PDF), python-docx (DOCX), markdown-it-py (MD) | maks 10 MB per berkas |
 | Token | `tiktoken` (`cl100k_base`) | fallback perkiraan `len/4` |
-| LLM | endpoint OpenAI-compatible + **mock provider** | mock wajib jalan tanpa API key |
-| Validasi | `pydantic` | skema output terstruktur |
-| Test | `pytest` (+ `pytest-cov`) | satu perintah, tanpa API key |
-| Kemasan | Docker + named volume | seluruh state di `/app/data` |
+| LLM | `ILLMProvider`: OpenAI-compatible, vLLM, HuggingFace + **Mock Provider** | ADR-05; mock wajib jalan tanpa API key |
+| Streaming | **SSE** `/api/v1/chat/stream` | event bertipe, lihat INT-006 |
+| Tracing | Tabel `traces` sendiri | ADR-04; tanpa SaaS eksternal |
+| UI | **beUI** (registri `@beui` via shadcn) | `npx shadcn add @beui/<slug>` |
+| Ikon | **`lucide-react`** saja | tanpa emoji |
+| Motion | `motion/react` + token fisika beUI | hormati `prefers-reduced-motion` |
+| Tema | **Light mode default** | token warna HSL/oklch di `globals.css` |
+| Test | `pytest` + `pytest-asyncio`, `vitest`, Playwright | tanpa API key |
+| Kemasan | Docker Compose (3 service) / Dockerfile tunggal (Coolify) | state di named volume |
 
 ### Yang sengaja TIDAK dipakai
 
-PostgreSQL, Redis, Milvus/Qdrant/FAISS server, Kafka/RabbitMQ, Kubernetes,
-LangChain/LlamaIndex, LangSmith/Datadog/Phoenix, React/Next.js.
+Vector database terpisah (Chroma/Qdrant/Milvus/FAISS server), Redis,
+Kafka/RabbitMQ, Kubernetes, LangChain/LlamaIndex, LangSmith/Datadog/Phoenix,
+Streamlit, SQLite sebagai database aplikasi, pustaka ikon selain lucide-react.
 
-Alasan: semuanya memindahkan waktu magang dari "membuat LLM berperilaku benar"
-ke "mengurus infrastruktur". Kalau nanti produk ini naik ke produksi nyata,
-ADR di PRD bagian C sudah mencatat kapan keputusan ini perlu ditinjau ulang.
+### Non-goals (PRD A.4)
 
-## 2. Struktur folder
+Tanpa suara, tanpa multi-tenant, tanpa fine-tuning, tanpa aplikasi mobile
+native, **tanpa eksekusi shell/OS bebas** (tool agent dibatasi pada retrieval
+dan perenderan komponen visual terdaftar), tanpa kolaborasi edit dokumen
+real-time.
 
-```
-projects/ai-agent/
-  app.py                 UI Streamlit: chat, riwayat, pengetahuan, dasbor, trace
-  eval.py                penjalan set evaluasi (INT-023)
-  evalset.yaml           20 soal uji
-  requirements.txt
-  Dockerfile
-  docker-compose.yml
-  core/
-    config.py            baca env (AGENT_*)
-    db.py                koneksi + skema SQLite
-    providers.py         LLMProvider: OpenAI-compatible + mock
-    llm.py               pemanggilan + fallback model + retry
-    session.py           CRUD sesi & pesan
-    tokens.py            hitung token (tiktoken + fallback)
-    context.py           anggaran token, sliding window, ringkasan
-    memory.py            memori jangka panjang (fakta & preferensi)
-    ingest.py            loader dokumen + chunking
-    embed.py             embedding + index.npy
-    rag.py               pencarian top-k + ambang skor
-    prompts.py           template prompt + aturan sitasi
-    tools.py             registry function calling
-    agent.py             loop panggil-tool (maks 3 iterasi)
-    router.py            klasifikasi rute (langsung | dokumen | tool)
-    guardrail.py         moderasi input
-    pii.py               redaksi data pribadi
-    structured.py        parse JSON + retry berpesan error
-    schemas.py           model pydantic
-    tracing.py           span + tabel traces
-    analytics.py         agregasi token, biaya, latensi
-    feedback.py          👍/👎 + alasan
-    cache.py             semantic cache
-    quota.py             rate limit & kuota harian
-    settings_store.py    system prompt & parameter generasi
-  tests/
-  data/                  (diabaikan git; di Docker = volume /app/data)
-    agent.db  index.npy  docs/
-```
-
-## 3. Alur satu jawaban
+## 2. Struktur folder (PRD C.3)
 
 ```
-pertanyaan
-  1  guardrail input      tolak injection / PII mentah / terlalu panjang
-  2  router               langsung? butuh dokumen? butuh tool?
-  3  cache lookup         cosine >= 0.92 & umur < 24 jam -> jawab, selesai
-  4  retrieval / tool     top-k chunk (ambang 0.35) atau panggilan tool
-  5  penyusun konteks     system + memori + ringkasan + konteks + riwayat <= 8k
-  6  LLM                  streaming; gagal -> model cadangan -> mock
-  7  validator output     JSON valid? sitasi ada di konteks?
-  8  simpan               pesan, token, biaya, span trace
-  9  UI                   jawaban + sitasi + 👍/👎 + trace_id
+ai-assistant-prototype/
+  backend/
+    app/
+      domain/            entities (Document, Chunk, Message, Session, Trace, Cost), errors
+      application/       use_cases/ (chat_stream, ingest_doc, retrieve_rag,
+                         generate_visual, route_intent, build_context, ...),
+                         interfaces/ (ILLMProvider, repositories, TokenCounter),
+                         guardrails/, validators/, services/ (quota, cost)
+      infrastructure/    db/ (session, models, repositories/), parsers/,
+                         embeddings/, llm/ (factory, provider_chain, adapters),
+                         tracing/, cache/, tokenizer/
+      presentation/      api/v1/ (endpoints, router), schemas/, middlewares/
+      config.py  main.py
+    alembic/  tests/  Dockerfile  requirements.txt
+  frontend/
+    src/
+      entities/          Message, Document, Citation, Visual
+      application/       use_cases/, contracts/
+      interface-adapters/ controllers/ (chat, session, document), presenters/
+      infrastructure/    sseChatClient, HTTP API
+      components/        agents/* (beUI), motion/*, ui/*
+      lib/               ease.ts (token gerak beUI), hooks/
+    app/                 layout.tsx, page.tsx (chat), documents/, admin/, login/
+    components/          ChatContainer, GraphView, ChartRenderer,
+                         DocumentUploader, CitationBadge
+  docs/  scripts/  docker-compose.yml  Dockerfile  run.py  .env.example
 ```
 
-## 4. Variabel lingkungan
+Aturan lapisan: dependensi hanya mengarah ke dalam (presentation ->
+application -> domain). Komponen UI **hanya presentasi**; pemanggilan endpoint
+dan penanganan stream SSE ada di `src/infrastructure/` dan diorkestrasi oleh
+`src/interface-adapters/controllers/`.
 
-| Env | Default | Arti |
+## 3. Alur satu jawaban (7 tahap, PRD C.1)
+
+```
+Tahap 1  Next.js (controller)   input + filter dokumen, buka stream SSE ke /api/v1/chat/stream
+Tahap 2  Input guardrail        panjang 1-2.000 karakter, auth sesi, kuota harian,
+                                prompt injection / jailbreak, redaksi PII
+Tahap 3  Router                 grounded_qa | visual (flowchart, bar chart, GraphView) | general
+Tahap 4  Retrieval / tool       embed query -> pgvector HNSW -> top-k, similarity >= 0.7
+Tahap 5  Orkestrasi LLM         system prompt grounded + riwayat (maks 8.192) + chunk;
+                                ILLMProvider streaming, jawaban maks 1.024 token
+Tahap 6  Validasi output        sitasi valid, ambang 0.7 (fallback "tidak ditemukan"),
+                                skema JSON payload visual
+Tahap 7  Trace + biaya + SSE    traces, token_usage_logs, feedback; ChatPresenter merender
+```
+
+## 4. Tabel utama (PostgreSQL)
+
+| Tabel | Isi | Task |
 |---|---|---|
-| `AGENT_PROVIDER` | `mock` | `mock` atau `openai` |
-| `AGENT_BASE_URL` | — | endpoint OpenAI-compatible |
-| `AGENT_API_KEY` | — | kunci API (jangan pernah di-commit) |
-| `AGENT_MODELS` | `mock` | daftar model berurut: utama, cadangan, `mock` |
-| `AGENT_DB_PATH` | `data/agent.db` | di Docker: `/app/data/agent.db` |
-| `AGENT_INDEX_PATH` | `data/index.npy` | di Docker: `/app/data/index.npy` |
-| `AGENT_DOCS_DIR` | `data/docs` | di Docker: `/app/data/docs` |
+| `users` | akun + peran (`employee`, `power_user`, `admin`) | INT-007 |
+| `chat_sessions`, `chat_messages` | percakapan, ringkasan, token per pesan | INT-008, INT-010 |
+| `token_usage_logs` | prompt/completion token, biaya Rupiah per pemanggilan | INT-009, INT-024 |
+| `documents`, `document_chunks` | dokumen, status, chunk + `embedding vector(384)` | INT-011, INT-012 |
+| `guardrail_rules`, `guardrail_events` | aturan yang bisa disunting admin, kejadian blokir | INT-019 |
+| `traces` | span bertingkat per request | INT-023 |
+| `feedback` | suka/tidak suka + alasan + `trace_id` | INT-025 |
+| `cache` | semantic cache pertanyaan berulang | INT-027 |
 
-## 5. Aturan persistensi
+## 5. Anggaran & angka kunci (PRD bagian B)
 
-Semua yang harus selamat dari redeploy berada di bawah **satu** folder
-(`/app/data` di container, `data/` di lokal): database, indeks vektor, dokumen
-mentah, dan model embedding yang terunduh. Tidak ada state yang ditulis ke
-dalam layer image. Ini diuji di **INT-027**: build ulang image, deploy ulang,
-percakapan dan dokumen lama harus tetap ada.
+| Parameter | Nilai |
+|---|---|
+| Context window | 8.192 token (system + chunk + riwayat) |
+| Maks token jawaban | 1.024 |
+| Kuota harian per pengguna | 50 pesan **atau** 100.000 token |
+| Ambang similarity retrieval | >= 0.7 |
+| Tarif acuan (gpt-4o-mini, kurs Rp16.000) | Rp2,4 / 1k token masuk; Rp9,6 / 1k token keluar |
+| Target | tergrounding >= 80%, p95 TTFT <= 3 s (mock) / 6 s (nyata), suka >= 70%, biaya <= Rp500 per percakapan, cache hit >= 20% |
+
+## 6. Variabel lingkungan (inti)
+
+Lengkapnya di `.env.example` repo prototipe.
+
+| Env | Contoh | Arti |
+|---|---|---|
+| `APP_ENV` | `development` | `development` / `staging` / `production` |
+| `DATABASE_URL` | `postgresql+asyncpg://...` | kosong di Docker (compose merakitnya dari `POSTGRES_PASSWORD`) |
+| `DB_POOL_SIZE`, `DB_MAX_OVERFLOW`, `DB_POOL_TIMEOUT` | `10`, `20`, `30` | pool koneksi |
+| `LLM_PROVIDER` / `LLM_PROVIDERS` | `mock` / `openai,vllm,mock` | provider tunggal / rantai fallback (INT-029) |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_MODEL` | - | provider OpenAI-compatible (jangan pernah di-commit) |
+| `VLLM_BASE_URL`, `VLLM_MODEL` | - | vLLM on-premise |
+| `HUGGINGFACE_MODEL_ID`, `HUGGINGFACE_DEVICE` | - | inferensi lokal |
+| `PRICE_INPUT_PER_1K_IDR`, `PRICE_OUTPUT_PER_1K_IDR` | `2.4`, `9.6` | tarif untuk kalkulator biaya (INT-024) |
+| `QUOTA_DAILY_MESSAGES`, `QUOTA_DAILY_TOKENS`, `QUOTA_BURST_PER_MIN` | `50`, `100000`, `10` | kuota (INT-028) |
+| `BACKEND_URL` | `http://backend:8000` | target proxy Next.js untuk `/api/v1/*` |
+
+## 7. Aturan persistensi
+
+Semua yang harus selamat dari redeploy berada di **volume Docker**:
+`pgdata` (PostgreSQL termasuk vektor, sesi, trace, feedback), `uploads` (berkas
+dokumen mentah), dan `hf_cache` (model embedding). Tidak ada state yang ditulis
+ke layer image. Diuji di **INT-030**: `docker compose up -d --build` ulang,
+percakapan, dokumen, dan vektor lama harus tetap ada (jangan memakai
+`docker compose down -v`).
+
+## 8. Aturan UI (ringkas dari design system)
+
+1. Komponen baru dari beUI: `npx shadcn add @beui/<slug>` — jangan membuat
+   komponen kustom bila beUI sudah menyediakannya.
+2. Ikon hanya `lucide-react`; **tanpa emoji** di kode, teks UI, dan copywriting.
+3. Warna lewat token CSS (`--primary`, `--muted`, `--destructive`, ...) — jangan
+   menulis warna heksa langsung di komponen.
+4. Light mode default; dark mode lewat kelas `.dark` tanpa mengganti nama utilitas.
+5. Elemen interaktif punya ring fokus (`focus-visible:ring-2 focus-visible:ring-ring`),
+   status agen memakai `role="status"` / `aria-live="polite"`.
